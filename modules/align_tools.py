@@ -1,5 +1,5 @@
 import bpy
-import numpy as np  # <--- ADAUGĂ ASTA LA ÎNCEPUT
+import numpy as np  
 from mathutils import Vector
 from .utils import get_bounds_data, apply_align_move
 

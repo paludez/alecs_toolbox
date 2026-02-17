@@ -44,7 +44,7 @@ class ALEC_OT_bbox_local(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
-        bbox_tools.create_bbox(context.active_object, mode='LOCAL')
+        bbox_tools.create_bbox(context, mode='LOCAL') 
         return {'FINISHED'}
 
 
@@ -55,7 +55,8 @@ class ALEC_OT_bbox_world(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
-        bbox_tools.create_bbox(context.active_object, mode='WORLD')
+        # TRIMITE context, NU context.active_object
+        bbox_tools.create_bbox(context, mode='WORLD') 
         return {'FINISHED'}
 
 
