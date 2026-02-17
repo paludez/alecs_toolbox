@@ -1,8 +1,7 @@
 import bpy
 from mathutils import Vector
-from .utils import get_bounds_data # <--- Importă noua funcție
+from .utils import get_bounds_data
 
-#
 def group_objects(context):
     objects = context.selected_objects
     if not objects:

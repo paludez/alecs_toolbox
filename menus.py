@@ -71,7 +71,9 @@ class ALEC_MT_menu_misc(bpy.types.Menu):
 
     def draw(self, context):
         layout = self.layout
-        layout.operator("alec.bbox_dialog", icon='MESH_CUBE')
+        layout.operator("alec.bbox_local", text="BBox Local", icon='MESH_CUBE')
+        layout.operator("alec.bbox_world", text="BBox World", icon='WORLD')
+        layout.operator("alec.bboxoff_dialog", text="BBox Offset", icon='MOD_OFFSET')
         layout.operator("alec.group", icon='MESH_PLANE')
         layout.operator("alec.group_active", icon='MOD_SUBSURF')
         layout.operator("alec.ungroup", icon='MOD_EXPLODE')

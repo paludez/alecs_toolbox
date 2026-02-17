@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 id = "Alecs_Toolbox"
 name = "Alecs toolbox"
-version = "0.0.1"
+version = "0.0.2"
 tagline = "UI and Functionality"
 maintainer = "Alexandru Pop"
 type = "add-on"

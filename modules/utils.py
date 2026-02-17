@@ -29,7 +29,7 @@ def get_bounds_data(obj, point_type='CENTER', space='LOCAL'):
 
     else:
         # --- LOGICA PIXEL-PERFECT (WORLD) ---
-        # Metoda NumPy (0.45s) pe care am testat-o pe 8 mil vertecși
+        
         depsgraph = bpy.context.evaluated_depsgraph_get()
         obj_eval = obj.evaluated_get(depsgraph)
         mesh_eval = obj_eval.to_mesh()

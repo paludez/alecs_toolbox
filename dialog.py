@@ -83,47 +83,35 @@ class ALEC_OT_align_dialog(bpy.types.Operator):
                 x=self.scale_x, y=self.scale_y, z=self.scale_z)
         return {'FINISHED'}
 
-class ALEC_OT_bbox_dialog(bpy.types.Operator):
-    bl_idname = "alec.bbox_dialog"
-    bl_label = "BBox"
-    bl_description = "Create bounding box"
+class ALEC_OT_bboxoff_dialog(bpy.types.Operator):
+    bl_idname = "alec.bboxoff_dialog"
+    bl_label = "BBox Offset Settings"
+    bl_description = "Create bounding box with custom offset"
     bl_options = {'REGISTER', 'UNDO'}
 
-    mode: bpy.props.EnumProperty( # type: ignore
-        name="Mode",
-        items=[
-            ('LOCAL', "LOCAL", ""),
-            ('WORLD', "WORLD", ""),
-        ],
-        default='LOCAL')
-
-    make_offset: bpy.props.BoolProperty(name="BBoxOF", default=False) # type: ignore
-
-    offset: bpy.props.FloatProperty( # type: ignore
-        name="Offset",
+    # Păstrăm doar proprietatea de offset
+    offset: bpy.props.FloatProperty(
+        name="Offset Amount",
         default=0.5,
         min=0.0,
         soft_max=10.0)
 
     def draw(self, context):
         layout = self.layout
-        row = layout.row(align=True)
-        row.prop(self, "mode", expand=True)
-        row = layout.row(align=True)
-        row.prop(self, "make_offset", toggle=True)
-        row.prop(self, "offset", text="Offset")
+        # Afișăm doar slider-ul pentru offset
+        layout.prop(self, "offset")
 
     def execute(self, context):
         from .modules import bbox_tools
-        if self.make_offset:
-            bbox_tools.create_offset_bbox(context.active_object, offset=self.offset)
-        else:
-            bbox_tools.create_bbox(context, mode=self.mode)
+        # Executăm direct funcția de offset din bbox_tools
+        bbox_tools.create_offset_bbox(context.active_object, offset=self.offset)
         return {'FINISHED'}
+
+
 
 classes = [
     ALEC_OT_align_dialog,
-    ALEC_OT_bbox_dialog,
+    ALEC_OT_bboxoff_dialog,
 ]
 
 def register():

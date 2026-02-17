@@ -17,10 +17,7 @@ def setup_bbox_visibility(bbox, color=(0.0, 1.0, 0.2, 1.0)):
     """Configurează aspectul de tip 'Green Ghost' pentru BBox."""
     # Afișare tip Wire
     bbox.display_type = 'WIRE'
-    
-    # Culoare obiect (Vizibilă dacă Shading -> Color e setat pe 'Object')
     bbox.color = color
-    
     # Setări Randare
     bbox.hide_render = True
     bbox.visible_camera = False
@@ -37,12 +34,12 @@ def move_to_collection(obj, target_collection):
 def create_bbox(context, mode='LOCAL'):
     selected_count = len(context.selected_objects)
     active = context.active_object
-
     if not active:
         return None
 
-    # Logica de măsurare prin duplicat temporar
+    # Masurare prin duplicat temporar
     bpy.ops.object.duplicate()
+    temp_obj = context.active_object
     bpy.ops.object.convert(target='MESH')
 
     if selected_count > 1:
@@ -53,67 +50,74 @@ def create_bbox(context, mode='LOCAL'):
         bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
 
     bpy.ops.object.origin_set(type='ORIGIN_GEOMETRY', center='BOUNDS')
-    dims = context.active_object.dimensions.copy()
-    center = context.active_object.location.copy()
     
-    # Ștergem duplicatul temporar
-    bpy.data.objects.remove(context.active_object, do_unlink=True)
+    # Luam dimensiunile si locatia globala inainte sa-l stergem
+    dims = temp_obj.dimensions.copy()
+    center_world = temp_obj.matrix_world.translation.copy()
+    
+    bpy.data.objects.remove(temp_obj, do_unlink=True)
 
-    # Creăm BBox-ul final
+    # Cream cubul de BBox
     bpy.ops.mesh.primitive_cube_add(size=1)
     bbox = context.active_object
-    
-    # Denumire cerută: nume_bbox
     bbox.name = f"{active.name}_bbox"
     
-    bbox.dimensions = dims
-    bbox.location = center
-    
     if mode == 'LOCAL':
-        bbox.rotation_euler = active.rotation_euler.copy()
+        # Lipim BBox-ul de matricea obiectului (rezolva rotatia si pozitia parentata)
+        bbox.matrix_world = active.matrix_world.copy()
+        bbox.dimensions = dims
+    else:
+        # Pentru WORLD, doar il mutam la centru, fara rotatie
+        bbox.location = center_world
+        bbox.dimensions = dims
 
-    bpy.ops.object.origin_set(type='ORIGIN_GEOMETRY', center='BOUNDS')
     bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
 
-    # Organizare și Aspect
+    # Organizare si Aspect
     helpers_coll = get_or_create_collection(context)
     move_to_collection(bbox, helpers_coll)
     setup_bbox_visibility(bbox)
 
-    if selected_count == 1:
+    # Parenting cu Keep Transform (doar pentru LOCAL)
+    if selected_count == 1 and mode == 'LOCAL':
         bbox.parent = active
         bbox.matrix_parent_inverse = active.matrix_world.inverted()
 
-    # Revenire la selecția originală
+    # Revenire la selectia originala
     bpy.ops.object.select_all(action='DESELECT')
     active.select_set(True)
     context.view_layer.objects.active = active
     return bbox
 
 def create_offset_bbox(bbox, offset=0.1):
+    if not bbox:
+        return None
+
     bpy.ops.object.select_all(action='DESELECT')
     bbox.select_set(True)
     bpy.context.view_layer.objects.active = bbox
-    bpy.ops.object.duplicate()
     
+    bpy.ops.object.duplicate()
     offset_bbox = bpy.context.active_object
     
-    # Denumire cerută: nume_bbox_of (fără dublări)
+    # Nume curat
     base_name = bbox.name.replace("_bbox", "")
     offset_bbox.name = f"{base_name}_bbox_of"
     
+    # Umflam dimensiunile
     offset_bbox.dimensions = bbox.dimensions + Vector((offset * 2, offset * 2, offset * 2))
     
-    bpy.ops.object.origin_set(type='ORIGIN_GEOMETRY', center='BOUNDS')
+    # Aplicam scala ca sa ramana 1,1,1
     bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
 
-    # Organizare și Aspect (Verde pentru ambele)
+    # Organizare
     helpers_coll = get_or_create_collection(bpy.context)
     move_to_collection(offset_bbox, helpers_coll)
     setup_bbox_visibility(offset_bbox)
 
-    offset_bbox.parent = bbox.parent
-    offset_bbox.matrix_parent_inverse = bbox.matrix_parent_inverse.copy()
+    # Copiem parenting-ul de la sursa
+    if bbox.parent:
+        offset_bbox.parent = bbox.parent
+        offset_bbox.matrix_parent_inverse = bbox.matrix_parent_inverse.copy()
     
-    bpy.ops.object.select_all(action='DESELECT')
     return offset_bbox
