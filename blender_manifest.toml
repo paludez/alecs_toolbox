@@ -1,0 +1,11 @@
+schema_version = "1.0.0"
+id = "Alecs_Toolbox"
+name = "Alecs toolbox"
+version = "0.0.1"
+tagline = "UI and Functionality"
+maintainer = "Alexandru Pop"
+type = "add-on"
+website = "https://pankart.ro"
+tags = ["Functionality", "System"]
+blender_version_min = "5.0.1"
+license = ["SPDX:GPL-3.0-or-later"]

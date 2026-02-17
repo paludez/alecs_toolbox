@@ -1,0 +1,56 @@
+from mathutils import Vector
+import bpy
+
+def create_bbox(context, mode='LOCAL'):
+    selected_count = len(context.selected_objects)
+    active = context.active_object
+
+    bpy.ops.object.duplicate()
+    bpy.ops.object.convert(target='MESH')
+
+    if selected_count > 1:
+        bpy.ops.object.transform_apply(location=True, rotation=False, scale=True)
+        bpy.ops.object.join()
+
+    if mode == 'WORLD':
+        bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+
+    bpy.ops.object.origin_set(type='ORIGIN_GEOMETRY', center='BOUNDS')
+    dims = context.active_object.dimensions.copy()
+    center = context.active_object.location.copy()
+    bpy.data.objects.remove(context.active_object, do_unlink=True)
+
+    bpy.ops.mesh.primitive_cube_add(size=1)
+    bbox = context.active_object
+    bbox.name = f"BBox_{active.name}_{mode}"
+    bbox.dimensions = dims
+    bbox.location = center
+    if mode == 'LOCAL':
+        bbox.rotation_euler = active.rotation_euler.copy()
+
+    bpy.ops.object.origin_set(type='ORIGIN_GEOMETRY', center='BOUNDS')
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    bbox.hide_render = True
+    if selected_count == 1:
+        bbox.parent = active
+        bbox.matrix_parent_inverse = active.matrix_world.inverted()
+
+    bpy.ops.object.select_all(action='DESELECT')
+    active.select_set(True)
+    context.view_layer.objects.active = active
+    return bbox
+
+def create_offset_bbox(bbox, offset=0.1):
+    bpy.ops.object.select_all(action='DESELECT')
+    bbox.select_set(True)
+    bpy.context.view_layer.objects.active = bbox
+    bpy.ops.object.duplicate()
+    offset_bbox = bpy.context.active_object
+    offset_bbox.name = f"{bbox.name}_OFFSET"
+    offset_bbox.dimensions = bbox.dimensions + Vector((offset * 2, offset * 2, offset * 2))
+    bpy.ops.object.origin_set(type='ORIGIN_GEOMETRY', center='BOUNDS')
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    offset_bbox.parent = bbox.parent
+    offset_bbox.matrix_parent_inverse = bbox.matrix_parent_inverse.copy()
+    bpy.ops.object.select_all(action='DESELECT')
+    return offset_bbox
