@@ -51,55 +51,52 @@ def create_bbox(context, mode='LOCAL'):
 
     bpy.ops.object.origin_set(type='ORIGIN_GEOMETRY', center='BOUNDS')
     
-    # Luam dimensiunile si locatia globala inainte sa-l stergem
     dims = temp_obj.dimensions.copy()
     center_world = temp_obj.matrix_world.translation.copy()
     
     bpy.data.objects.remove(temp_obj, do_unlink=True)
 
-    # Cream cubul de BBox
-    bpy.ops.mesh.primitive_cube_add(size=1)
-    bbox = context.active_object
-    bbox.name = f"{active.name}_bbox"
-    
-# Cream cubul de BBox
+    # --- AICI ERA PROBLEMA (am lasat doar o instanta) ---
     bpy.ops.mesh.primitive_cube_add(size=1)
     bbox = context.active_object
     bbox.name = f"{active.name}_bbox"
     
     if mode == 'LOCAL':
-        # Daca e un singur obiect, ne lipim de el complet
         if selected_count == 1:
             bbox.matrix_world = active.matrix_world.copy()
             bbox.dimensions = dims
         else:
-            # Daca sunt mai multe, luam DOAR rotatia de la activ
-            # Dar pastram locatia centrului grupului (center_world)
             bbox.rotation_euler = active.matrix_world.to_euler()
             bbox.location = center_world
             bbox.dimensions = dims
     else:
-        # Pentru WORLD
         bbox.location = center_world
         bbox.dimensions = dims
 
     bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
 
-    # Organizare si Aspect
     helpers_coll = get_or_create_collection(context)
     move_to_collection(bbox, helpers_coll)
     setup_bbox_visibility(bbox)
 
-    # Parenting cu Keep Transform (doar pentru LOCAL)
-    if selected_count == 1 and mode == 'LOCAL':
+    # Parenting (Keep Transform)
+    if selected_count == 1:
         bbox.parent = active
         bbox.matrix_parent_inverse = active.matrix_world.inverted()
 
-    # Revenire la selectia originala
     bpy.ops.object.select_all(action='DESELECT')
     active.select_set(True)
     context.view_layer.objects.active = active
     return bbox
+
+def set_shading_to_object(context):
+    """Schimba Wireframe Color Type pe OBJECT daca e nevoie."""
+    for area in context.screen.areas:
+        if area.type == 'VIEW_3D':
+            for space in area.spaces:
+                if space.type == 'VIEW_3D':
+                    if space.shading.wireframe_color_type != 'OBJECT':
+                        space.shading.wireframe_color_type = 'OBJECT'
 
 def create_offset_bbox(bbox, offset=0.1):
     if not bbox:
