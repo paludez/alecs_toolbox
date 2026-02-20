@@ -4,8 +4,6 @@ from .modules import align_tools
 from .modules import cursor_tools
 from .modules import misc_tools
 
-
-
 class ALEC_OT_group_active(bpy.types.Operator):
     bl_idname = "alec.group_active"
     bl_label = "Group Active"

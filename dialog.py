@@ -94,7 +94,7 @@ class ALEC_OT_bboxoff_dialog(bpy.types.Operator):
         name="Offset Amount",
         default=0.5,
         min=0.0,
-        soft_max=10.0)
+        soft_max=10.0) #type: ignore
 
     def draw(self, context):
         layout = self.layout
