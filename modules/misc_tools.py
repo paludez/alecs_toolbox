@@ -50,7 +50,7 @@ def group_active(context):
                     Vector((max(v.x for v in corners), max(v.y for v in corners), max(v.z for v in corners)))) / 2
     center_world = active.matrix_world @ center_local
 
-# creaza empty
+    # creaza empty
     bpy.ops.object.empty_add(type='ARROWS', location=center_world)
     empty = context.active_object
     empty.name = f"Group_{active.name}"
@@ -94,3 +94,11 @@ def ungroup_objects(context):
         
         # Ștergem Empty-ul grupului
         bpy.data.objects.remove(empty, do_unlink=True)
+
+def manage_grouping(context, action):
+    if action == 'GROUP':
+        group_objects(context)
+    elif action == 'GROUP_ACTIVE':
+        group_active(context)
+    elif action == 'UNGROUP':
+        ungroup_objects(context)

@@ -84,7 +84,7 @@ class ALEC_MT_quad_menu(bpy.types.Menu):
         b5 = col_down.box()
         
         b5.prop(context.space_data.overlay, "show_wireframes", text="Wireframe", toggle=True)
-        b5.operator("alec.group", text="Group Selection", icon='OUTLINER_COLLECTION')
+
 
         # --- 4. SUS (BBox Tools) ---
         col_up = pie.column()
@@ -137,11 +137,22 @@ class ALEC_MT_menu_misc(bpy.types.Menu):
         layout.operator("alec.bbox_world", text="BBox World", icon='WORLD')
         layout.operator("alec.bboxoff_dialog", text="BBox Offset", icon='MOD_OFFSET')
         layout.separator()
-        layout.operator("alec.group", icon='MESH_PLANE')
-        layout.operator("alec.ungroup", icon='MOD_EXPLODE')
+        
+        op = layout.operator("alec.group_manager", text="Group", icon='MESH_PLANE')
+        op.action = 'GROUP'
+        op = layout.operator("alec.group_manager", text="Group Active", icon='EMPTY_AXIS')
+        op.action = 'GROUP_ACTIVE'
+        op = layout.operator("alec.group_manager", text="Ungroup", icon='MOD_EXPLODE')
+        op.action = 'UNGROUP'
 
-class ALEC_MT_menu_main(bpy.types.Menu):
-    bl_label = "Alec's Toolbox"
+class ALEC_MT_edit_menu(bpy.types.Menu):
+    bl_label = "Edit Menu"
+    def draw(self, context):
+        layout = self.layout
+        layout.operator("alec.set_edge_length", text="Set Edge Length")
+
+class ALEC_MT_object_menu(bpy.types.Menu):
+    bl_label = "Object Menu"
     def draw(self, context):
         layout = self.layout
         layout.menu("ALEC_MT_menu_align", icon='LIGHTPROBE_VOLUME')
@@ -150,7 +161,8 @@ class ALEC_MT_menu_main(bpy.types.Menu):
 classes = [
     ALEC_MT_menu_align,
     ALEC_MT_menu_misc,
-    ALEC_MT_menu_main,
+    ALEC_MT_object_menu,
+    ALEC_MT_edit_menu,
     ALEC_MT_quad_menu,
 ]
 
@@ -162,8 +174,7 @@ def register():
     if wm.keyconfigs.addon:
         km = wm.keyconfigs.addon.keymaps.new(name='3D View', space_type='VIEW_3D')
         
-        kmi_main = km.keymap_items.new('wm.call_menu', 'Q', 'PRESS', alt=True)
-        kmi_main.properties.name = "ALEC_MT_menu_main"
+        kmi_main = km.keymap_items.new('alec.menu_dispatcher', 'Q', 'PRESS', alt=True)
         addon_keymaps.append((km, kmi_main))
 
         kmi_quad = km.keymap_items.new('wm.call_menu_pie', 'RIGHTMOUSE', 'PRESS', alt=True)

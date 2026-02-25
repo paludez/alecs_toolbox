@@ -7,10 +7,10 @@ class ALEC_OT_material_linker(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     # Indexul slotului selectat în lista din Stânga (Sursa)
-    source_index: bpy.props.IntProperty(name="Source Index", default=0)
+    source_index: bpy.props.IntProperty(name="Source Index", default=0) #type: ignore
     
     # Indexul slotului selectat în lista din Dreapta (Ținta)
-    target_index: bpy.props.IntProperty(name="Target Index", default=0)
+    target_index: bpy.props.IntProperty(name="Target Index", default=0) #type: ignore
     
     # Ce operațiune facem?
     operation: bpy.props.EnumProperty(
@@ -21,7 +21,7 @@ class ALEC_OT_material_linker(bpy.types.Operator):
             ('SWAP', "<-- Swap -->", "Swap materials between the two slots")
         ],
         default='COPY'
-    )
+    ) #type: ignore
 
     @classmethod
     def poll(cls, context):
