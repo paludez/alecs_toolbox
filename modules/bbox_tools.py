@@ -43,7 +43,7 @@ def create_bbox(context, mode='LOCAL'):
     all_coords_local = []
     all_coords_world = []
 
-    # Colectăm vertecșii tuturor obiectelor selectate
+    # Collect vertices
     for obj in selected_meshes:
         obj_eval = obj.evaluated_get(depsgraph)
         mesh = obj_eval.to_mesh()
@@ -52,7 +52,7 @@ def create_bbox(context, mode='LOCAL'):
         for v in mesh.vertices:
             world_co = mat @ v.co
             all_coords_world.append(world_co)
-            # Transformăm coordonatele în spațiul local al obiectului activ
+            # To local space
             all_coords_local.append(inv_matrix @ world_co)
             
         obj_eval.to_mesh_clear()
@@ -99,6 +99,7 @@ def create_bbox(context, mode='LOCAL'):
     context.view_layer.objects.active = active
     
     return bbox
+
 def create_offset_bbox(obj, offset=0.1):
     if not obj or obj.type != 'MESH': return None
 
@@ -107,6 +108,10 @@ def create_offset_bbox(obj, offset=0.1):
     bpy.context.view_layer.objects.active = obj
     bpy.ops.object.duplicate()
     new_obj = bpy.context.active_object
+
+    # Ensure we don't modify the original mesh if duplicate was linked
+    if new_obj.data.users > 1:
+        new_obj.data = new_obj.data.copy()
     
     bm = bmesh.new()
     bm.from_mesh(new_obj.data)
@@ -117,7 +122,7 @@ def create_offset_bbox(obj, offset=0.1):
     
     new_obj.name = f"{obj.name}_offset"
     
-    # Setăm vizibilitatea pe Wire și culoarea pe Albastru
+    # Set display properties
     setup_bbox_visibility(new_obj, color=(0.0, 0.5, 1.0, 1.0))
     set_shading_to_object(bpy.context)
     

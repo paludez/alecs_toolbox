@@ -1,12 +1,11 @@
 import bpy
-import numpy as np  
 from mathutils import Vector
 from .utils import get_bounds_data, apply_align_move
 
 def align_position(source, target, x=True, y=True, z=True, 
                    source_point='PIVOT', target_point='PIVOT'):
     
-    # Folosim space='LOCAL' pentru a ignora "umflarea" BBox-ului la rotație
+    # Use space='LOCAL' to ignore BBox inflation during rotation
     source_world = get_bounds_data(source, source_point, space='LOCAL')
     target_world = get_bounds_data(target, target_point, space='LOCAL')
     
@@ -29,9 +28,7 @@ def align_orientation(source, target, x=True, y=True, z=True):
     if z:
         src_euler.z = tgt_euler.z
     
-    source.rotation_euler = src_euler
-    
-    
+    source.rotation_euler = src_euler 
     
 def match_scale(source, target, x=True, y=True, z=True):
     if x:

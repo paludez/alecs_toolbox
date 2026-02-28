@@ -83,13 +83,14 @@ class ALEC_OT_align_dialog(bpy.types.Operator):
                 x=self.scale_x, y=self.scale_y, z=self.scale_z)
         return {'FINISHED'}
 
+
 class ALEC_OT_bboxoff_dialog(bpy.types.Operator):
     bl_idname = "alec.bboxoff_dialog"
     bl_label = "BBox Offset Settings"
     bl_description = "Create bounding box with custom offset"
     bl_options = {'REGISTER', 'UNDO'}
 
-    # Păstrăm doar proprietatea de offset
+    # Offset property
     offset: bpy.props.FloatProperty(
         name="Offset Amount",
         default=0.5,
@@ -98,15 +99,12 @@ class ALEC_OT_bboxoff_dialog(bpy.types.Operator):
 
     def draw(self, context):
         layout = self.layout
-        # Afișăm doar slider-ul pentru offset
         layout.prop(self, "offset")
 
     def execute(self, context):
         from .modules import bbox_tools
-        # Executăm direct funcția de offset din bbox_tools
         bbox_tools.create_offset_bbox(context.active_object, offset=self.offset)
         return {'FINISHED'}
-
 
 
 classes = [

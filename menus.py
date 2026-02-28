@@ -11,10 +11,8 @@ class ALEC_MT_quad_menu(bpy.types.Menu):
         pie = layout.menu_pie()
         ts = context.tool_settings
 
-        # --- 1. STÂNGA (Pivot & Origins - COMPACT) ---
+        # --- 1. LEFT (Pivot & Origins - COMPACT) ---
         col_left = pie.column()
-        
-
         
         # Cursor
         b2 = col_left.box()
@@ -36,13 +34,12 @@ class ALEC_MT_quad_menu(bpy.types.Menu):
         r4.operator("object.origin_set", text="Origin to Cursor POS", icon='ORIENTATION_CURSOR').type = 'ORIGIN_CURSOR'
         r4.operator("alec.origin_to_cursor", text="Origin to Cursor POS&ROT", icon='ORIENTATION_GIMBAL')
 
-        # --- 2. DREAPTA (Orientation & Snap) ---
+        # --- 2. RIGHT (Orientation & Snap) ---
         col_right = pie.column()
 
         # Pivot
         b_pivot = col_right.box()
         b_pivot.label(text="Pivot Point", icon='PIVOT_MEDIAN')
-        ts = context.scene.tool_settings
         grid = b_pivot.grid_flow(columns=3, align=True, even_columns=True)
         grid.prop_enum(ts, "transform_pivot_point", value='BOUNDING_BOX_CENTER', text="BBox")
         grid.prop_enum(ts, "transform_pivot_point", value='CURSOR', text="Cursor")
@@ -79,14 +76,17 @@ class ALEC_MT_quad_menu(bpy.types.Menu):
         r6.prop_enum(ts, "snap_target", value='MEDIAN')
         r6.prop_enum(ts, "snap_target", value='ACTIVE')
 
-        #--- 3. JOS (Grouping) ---
+        #--- 3. DOWN (Grouping) ---
         col_down = pie.column()
         b5 = col_down.box()
-        
-        b5.prop(context.space_data.overlay, "show_wireframes", text="Wireframe", toggle=True)
+        b5.label(text="Grouping", icon='GROUP')
+        col_grp = b5.column(align=True)
+        col_grp.operator("alec.group_manager", text="Group", icon='MESH_PLANE').action = 'GROUP'
+        col_grp.operator("alec.group_manager", text="Group Active", icon='EMPTY_AXIS').action = 'GROUP_ACTIVE'
+        col_grp.operator("alec.group_manager", text="Ungroup", icon='MOD_EXPLODE').action = 'UNGROUP'
 
 
-        # --- 4. SUS (BBox Tools) ---
+        # --- 4. UP (BBox Tools) ---
         col_up = pie.column()
         b6 = col_up.box()
         b6.prop(context.space_data.overlay, "show_wireframes", text="Wireframe", toggle=True)
@@ -96,8 +96,6 @@ class ALEC_MT_quad_menu(bpy.types.Menu):
         if space and space.type == 'VIEW_3D':
             b_giz = col_up.box()
             r = b_giz.row(align=True)
-            
-            # Folosim iconițele corecte: 'TRANSFORM_MOVE' și 'TRANSFORM_ROTATE'
             r.prop(space, "show_gizmo_object_translate", text="Move")
             r.prop(space, "show_gizmo_object_rotate", text="Rotate")
 
@@ -115,8 +113,6 @@ class ALEC_MT_menu_align(bpy.types.Menu):
         layout.operator("object.origin_set", text="Origin->BBox Center", icon='EMPTY_DATA').type = 'ORIGIN_GEOMETRY'
         layout.operator("object.origin_set", text="Origin to Cursor POS", icon='ORIENTATION_CURSOR').type = 'ORIGIN_CURSOR'
         layout.operator("alec.origin_to_cursor", text="Origin to Cursor POS&ROT", icon='ORIENTATION_GIMBAL')
-
-
 
 class ALEC_MT_menu_pivot(bpy.types.Menu):
     bl_label = "Pivot Point"
@@ -144,12 +140,29 @@ class ALEC_MT_menu_misc(bpy.types.Menu):
         op.action = 'GROUP_ACTIVE'
         op = layout.operator("alec.group_manager", text="Ungroup", icon='MOD_EXPLODE')
         op.action = 'UNGROUP'
+        layout.separator()
+        layout.operator("alec.material_linker", text="Material Linker", icon='MATERIAL')
 
 class ALEC_MT_edit_menu(bpy.types.Menu):
     bl_label = "Edit Menu"
     def draw(self, context):
         layout = self.layout
         layout.operator("alec.set_edge_length", text="Set Edge Length")
+        
+        layout.separator()
+        op = layout.operator("alec.make_collinear", text="Collinear (Farthest)")
+        op.mode = 'FARTHEST'
+        op = layout.operator("alec.make_collinear", text="Collinear (History)")
+        op.mode = 'HISTORY'
+        
+        layout.separator()
+        op = layout.operator("alec.make_coplanar", text="Coplanar (Best Fit)")
+        op.mode = 'BEST_FIT'
+        op = layout.operator("alec.make_coplanar", text="Coplanar (History)")
+        op.mode = 'HISTORY'
+
+        layout.separator()
+        layout.operator("alec.distribute_vertices", text="Distribute Vertices")
 
 class ALEC_MT_object_menu(bpy.types.Menu):
     bl_label = "Object Menu"

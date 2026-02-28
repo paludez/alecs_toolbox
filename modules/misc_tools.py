@@ -44,22 +44,22 @@ def group_active(context):
     if not active:
         return
 
-    # centrul bounds al activului in world space
+    # Calculate world space bounds center
     corners = [Vector(c) for c in active.bound_box]
     center_local = (Vector((min(v.x for v in corners), min(v.y for v in corners), min(v.z for v in corners))) +
                     Vector((max(v.x for v in corners), max(v.y for v in corners), max(v.z for v in corners)))) / 2
     center_world = active.matrix_world @ center_local
 
-    # creaza empty
+    # Create Empty
     bpy.ops.object.empty_add(type='ARROWS', location=center_world)
     empty = context.active_object
     empty.name = f"Group_{active.name}"
     empty.rotation_euler = active.rotation_euler.copy()
     
-    # forteaza update matrix_world inainte de parenting
+    # Update matrix_world
     context.view_layer.update()
 
-    # parenteaza toate obiectele selectate la empty
+    # Parent selected to Empty
     for obj in selected:
         obj.parent = empty
         obj.matrix_parent_inverse = empty.matrix_world.inverted()
@@ -75,24 +75,24 @@ def ungroup_objects(context):
 
     parents_to_delete = set()
 
-    # Căutăm Empty-ul părinte pentru fiecare obiect selectat
+    # Find parent Empties
     for obj in selected:
         if obj.parent and obj.parent.type == 'EMPTY':
             parents_to_delete.add(obj.parent)
         elif obj.type == 'EMPTY':
-            # În caz că ai selectat direct Empty-ul
+            # Handle direct Empty selection
             parents_to_delete.add(obj)
 
-    # Procesăm fiecare grup găsit
+    # Process groups
     for empty in parents_to_delete:
         children = empty.children
         for child in children:
-            # Salvăm matricea globală pentru a nu sări obiectul din loc
+            # Preserve global transform
             matrix_copy = child.matrix_world.copy()
             child.parent = None
             child.matrix_world = matrix_copy
         
-        # Ștergem Empty-ul grupului
+        # Remove Empty
         bpy.data.objects.remove(empty, do_unlink=True)
 
 def manage_grouping(context, action):
