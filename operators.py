@@ -5,28 +5,39 @@ from .modules import align_tools
 from .modules import cursor_tools
 from .modules import misc_tools
 
-class ALEC_OT_group_manager(bpy.types.Operator):
-    bl_idname = "alec.group_manager"
-    bl_label = "Group Manager"
-    bl_description = "Manage object grouping operations"
+class ALEC_OT_group(bpy.types.Operator):
+    """Group selected objects under a new Empty at the world origin"""
+    bl_idname = "alec.group"
+    bl_label = "Group"
     bl_options = {'REGISTER', 'UNDO'}
 
-    action: bpy.props.EnumProperty(
-        items=[
-            ('GROUP', "Group", "Group selected objects under a common Empty"),
-            ('GROUP_ACTIVE', "Group Active", "Group selected objects under an Empty at the active object's bounding box center"),
-            ('UNGROUP', "Ungroup", "Ungroup selected Empty and release all children")
-        ],
-        default='GROUP'
-    ) # type: ignore
-
     def execute(self, context):
-        misc_tools.manage_grouping(context, self.action)
+        misc_tools.manage_grouping(context, 'GROUP')
         return {'FINISHED'}
 
 
+class ALEC_OT_group_active(bpy.types.Operator):
+    """Group selected objects under a new Empty at the active object's center"""
+    bl_idname = "alec.group_active"
+    bl_label = "Group Active"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        misc_tools.manage_grouping(context, 'GROUP_ACTIVE')
+        return {'FINISHED'}
+
+
+class ALEC_OT_ungroup(bpy.types.Operator):
+    """Ungroup the selected Empty, releasing all children"""
+    bl_idname = "alec.ungroup"
+    bl_label = "Ungroup"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        misc_tools.manage_grouping(context, 'UNGROUP')
+        return {'FINISHED'}
+
 class BBoxOperatorBase:
-    """Base class for Bounding Box operators to reduce code duplication."""
     bl_options = {'REGISTER', 'UNDO'}
     mode: str = ""
 
@@ -41,88 +52,59 @@ class BBoxOperatorBase:
 
 
 class ALEC_OT_bbox_local(BBoxOperatorBase, bpy.types.Operator):
-    """Create a bounding box aligned to object's local axes"""
+    """Create a bounding box aligned to the object's local axes"""
     bl_idname = "alec.bbox_local"
     bl_label = "LOCAL"
     mode = 'LOCAL'
 
 
 class ALEC_OT_bbox_world(BBoxOperatorBase, bpy.types.Operator):
-    """Create a bounding box aligned to object's world axes"""
+    """Create a bounding box aligned to the world axes"""
     bl_idname = "alec.bbox_world"
     bl_label = "WORLD"
     mode = 'WORLD'
 
 
-class ALEC_OT_bbox_offset(bpy.types.Operator):
-    bl_idname = "alec.bbox_offset"
-    bl_label = "BBoxOF"
-    bl_description = "Create a bounding box with an offset from the original object"
+class QuickAlignBase:
     bl_options = {'REGISTER', 'UNDO'}
+    source_point: str = ""
+    target_point: str = ""
 
     def execute(self, context):
-        bbox_tools.create_offset_bbox(context.active_object, offset=context.scene.alec_bbox_offset)
-        return {'FINISHED'}
-
-
-class ALEC_OT_align(bpy.types.Operator):
-    bl_idname = "alec.align"
-    bl_label = "Apply"
-    bl_description = "Align selected objects to active object"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    def execute(self, context):
-        sc = context.scene
         target = context.active_object
         sources = [o for o in context.selected_objects if o != target]
+
+        if not self.source_point or not self.target_point:
+            self.report({'ERROR'}, "Alignment points not set in QuickAlign operator subclass") # type: ignore
+            return {'CANCELLED'}
+
         for source in sources:
-            align_tools.align_position(source, target,
-                x=sc.alec_align_x, y=sc.alec_align_y, z=sc.alec_align_z,
-                source_point=sc.alec_align_source_point,
-                target_point=sc.alec_align_target_point)
-            align_tools.align_orientation(source, target,
-                x=sc.alec_orient_x, y=sc.alec_orient_y, z=sc.alec_orient_z)
-            align_tools.match_scale(source, target,
-                x=sc.alec_scale_x, y=sc.alec_scale_y, z=sc.alec_scale_z)
+            align_tools.align_position(source, target, x=True, y=True, z=True,
+                source_point=self.source_point, target_point=self.target_point)
+            align_tools.align_orientation(source, target, x=True, y=True, z=True)
         return {'FINISHED'}
 
 
-class ALEC_OT_quick_center(bpy.types.Operator):
+class ALEC_OT_quick_center(QuickAlignBase, bpy.types.Operator):
+    """Align selected objects to active object's bounding box center"""
     bl_idname = "alec.quick_center"
     bl_label = "Quick Center"
-    bl_description = "Align selected objects to active object's bounding box center"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    def execute(self, context):
-        target = context.active_object
-        sources = [o for o in context.selected_objects if o != target]
-        for source in sources:
-            align_tools.align_position(source, target, x=True, y=True, z=True,
-                source_point='CENTER', target_point='CENTER')
-            align_tools.align_orientation(source, target, x=True, y=True, z=True)
-        return {'FINISHED'}
+    source_point = 'CENTER'
+    target_point = 'CENTER'
 
 
-class ALEC_OT_quick_pivot(bpy.types.Operator):
+class ALEC_OT_quick_pivot(QuickAlignBase, bpy.types.Operator):
+    """Align selected objects to active object's pivot point"""
     bl_idname = "alec.quick_pivot"
     bl_label = "Quick Pivot"
-    bl_description = "Align selected objects to active object's pivot point"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    def execute(self, context):
-        target = context.active_object
-        sources = [o for o in context.selected_objects if o != target]
-        for source in sources:
-            align_tools.align_position(source, target, x=True, y=True, z=True,
-                source_point='PIVOT', target_point='PIVOT')
-            align_tools.align_orientation(source, target, x=True, y=True, z=True)
-        return {'FINISHED'}
+    source_point = 'PIVOT'
+    target_point = 'PIVOT'
 
 
 class ALEC_OT_cursor_to_selected(bpy.types.Operator):
+    """Move&Rotate 3D cursor to selected object's origin"""
     bl_idname = "alec.cursor_to_selected"
     bl_label = "Cursor to Selected"
-    bl_description = "Move&Rotate 3D cursor to selected object's origin"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
@@ -131,9 +113,9 @@ class ALEC_OT_cursor_to_selected(bpy.types.Operator):
 
 
 class ALEC_OT_cursor_to_geometry_center(bpy.types.Operator):
+    """Move&Rotate 3D cursor to selected object's BBox center"""
     bl_idname = "alec.cursor_to_geometry_center"
     bl_label = "Cursor to Geometry Center"
-    bl_description = "Move&Rotate 3D cursor to selected object's BBox center"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
@@ -142,9 +124,9 @@ class ALEC_OT_cursor_to_geometry_center(bpy.types.Operator):
 
 
 class ALEC_OT_origin_to_cursor(bpy.types.Operator):
+    """Move object origin to 3D cursor position and orientation"""
     bl_idname = "alec.origin_to_cursor"
     bl_label = "Origin to Cursor"
-    bl_description = "Move object origin to 3D cursor position and orientation"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
@@ -152,16 +134,77 @@ class ALEC_OT_origin_to_cursor(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class ALEC_OT_origin_to_active(bpy.types.Operator):
+    """Set the origin of selected objects to the active object's origin"""
+    bl_idname = "alec.origin_to_active"
+    bl_label = "Origin to Active"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        # Requires an active object and at least one other selected object
+        return context.active_object and len(context.selected_objects) > 1
+
+    def execute(self, context):
+        active_obj = context.active_object
+        
+        saved_cursor_matrix = context.scene.cursor.matrix.copy()
+        context.scene.cursor.location = active_obj.matrix_world.translation
+        active_obj.select_set(False)
+        bpy.ops.object.origin_set(type='ORIGIN_CURSOR')
+        active_obj.select_set(True)
+        
+        context.scene.cursor.matrix = saved_cursor_matrix
+        return {'FINISHED'}
+
+class ALEC_OT_origin_to_bottom(bpy.types.Operator):
+    """Move object origin to the bottom center of its bounding box"""
+    bl_idname = "alec.origin_to_bottom"
+    bl_label = "Origin to Bottom"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        saved_cursor = context.scene.cursor.matrix.copy()
+        selected = context.selected_objects
+        active = context.active_object
+        
+        for obj in selected:
+            if obj.type == 'MESH':
+                bpy.ops.object.select_all(action='DESELECT')
+                obj.select_set(True)
+                context.view_layer.objects.active = obj
+                
+                bbox = bbox_tools.create_bbox(context, mode='WORLD')
+                if bbox:
+                    context.scene.cursor.location = (bbox.location.x, bbox.location.y, bbox.location.z - bbox.dimensions.z/2)
+                    
+                    bpy.ops.object.select_all(action='DESELECT')
+                    bbox.select_set(True)
+                    context.view_layer.objects.active = bbox
+                    bpy.ops.object.origin_set(type='ORIGIN_CURSOR')
+                    obj.select_set(True)
+                    bpy.ops.alec.origin_to_active()
+                    bpy.data.objects.remove(bbox, do_unlink=True)
+        
+        context.scene.cursor.matrix = saved_cursor
+        bpy.ops.object.select_all(action='DESELECT')
+        for obj in selected:
+            obj.select_set(True)
+        context.view_layer.objects.active = active
+        
+        return {'FINISHED'}
+
+
 class ALEC_OT_menu_dispatcher(bpy.types.Operator):
+    """Shows a different menu based on the context (Object/Edit mode)"""
     bl_idname = "alec.menu_dispatcher"
     bl_label = "Menu Dispatcher"
-    bl_description = "Shows a different menu based on the context (Object/Edit mode)"
 
     def execute(self, context):
         if context.mode == 'EDIT_MESH':
-            bpy.ops.wm.call_menu(name='ALEC_MT_edit_menu')
+            bpy.ops.wm.call_menu_pie(name='ALEC_MT_edit_menu')
         else:
-            bpy.ops.wm.call_menu(name='ALEC_MT_object_menu')
+            bpy.ops.wm.call_menu_pie(name='ALEC_MT_object_menu')
         return {'FINISHED'}
 
 
@@ -196,7 +239,6 @@ class ALEC_OT_set_edge_length(bpy.types.Operator):
                 context.mode == 'EDIT_MESH')
 
     def _get_active_edge(self, bm):
-        """Helper to get the target edge from selection history or selection."""
         active_edge = bm.select_history.active
         if isinstance(active_edge, bmesh.types.BMEdge):
             return active_edge
@@ -206,9 +248,6 @@ class ALEC_OT_set_edge_length(bpy.types.Operator):
             return selected_edges[-1]
             
         return None
-
-    def invoke(self, context, event):
-        return context.window_manager.invoke_props_dialog(self)
 
     def execute(self, context):
         obj = context.active_object
@@ -220,27 +259,25 @@ class ALEC_OT_set_edge_length(bpy.types.Operator):
             self.report({'WARNING'}, "No edge selected")
             return {'CANCELLED'}
 
-        # Get object's transformation matrices to work in world space
         world_mx = obj.matrix_world
         inv_world_mx = world_mx.inverted()
 
         v1, v2 = active_edge.verts
 
-        # Calculate the length on the first run, overriding the dialog's default.
-        # This is the logic that correctly handles the operator's initialization.
         if not self._initialized:
-            # Calculate initial length in world space to ignore object scale
             world_v1_co = world_mx @ v1.co
             world_v2_co = world_mx @ v2.co
             self.length = (world_v2_co - world_v1_co).length
             self._initialized = True
 
-        # --- All calculations from here are in world space ---
-
-        # Get current world-space coordinates and direction
         world_v1_co = world_mx @ v1.co
         world_v2_co = world_mx @ v2.co
-        world_direction = (world_v2_co - world_v1_co).normalized()
+        direction_vector = world_v2_co - world_v1_co
+        if direction_vector.length_squared < 1e-9:
+            self.report({'WARNING'}, "Edge has zero length, cannot determine direction.")
+            return {'CANCELLED'}
+        
+        world_direction = direction_vector.normalized()
 
         active_vert = bm.select_history.active
         if not isinstance(active_vert, bmesh.types.BMVert) or active_vert not in active_edge.verts:
@@ -264,10 +301,9 @@ class ALEC_OT_set_edge_length(bpy.types.Operator):
 
 
 class ALEC_OT_make_collinear(bpy.types.Operator):
-    """Make selected vertices collinear"""
+    """Makes selected vertices collinear"""
     bl_idname = "alec.make_collinear"
     bl_label = "Make Collinear"
-    bl_description = "Aligns selected vertices to a line"
     bl_options = {'REGISTER', 'UNDO'}
 
     mode: bpy.props.EnumProperty(
@@ -300,7 +336,6 @@ class ALEC_OT_make_collinear(bpy.types.Operator):
         me = obj.data
         bm = bmesh.from_edit_mesh(me)
 
-        # Get all vertices that are part of the selection, regardless of mode (vert/edge/face)
         selected_verts = [v for v in bm.verts if v.select]
 
         v_start = None
@@ -310,7 +345,6 @@ class ALEC_OT_make_collinear(bpy.types.Operator):
             if len(selected_verts) < 2:
                 self.report({'WARNING'}, "Select at least 2 vertices")
                 return {'CANCELLED'}
-            # --- Farthest Points Logic ---
             max_dist_sq = -1.0
             for i in range(len(selected_verts)):
                 for j in range(i + 1, len(selected_verts)):
@@ -322,7 +356,6 @@ class ALEC_OT_make_collinear(bpy.types.Operator):
                         v_start = v_i
                         v_end = v_j
         elif self.mode == 'HISTORY':
-            # --- Last Two Selected Logic ---
             history = [elem for elem in bm.select_history if isinstance(elem, bmesh.types.BMVert)]
             if len(history) < 2:
                 self.report({'WARNING'}, "For 'Last Two Selected' mode, select at least 2 vertices in order")
@@ -334,7 +367,6 @@ class ALEC_OT_make_collinear(bpy.types.Operator):
             self.report({'WARNING'}, "Could not determine line endpoints")
             return {'CANCELLED'}
 
-        # Get object's transformation to work in world space
         world_mx = obj.matrix_world
         inv_world_mx = world_mx.inverted()
 
@@ -344,19 +376,15 @@ class ALEC_OT_make_collinear(bpy.types.Operator):
         line_origin = world_start_co
         line_vector = world_end_co - line_origin
         
-        # Check for a zero-length line to avoid division by zero
         if line_vector.length_squared < 1e-9:
             self.report({'WARNING'}, "First and last selected vertices are at the same position")
             return {'CANCELLED'}
             
         line_direction = line_vector.normalized()
 
-        # Process all selected vertices
         for v in selected_verts:
-            # Project the vertex's world position onto the line and convert back to local
             projected_world_co = line_origin + (world_mx @ v.co - line_origin).dot(line_direction) * line_direction
             target_local_co = inv_world_mx @ projected_world_co
-            # Interpolate between original (current v.co) and target, then assign. This correctly handles Redo panel updates.
             v.co = v.co * (1.0 - self.factor) + target_local_co * self.factor
 
         bmesh.update_edit_mesh(me)
@@ -364,10 +392,9 @@ class ALEC_OT_make_collinear(bpy.types.Operator):
 
 
 class ALEC_OT_make_coplanar(bpy.types.Operator):
-    """Make selected vertices coplanar"""
+    """Makes selected vertices coplanar"""
     bl_idname = "alec.make_coplanar"
     bl_label = "Make Coplanar"
-    bl_description = "Aligns selected vertices to a plane"
     bl_options = {'REGISTER', 'UNDO'}
 
     mode: bpy.props.EnumProperty(
@@ -409,7 +436,6 @@ class ALEC_OT_make_coplanar(bpy.types.Operator):
         plane_def_verts = []
 
         if self.mode == 'BEST_FIT':
-            # --- Best Fit Logic (Farthest points heuristic) ---
             v_a, v_b = None, None
             max_dist_sq = -1.0
             for i in range(len(selected_verts)):
@@ -442,7 +468,6 @@ class ALEC_OT_make_coplanar(bpy.types.Operator):
                 return {'CANCELLED'}
             plane_def_verts = history[-3:]
 
-        # --- Projection Logic (in World Space) ---
         world_mx = obj.matrix_world
         inv_world_mx = world_mx.inverted()
 
@@ -460,7 +485,6 @@ class ALEC_OT_make_coplanar(bpy.types.Operator):
             dist = (v_world_co - plane_point).dot(plane_normal)
             projected_world_co = v_world_co - dist * plane_normal
             target_local_co = inv_world_mx @ projected_world_co
-            # Interpolate between original (current v.co) and target, then assign. This correctly handles Redo panel updates.
             v.co = v.co * (1.0 - self.factor) + target_local_co * self.factor
 
         bmesh.update_edit_mesh(me)
@@ -468,10 +492,9 @@ class ALEC_OT_make_coplanar(bpy.types.Operator):
 
 
 class ALEC_OT_distribute_vertices(bpy.types.Operator):
-    """Distribute selected vertices evenly between the two farthest points"""
+    """Spaces selected vertices evenly along the line connecting the two most distant ones"""
     bl_idname = "alec.distribute_vertices"
     bl_label = "Distribute Vertices"
-    bl_description = "Spaces selected vertices evenly along the line connecting the two most distant ones"
     bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
@@ -491,7 +514,6 @@ class ALEC_OT_distribute_vertices(bpy.types.Operator):
             self.report({'WARNING'}, "Select at least 3 vertices to distribute")
             return {'CANCELLED'}
 
-        # 1. Find the two farthest vertices to serve as endpoints
         v_start, v_end = None, None
         max_dist_sq = -1.0
         for i in range(len(selected_verts)):
@@ -505,7 +527,6 @@ class ALEC_OT_distribute_vertices(bpy.types.Operator):
             self.report({'ERROR'}, "Could not determine endpoints.")
             return {'CANCELLED'}
 
-        # 2. Order all vertices by projecting them onto the line defined by the endpoints
         line_vec = v_end.co - v_start.co
         if line_vec.length_squared < 1e-9:
             self.report({'WARNING'}, "Endpoints are at the same location.")
@@ -515,7 +536,6 @@ class ALEC_OT_distribute_vertices(bpy.types.Operator):
         projections = sorted([( (v.co - v_start.co).dot(line_dir), v ) for v in selected_verts])
         ordered_verts = [p[1] for p in projections]
 
-        # 3. Distribute the vertices (in world space), keeping endpoints fixed
         world_mx = obj.matrix_world
         inv_world_mx = world_mx.inverted()
         start_pos_world = world_mx @ ordered_verts[0].co
@@ -529,22 +549,149 @@ class ALEC_OT_distribute_vertices(bpy.types.Operator):
         bmesh.update_edit_mesh(me)
         return {'FINISHED'}
 
+class ALEC_OT_assign_gray_material(bpy.types.Operator):
+    """Create and assign a 70% Gray material to selected objects"""
+    bl_idname = "alec.assign_gray_material"
+    bl_label = "Assign Gray Material"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        mat_name = "Gray"
+        mat = bpy.data.materials.new(name=mat_name)
+        
+        mat.use_nodes = True
+        bsdf = mat.node_tree.nodes.get("Principled BSDF")
+        val = 0.7
+        bsdf.inputs['Base Color'].default_value = (val, val, val, 1.0)
+        
+        for obj in context.selected_objects:
+            if obj.type == 'MESH':
+                if not obj.data.materials:
+                    obj.data.materials.append(mat)
+                else:
+                    obj.material_slots[obj.active_material_index].material = mat
+        return {'FINISHED'}
+
+class ALEC_OT_remove_orphan_materials(bpy.types.Operator):
+    """Remove materials that have 0 users"""
+    bl_idname = "alec.remove_orphan_materials"
+    bl_label = "Remove Unused Materials"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        to_remove = [m for m in bpy.data.materials if m.users == 0 and not m.use_fake_user]
+        count = len(to_remove)
+        for m in to_remove:
+            bpy.data.materials.remove(m)
+        self.report({'INFO'}, f"Removed {count} materials")
+        return {'FINISHED'}
+
+class ALEC_OT_select_material_users(bpy.types.Operator):
+    """Select all objects in the scene that use the active material"""
+    bl_idname = "alec.select_material_users"
+    bl_label = "Select Users"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        mat = context.active_object.active_material
+        if mat:
+            for obj in context.scene.objects:
+                if obj.type == 'MESH' and any(s.material == mat for s in obj.material_slots):
+                    obj.select_set(True)
+        return {'FINISHED'}
+
+class ALEC_OT_origin_to_selected_edit(bpy.types.Operator):
+    """Set origin to the average position of selected elements"""
+    bl_idname = "alec.origin_to_selected_edit"
+    bl_label = "Origin to Selection"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return context.mode == 'EDIT_MESH'
+
+    def execute(self, context):
+        saved_cursor = context.scene.cursor.matrix.copy()
+        bpy.ops.view3d.snap_cursor_to_selected()
+        bpy.ops.object.mode_set(mode='OBJECT')
+        bpy.ops.object.origin_set(type='ORIGIN_CURSOR')
+        bpy.ops.object.mode_set(mode='EDIT')
+        context.scene.cursor.matrix = saved_cursor
+        return {'FINISHED'}
+
+class ALEC_OT_origin_to_selected_edit_aligned(bpy.types.Operator):
+    """Set origin to selection center and align orientation to normal"""
+    bl_idname = "alec.origin_to_selected_edit_aligned"
+    bl_label = "Origin to Selection (Aligned)"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return context.mode == 'EDIT_MESH'
+
+    def execute(self, context):
+        from mathutils import Matrix
+        
+        obj = context.active_object
+        saved_cursor_matrix = context.scene.cursor.matrix.copy()
+        
+        try:
+            bpy.ops.view3d.snap_cursor_to_selected()
+        except Exception:
+            self.report({'WARNING'}, "No selection found")
+            return {'CANCELLED'}
+            
+        bpy.ops.transform.create_orientation(name="Temp_Alec_Align", use=True, overwrite=True)
+        
+        slot = context.scene.transform_orientation_slots[0]
+        custom_orient = slot.custom_orientation
+        
+        if not custom_orient:
+            self.report({'WARNING'}, "Could not create orientation")
+            return {'CANCELLED'}
+            
+        rot_mat = custom_orient.matrix.to_4x4()
+        target_matrix = rot_mat
+        target_matrix.translation = context.scene.cursor.location
+        
+        bpy.ops.object.mode_set(mode='OBJECT')
+        
+        m_old = obj.matrix_world.copy()
+        m_new = target_matrix
+        
+        mat_transform = m_new.inverted() @ m_old
+        
+        obj.matrix_world = m_new
+        obj.data.transform(mat_transform)
+        
+        bpy.ops.object.mode_set(mode='EDIT')
+        context.scene.cursor.matrix = saved_cursor_matrix
+        
+        return {'FINISHED'}
+
 classes = [
     ALEC_OT_bbox_local,
     ALEC_OT_bbox_world,
-    ALEC_OT_bbox_offset,
-    ALEC_OT_align,
     ALEC_OT_quick_center,
     ALEC_OT_quick_pivot,
     ALEC_OT_cursor_to_selected,
     ALEC_OT_cursor_to_geometry_center,
     ALEC_OT_origin_to_cursor,
-    ALEC_OT_group_manager,
+    ALEC_OT_origin_to_active,
+    ALEC_OT_origin_to_bottom,
+    ALEC_OT_group,
+    ALEC_OT_group_active,
+    ALEC_OT_ungroup,
     ALEC_OT_set_edge_length,
     ALEC_OT_menu_dispatcher,
     ALEC_OT_make_collinear,
     ALEC_OT_make_coplanar,
     ALEC_OT_distribute_vertices,
+    ALEC_OT_assign_gray_material,
+    ALEC_OT_remove_orphan_materials,
+    ALEC_OT_select_material_users,
+    ALEC_OT_origin_to_selected_edit,
+    ALEC_OT_origin_to_selected_edit_aligned,
 ]
 
 def register():

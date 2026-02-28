@@ -7,46 +7,38 @@ class ALEC_MT_quad_menu(bpy.types.Menu):
     bl_label = "Quad Menu"
 
     def draw(self, context):
-        layout = self.layout
-        pie = layout.menu_pie()
-        ts = context.tool_settings
+        pie = self.layout.menu_pie()
 
-        # --- 1. LEFT (Pivot & Origins - COMPACT) ---
-        col_left = pie.column()
+        # LEFT: Viewport & Cursor
+        col = pie.column()
+        box_view = col.box()
+        box_view.label(text="Viewport", icon='RESTRICT_VIEW_OFF')
+        col_inner = box_view.column(align=True)
+        col_inner.prop(context.space_data.overlay, "show_wireframes", text="Wireframe")
+        if context.space_data and context.space_data.type == 'VIEW_3D':
+            r = col_inner.row(align=True)
+            r.prop(context.space_data, "show_gizmo_object_translate", text="Move")
+            r.prop(context.space_data, "show_gizmo_object_rotate", text="Rotate")
         
-        # Cursor
-        b2 = col_left.box()
-        b2.label(text="Parenting", icon='ORIENTATION_PARENT')
-        
-        r3 = b2.row(align=False) 
+        box_cursor = col.box()
+        box_cursor.label(text="Cursor", icon='PIVOT_CURSOR')
+        col_inner = box_cursor.column(align=True)
+        col_inner.operator("alec.cursor_to_selected", text="To Selected")
+        col_inner.operator("alec.cursor_to_geometry_center", text="To Center")
 
-        op = r3.operator("object.parent_set", text="Parent KT", icon='PIVOT_CURSOR')
-        op.type = 'OBJECT'
-        op.keep_transform = True
-        
-        r3.operator("alec.cursor_to_geometry_center", text="To Center", icon='PIVOT_CURSOR')
-
-        # Origin
-        b3 = col_left.box()
-        b3.label(text="Origin", icon='OBJECT_ORIGIN')
-        r4 = b3.grid_flow(columns=3, align=True)
-        r4.operator("object.origin_set", text="Origin->BBox Center", icon='EMPTY_DATA').type = 'ORIGIN_GEOMETRY'
-        r4.operator("object.origin_set", text="Origin to Cursor POS", icon='ORIENTATION_CURSOR').type = 'ORIGIN_CURSOR'
-        r4.operator("alec.origin_to_cursor", text="Origin to Cursor POS&ROT", icon='ORIENTATION_GIMBAL')
-
-        # --- 2. RIGHT (Orientation & Snap) ---
+        # RIGHT: Orientation & Snap
         col_right = pie.column()
 
         # Pivot
         b_pivot = col_right.box()
         b_pivot.label(text="Pivot Point", icon='PIVOT_MEDIAN')
         grid = b_pivot.grid_flow(columns=3, align=True, even_columns=True)
-        grid.prop_enum(ts, "transform_pivot_point", value='BOUNDING_BOX_CENTER', text="BBox")
-        grid.prop_enum(ts, "transform_pivot_point", value='CURSOR', text="Cursor")
-        grid.prop_enum(ts, "transform_pivot_point", value='INDIVIDUAL_ORIGINS', text="Indiv")
-        grid.prop_enum(ts, "transform_pivot_point", value='MEDIAN_POINT', text="Median")
-        grid.prop_enum(ts, "transform_pivot_point", value='ACTIVE_ELEMENT', text="Active")
-        grid.prop(ts, "use_transform_pivot_point_align", text="Only Loc")
+        grid.prop_enum(context.tool_settings, "transform_pivot_point", value='BOUNDING_BOX_CENTER', text="BBox")
+        grid.prop_enum(context.tool_settings, "transform_pivot_point", value='CURSOR', text="Cursor")
+        grid.prop_enum(context.tool_settings, "transform_pivot_point", value='INDIVIDUAL_ORIGINS', text="Indiv")
+        grid.prop_enum(context.tool_settings, "transform_pivot_point", value='MEDIAN_POINT', text="Median")
+        grid.prop_enum(context.tool_settings, "transform_pivot_point", value='ACTIVE_ELEMENT', text="Active")
+        grid.prop(context.tool_settings, "use_transform_pivot_point_align", text="Only Loc")
 
         # Orientation
         b_orient = col_right.box()
@@ -58,122 +50,155 @@ class ALEC_MT_quad_menu(bpy.types.Menu):
         grid.prop_enum(slot, "type", value='LOCAL', text="Local")
         grid.prop_enum(slot, "type", value='NORMAL', text="Normal")
         grid.prop_enum(slot, "type", value='GIMBAL', text="Gimbal")
-        grid.prop_enum(slot, "type", value='VIEW', text="View")
         grid.prop_enum(slot, "type", value='CURSOR', text="Cursor")
+        grid.prop_enum(slot, "type", value='PARENT', text="Parent")
 
         # Snap Settings
         b5 = col_right.box()
         r5 = b5.grid_flow(columns=3, align=True)
-        r5.prop_enum(ts, "snap_elements", value='INCREMENT', text="Incr")
-        r5.prop_enum(ts, "snap_elements", value='VERTEX')
-        r5.prop_enum(ts, "snap_elements", value='EDGE')
-        r5.prop_enum(ts, "snap_elements", value='FACE')
-        r5.prop_enum(ts, "snap_elements", value='VOLUME')
+        r5.prop_enum(context.tool_settings, "snap_elements", value='INCREMENT', text="Incr")
+        r5.prop_enum(context.tool_settings, "snap_elements", value='VERTEX')
+        r5.prop_enum(context.tool_settings, "snap_elements", value='EDGE')
+        r5.prop_enum(context.tool_settings, "snap_elements", value='FACE')
+        r5.prop_enum(context.tool_settings, "snap_elements", value='VOLUME')
 
         b5.separator()
         r6 = b5.grid_flow(columns=3, align=True)
-        r6.prop_enum(ts, "snap_target", value='CENTER')
-        r6.prop_enum(ts, "snap_target", value='MEDIAN')
-        r6.prop_enum(ts, "snap_target", value='ACTIVE')
+        r6.prop_enum(context.tool_settings, "snap_target", value='CENTER')
+        r6.prop_enum(context.tool_settings, "snap_target", value='MEDIAN')
+        r6.prop_enum(context.tool_settings, "snap_target", value='ACTIVE')
 
-        #--- 3. DOWN (Grouping) ---
+        # DOWN: Empty
+        pie.column()
+
+        # UP: Empty
+        pie.column()
+
+class ALEC_MT_edit_menu(bpy.types.Menu):
+    bl_idname = "ALEC_MT_edit_menu"
+    bl_label = "Edit Menu"
+    def draw(self, context):
+        pie = self.layout.menu_pie()
+
+        # LEFT: Collinear
+        col = pie.column()
+        box = col.box()
+        box.label(text="Collinear", icon='PROP_CON')
+        col_inner = box.column(align=True)
+        op = col_inner.operator("alec.make_collinear", text="Farthest Points")
+        op.mode = 'FARTHEST'
+        op = col_inner.operator("alec.make_collinear", text="Last Two Selected")
+        op.mode = 'HISTORY'
+
+        # RIGHT: Coplanar
+        col = pie.column()
+        box = col.box()
+        box.label(text="Coplanar", icon='GRID')
+        col_inner = box.column(align=True)
+        op = col_inner.operator("alec.make_coplanar", text="Best Fit")
+        op.mode = 'BEST_FIT'
+        op = col_inner.operator("alec.make_coplanar", text="Last Three Selected")
+        op.mode = 'HISTORY'
+
+        # DOWN: Distribute
+        col = pie.column()
+        box = col.box()
+        col_inner = box.column(align=True)
+        col_inner.operator("alec.distribute_vertices", text="Distribute Vertices", icon='NODE_TEXTURE')
+
+        # UP: Set Edge Length
+        col = pie.column()
+        box = col.box()
+        col_inner = box.column(align=True)
+        col_inner.operator("alec.set_edge_length", text="Set Edge Length", icon='SEQ_STRIP_DUPLICATE')
+        
+        box = col.box()
+        box.label(text="Origin", icon='OBJECT_ORIGIN')
+        box.operator("alec.origin_to_selected_edit", text="To Selection")
+        box.operator("alec.origin_to_selected_edit_aligned", text="To Selection (Aligned)")
+
+class ALEC_MT_object_menu(bpy.types.Menu):
+    bl_idname = "ALEC_MT_object_menu"
+    bl_label = "Object Menu"
+
+    def draw(self, context):
+        pie = self.layout.menu_pie()
+
+        # LEFT: BBox & Align
+        col_left = pie.column()
+        row = col_left.row()
+
+            # 1. BBox
+        col_b = row.column()
+        box_bbox = col_b.box()
+        box_bbox.label(text="BBox", icon='MESH_CUBE')
+        col_inner = box_bbox.column(align=True)
+        col_inner.operator("alec.bbox_local", text="BBox Local")
+        col_inner.operator("alec.bbox_world", text="BBox World")
+        col_inner.operator("alec.bboxoff_dialog", text="BBox Offset")
+
+            # 2. Align
+        col_a = row.column()
+        box_align = col_a.box()
+        box_align.label(text="Align", icon='LIGHTPROBE_VOLUME')
+        col_inner = box_align.column(align=True)
+        col_inner.operator("alec.quick_center", text="OBJ_Centers")
+        col_inner.operator("alec.quick_pivot", text="OBJ_Origins")
+        col_inner.operator("alec.align_dialog", text="Align Dialog")
+
+        # RIGHT: BBox
+        col_right = pie.column()
+        box_bbox = col_right.box()
+        box_bbox.label(text="BBox", icon='MESH_CUBE')
+        col_inner = box_bbox.column(align=True)
+        col_inner.operator("alec.bbox_local", text="BBox Local")
+        col_inner.operator("alec.bbox_world", text="BBox World")
+        col_inner.operator("alec.bboxoff_dialog", text="BBox Offset")
+        
+        # DOWN: Grouping & Materials
         col_down = pie.column()
         b5 = col_down.box()
         b5.label(text="Grouping", icon='GROUP')
-        col_grp = b5.column(align=True)
-        col_grp.operator("alec.group_manager", text="Group", icon='MESH_PLANE').action = 'GROUP'
-        col_grp.operator("alec.group_manager", text="Group Active", icon='EMPTY_AXIS').action = 'GROUP_ACTIVE'
-        col_grp.operator("alec.group_manager", text="Ungroup", icon='MOD_EXPLODE').action = 'UNGROUP'
+        col_grp = b5.grid_flow(columns=3, align=True)
+        col_grp.operator("alec.group", text="Group", icon='OUTLINER_OB_EMPTY')
+        col_grp.operator("alec.group_active", text="Group Active", icon='EMPTY_AXIS')
+        col_grp.operator("alec.ungroup", text="Ungroup", icon='MOD_EXPLODE')
 
+        box_mat = col_down.box()
+        box_mat.label(text="Materials", icon='MATERIAL')
+        col_inner = box_mat.column(align=True)
+        col_inner.operator("alec.material_linker", text="Material Linker")
+        col_inner.operator("object.make_links_data", text="Link Materials", icon='LINKED').type = 'MATERIAL'
+        col_inner.operator("alec.assign_gray_material", text="Gray Material (70%)", icon='SHADING_SOLID')
+        col_inner.operator("alec.remove_orphan_materials", text="Clean Unused", icon='TRASH')
+        col_inner.operator("alec.select_material_users", text="Select Users", icon='RESTRICT_SELECT_OFF')
 
-        # --- 4. UP (BBox Tools) ---
+        # UP: Origin & Parenting
         col_up = pie.column()
-        b6 = col_up.box()
-        b6.prop(context.space_data.overlay, "show_wireframes", text="Wireframe", toggle=True)
 
-        space = context.space_data
-        
-        if space and space.type == 'VIEW_3D':
-            b_giz = col_up.box()
-            r = b_giz.row(align=True)
-            r.prop(space, "show_gizmo_object_translate", text="Move")
-            r.prop(space, "show_gizmo_object_rotate", text="Rotate")
+        box_parent = col_up.box()
+        box_parent.label(text="Parenting", icon='ORIENTATION_PARENT')
+        col_inner = box_parent.grid_flow(columns=3, align=True)
+        op = col_inner.operator("object.parent_set", text="Parent", icon='LINKED')
+        op.type = 'OBJECT'
+        op.keep_transform = True
+        col_inner.operator("object.parent_clear", text="Clear Parent", icon='X').type = 'CLEAR'
+        col_inner.operator("object.parent_clear", text="Keep Transform", icon='UNLINKED').type = 'CLEAR_KEEP_TRANSFORM'
 
-class ALEC_MT_menu_align(bpy.types.Menu):
-    bl_label = "Align"
-    def draw(self, context):
-        layout = self.layout
-        layout.operator("alec.quick_center", text="Quick Align OBJ_Centers", icon='PIVOT_BOUNDBOX')
-        layout.operator("alec.quick_pivot", text="Quick Align OBJ_Origins", icon='OBJECT_ORIGIN')
-        layout.operator("alec.align_dialog", text="Align Dialog", icon='PREFERENCES')
-        layout.separator()
-        layout.operator("alec.cursor_to_selected", text="To Selected", icon='PIVOT_CURSOR')
-        layout.operator("alec.cursor_to_geometry_center", text="To Center", icon='PIVOT_CURSOR')
-        layout.separator()
-        layout.operator("object.origin_set", text="Origin->BBox Center", icon='EMPTY_DATA').type = 'ORIGIN_GEOMETRY'
-        layout.operator("object.origin_set", text="Origin to Cursor POS", icon='ORIENTATION_CURSOR').type = 'ORIGIN_CURSOR'
-        layout.operator("alec.origin_to_cursor", text="Origin to Cursor POS&ROT", icon='ORIENTATION_GIMBAL')
+        box_origin = col_up.box()
+        box_origin.label(text="Origin", icon='OBJECT_ORIGIN')
+        grid = box_origin.grid_flow(columns=3, align=True)
+        op = grid.operator("object.origin_set", text="BBox", icon='PIVOT_BOUNDBOX')
+        op.type = 'ORIGIN_GEOMETRY'
+        op.center = 'BOUNDS'
+        grid.operator("object.origin_set", text="To Cursor", icon='PIVOT_CURSOR').type = 'ORIGIN_CURSOR'
+        grid.operator("alec.origin_to_cursor", text="To Cur (Rot)", icon='ORIENTATION_GIMBAL')
+        grid.operator("alec.origin_to_active", text="To Active", icon='PIVOT_ACTIVE')
+        grid.operator("alec.origin_to_bottom", text="To Bottom", icon='TRIA_DOWN')
 
-class ALEC_MT_menu_pivot(bpy.types.Menu):
-    bl_label = "Pivot Point"
-    def draw(self, context):
-        layout = self.layout
-        for value, label, icon in [('BOUNDING_BOX_CENTER', "BBox Center", 'PIVOT_BOUNDBOX'), ('MEDIAN_POINT', "Median", 'PIVOT_MEDIAN'), ('ACTIVE_ELEMENT', "Active", 'PIVOT_ACTIVE'), ('CURSOR', "3D Cursor", 'PIVOT_CURSOR'), ('INDIVIDUAL_ORIGINS', "Individual", 'PIVOT_INDIVIDUAL')]:
-            op = layout.operator("wm.context_set_enum", text=label, icon=icon)
-            op.data_path = "tool_settings.transform_pivot_point"
-            op.value = value
-        layout.separator()
-        layout.prop(context.tool_settings, "use_transform_pivot_point_align", text="Only Locations")
 
-class ALEC_MT_menu_misc(bpy.types.Menu):
-    bl_label = "Misc"
-    def draw(self, context):
-        layout = self.layout
-        layout.operator("alec.bbox_local", text="BBox Local", icon='MESH_CUBE')
-        layout.operator("alec.bbox_world", text="BBox World", icon='WORLD')
-        layout.operator("alec.bboxoff_dialog", text="BBox Offset", icon='MOD_OFFSET')
-        layout.separator()
-        
-        op = layout.operator("alec.group_manager", text="Group", icon='MESH_PLANE')
-        op.action = 'GROUP'
-        op = layout.operator("alec.group_manager", text="Group Active", icon='EMPTY_AXIS')
-        op.action = 'GROUP_ACTIVE'
-        op = layout.operator("alec.group_manager", text="Ungroup", icon='MOD_EXPLODE')
-        op.action = 'UNGROUP'
-        layout.separator()
-        layout.operator("alec.material_linker", text="Material Linker", icon='MATERIAL')
-
-class ALEC_MT_edit_menu(bpy.types.Menu):
-    bl_label = "Edit Menu"
-    def draw(self, context):
-        layout = self.layout
-        layout.operator("alec.set_edge_length", text="Set Edge Length")
-        
-        layout.separator()
-        op = layout.operator("alec.make_collinear", text="Collinear (Farthest)")
-        op.mode = 'FARTHEST'
-        op = layout.operator("alec.make_collinear", text="Collinear (History)")
-        op.mode = 'HISTORY'
-        
-        layout.separator()
-        op = layout.operator("alec.make_coplanar", text="Coplanar (Best Fit)")
-        op.mode = 'BEST_FIT'
-        op = layout.operator("alec.make_coplanar", text="Coplanar (History)")
-        op.mode = 'HISTORY'
-
-        layout.separator()
-        layout.operator("alec.distribute_vertices", text="Distribute Vertices")
-
-class ALEC_MT_object_menu(bpy.types.Menu):
-    bl_label = "Object Menu"
-    def draw(self, context):
-        layout = self.layout
-        layout.menu("ALEC_MT_menu_align", icon='LIGHTPROBE_VOLUME')
-        layout.menu("ALEC_MT_menu_misc", icon='FILE_SOUND')
 
 classes = [
-    ALEC_MT_menu_align,
-    ALEC_MT_menu_misc,
     ALEC_MT_object_menu,
     ALEC_MT_edit_menu,
     ALEC_MT_quad_menu,
