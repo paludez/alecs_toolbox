@@ -2,12 +2,11 @@ import bpy
 from . import operators
 from . import menus
 from . import dialog
-from . import dialog_materials
+
 
 modules = [operators,
            menus,
-           dialog,
-           dialog_materials]
+           dialog]
 
 def register():
     for m in modules:

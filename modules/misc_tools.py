@@ -45,10 +45,7 @@ def group_active(context):
         return
 
     # Calculate world space bounds center
-    corners = [Vector(c) for c in active.bound_box]
-    center_local = (Vector((min(v.x for v in corners), min(v.y for v in corners), min(v.z for v in corners))) +
-                    Vector((max(v.x for v in corners), max(v.y for v in corners), max(v.z for v in corners)))) / 2
-    center_world = active.matrix_world @ center_local
+    center_world = get_bounds_data(active, point_type='CENTER', space='WORLD')
 
     # Create Empty
     bpy.ops.object.empty_add(type='ARROWS', location=center_world)
