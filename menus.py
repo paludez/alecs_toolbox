@@ -180,7 +180,7 @@ class ALEC_MT_object_menu(bpy.types.Menu):
         col_inner = box_bbox.column(align=True)
         col_inner.operator("alec.bbox_local", text="BBox Local")
         col_inner.operator("alec.bbox_world", text="BBox World")
-        col_inner.operator("alec.bboxoff_dialog", text="BBox Offset")
+        col_inner.operator("alec.bbox_offset_modal", text="BBox Offset")
 
             # 2. Align
         col_a = row.column()

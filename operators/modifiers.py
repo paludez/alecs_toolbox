@@ -1,5 +1,6 @@
 # Operators for adding and managing modifiers
 import bpy
+from ..modules import utils
 
 class ALEC_OT_boolean_op(bpy.types.Operator):
     """Add Boolean Modifier and hide target in 'Hidden_Bools'"""
@@ -56,13 +57,6 @@ class ALEC_OT_mirror_control(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO', 'GRAB_CURSOR', 'BLOCKING'}
 
     _active_instance = None
-    
-    num_map = {
-        'ZERO': '0', 'ONE': '1', 'TWO': '2', 'THREE': '3', 'FOUR': '4',
-        'FIVE': '5', 'SIX': '6', 'SEVEN': '7', 'EIGHT': '8', 'NINE': '9',
-        'NUMPAD_0': '0', 'NUMPAD_1': '1', 'NUMPAD_2': '2', 'NUMPAD_3': '3', 'NUMPAD_4': '4',
-        'NUMPAD_5': '5', 'NUMPAD_6': '6', 'NUMPAD_7': '7', 'NUMPAD_8': '8', 'NUMPAD_9': '9'
-    }
 
     @staticmethod
     def draw_status_bar(panel_self, context):
@@ -76,41 +70,21 @@ class ALEC_OT_mirror_control(bpy.types.Operator):
         row.label(text="Axis:")
         
         axis_row = row.row(align=True)
-        axis_row.label(text="X" if self.axis_idx == 0 else "", icon='EVENT_X')
-        axis_row.label(text="Y" if self.axis_idx == 1 else "", icon='EVENT_Y')
-        axis_row.label(text="Z" if self.axis_idx == 2 else "", icon='EVENT_Z')
+        
+        sub = axis_row.row(align=True)
+        sub.alert = self.axis_idx == 0
+        sub.label(text="[X]")
+
+        sub = axis_row.row(align=True)
+        sub.alert = self.axis_idx == 1
+        sub.label(text="[Y]")
+
+        sub = axis_row.row(align=True)
+        sub.alert = self.axis_idx == 2
+        sub.label(text="[Z]")
         
         row.separator()
         row.label(text="Confirm: [LMB] | Cancel: [RMB]")
-
-    def get_unit_scale(self, context):
-        settings = context.scene.unit_settings
-        
-        if settings.system in {'METRIC', 'IMPERIAL'}:
-            
-            # Conversion factors to meters
-            factors = {
-                'METRIC': {
-                    'METERS': 1.0,
-                    'CENTIMETERS': 0.01,
-                    'MILLIMETERS': 0.001,
-                    'KILOMETERS': 1000.0,
-                    'MICROMETERS': 0.000001,
-                },
-                'IMPERIAL': {
-                    'FEET': 0.3048,
-                    'INCHES': 0.0254,
-                    'MILES': 1609.34,
-                    'THOU': 0.0000254,
-                }
-            }
-            
-            unit_system_factors = factors.get(settings.system)
-            if unit_system_factors:
-                factor = unit_system_factors.get(settings.length_unit, 1.0)
-                return settings.scale_length * factor
-
-        return settings.scale_length
 
     def cleanup(self, context):
         ALEC_OT_mirror_control._active_instance = None
@@ -161,7 +135,7 @@ class ALEC_OT_mirror_control(bpy.types.Operator):
         self.axes = ('X', 'Y', 'Z')
         self.axis_idx = 0
         self.value_str = ""
-        self.unit_scale = self.get_unit_scale(context)
+        self.unit_scale = utils.get_unit_scale(context)
         self.unit_scale_display_inv = 1.0 / self.unit_scale if self.unit_scale != 0 else 1.0
 
         # Start at object center
@@ -259,12 +233,12 @@ class ALEC_OT_mirror_control(bpy.types.Operator):
             else:
                 self.value_str = '-' + self.value_str
         
-        elif event.type in self.num_map and event.value == 'PRESS':
-            self.value_str += self.num_map[event.type]
-            
-        elif event.type in {'PERIOD', 'NUMPAD_PERIOD'} and event.value == 'PRESS':
-            if '.' not in self.value_str:
-                self.value_str += '.'
+        elif event.value == 'PRESS' and event.unicode:
+            if event.unicode.isdigit():
+                self.value_str += event.unicode
+            elif event.unicode == '.':
+                if '.' not in self.value_str:
+                    self.value_str += '.'
 
         # Apply typed value if it exists
         if self.value_str:

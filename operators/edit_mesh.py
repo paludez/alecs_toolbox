@@ -1,36 +1,65 @@
 # Operators for mesh editing in Edit Mode
 import bpy
 import bmesh
+from ..modules import utils
 
 class ALEC_OT_set_edge_length(bpy.types.Operator):
-    """Set the length of the selected edge"""
+    """Set the length of the selected edge interactively"""
     bl_idname = "alec.set_edge_length"
     bl_label = "Set Edge Length"
-    bl_options = {'REGISTER', 'UNDO'}
-    _initialized = False
-    length: bpy.props.FloatProperty(
-        name="Length",
-        description="The desired length for the edge",
-        default=1.0,
-        min=0.001,
-        unit='LENGTH'
-    ) # type: ignore
+    bl_options = {'REGISTER', 'UNDO', 'GRAB_CURSOR', 'BLOCKING'}
 
-    anchor: bpy.props.EnumProperty(
-        name="Anchor",
-        description="How to anchor the edge when resizing",
-        items=[
-            ('ACTIVE_VERTEX', "Active Vertex", "The active vertex will remain stationary"),
-            ('CENTER', "Center", "Both vertices will move towards/away from the center")
-        ],
-        default='ACTIVE_VERTEX'
-    ) # type: ignore
+    _active_instance = None
 
-    @classmethod
-    def poll(cls, context):
-        return (context.active_object is not None and
-                context.active_object.type == 'MESH' and
-                context.mode == 'EDIT_MESH')
+    @staticmethod
+    def draw_status_bar(panel_self, context):
+        self = ALEC_OT_set_edge_length._active_instance
+        if not self:
+            return
+
+        layout = panel_self.layout
+        row = layout.row(align=True)
+
+        row.label(text="Anchor:")
+        
+        anchor_row = row.row(align=True)
+        sub = anchor_row.row(align=True)
+        sub.alert = self.anchor_mode == 'ACTIVE'
+        sub.label(text="[A] Active")
+
+        sub = anchor_row.row(align=True)
+        sub.alert = self.anchor_mode == 'OTHER'
+        sub.label(text="[B] Other")
+
+        sub = anchor_row.row(align=True)
+        sub.alert = self.anchor_mode == 'CENTER'
+        sub.label(text="[C] Center")
+        
+        row.separator()
+        row.label(text="Confirm: [LMB] | Cancel: [RMB]")
+
+    def cleanup(self, context):
+        ALEC_OT_set_edge_length._active_instance = None
+        try:
+            bpy.types.STATUSBAR_HT_header.remove(ALEC_OT_set_edge_length.draw_status_bar)
+        except:
+            pass # Fails if not found
+        context.area.header_text_set(None)
+        context.area.tag_redraw()
+
+    def update_header(self, context):
+        unit_setting = context.scene.unit_settings.length_unit
+        unit_suffixes = {
+            'METERS': 'm', 'CENTIMETERS': 'cm', 'MILLIMETERS': 'mm', 'KILOMETERS': 'km',
+            'MICROMETERS': 'μm', 'FEET': "'", 'INCHES': '"', 'MILES': 'mi', 'THOU': 'thou'
+        }
+        suffix = unit_suffixes.get(unit_setting, '')
+
+        len_str = f"{self.current_length * self.unit_scale_display_inv:.4f}"
+        init_len_str = f"{self.initial_length * self.unit_scale_display_inv:.4f}"
+
+        header_text = f"Length: {len_str}{suffix} / Initial Length: {init_len_str}{suffix}"
+        context.area.header_text_set(header_text)
 
     def _get_active_edge(self, bm):
         active_edge = bm.select_history.active
@@ -43,55 +72,158 @@ class ALEC_OT_set_edge_length(bpy.types.Operator):
             
         return None
 
-    def execute(self, context):
-        obj = context.active_object
-        me = obj.data
-        bm = bmesh.from_edit_mesh(me)
+    def apply_length(self):
+        world_direction = self.world_direction
+        
+        if self.anchor_mode == 'ACTIVE':
+            stationary_co = self.world_mx @ self.active_vert.co
+            moved_co = self.world_mx @ self.other_vert.co
+            new_moved_co = stationary_co + world_direction * self.current_length
+            self.other_vert.co = self.inv_world_mx @ new_moved_co
+        elif self.anchor_mode == 'OTHER':
+            stationary_co = self.world_mx @ self.other_vert.co
+            moved_co = self.world_mx @ self.active_vert.co
+            new_moved_co = stationary_co - world_direction * self.current_length
+            self.active_vert.co = self.inv_world_mx @ new_moved_co
+        elif self.anchor_mode == 'CENTER':
+            world_center_point = (self.world_mx @ self.v1.co + self.world_mx @ self.v2.co) / 2
+            half_length = self.current_length / 2
+            self.v1.co = self.inv_world_mx @ (world_center_point - world_direction * half_length)
+            self.v2.co = self.inv_world_mx @ (world_center_point + world_direction * half_length)
 
-        active_edge = self._get_active_edge(bm)
-        if not active_edge:
+        bmesh.update_edit_mesh(self.me)
+
+    def invoke(self, context, event):
+        self.obj = context.active_object
+        self.me = self.obj.data
+        self.bm = bmesh.from_edit_mesh(self.me)
+
+        self.edge = self._get_active_edge(self.bm)
+        if not self.edge:
             self.report({'WARNING'}, "No edge selected")
             return {'CANCELLED'}
+        
+        self.v1, self.v2 = self.edge.verts
+        self.initial_v1_co = self.v1.co.copy()
+        self.initial_v2_co = self.v2.co.copy()
 
-        world_mx = obj.matrix_world
-        inv_world_mx = world_mx.inverted()
-
-        v1, v2 = active_edge.verts
-
-        if not self._initialized:
-            world_v1_co = world_mx @ v1.co
-            world_v2_co = world_mx @ v2.co
-            self.length = (world_v2_co - world_v1_co).length
-            self._initialized = True
-
-        world_v1_co = world_mx @ v1.co
-        world_v2_co = world_mx @ v2.co
+        # Matrices
+        self.world_mx = self.obj.matrix_world
+        self.inv_world_mx = self.world_mx.inverted()
+        
+        # Determine edge direction
+        world_v1_co = self.world_mx @ self.v1.co
+        world_v2_co = self.world_mx @ self.v2.co
         direction_vector = world_v2_co - world_v1_co
         if direction_vector.length_squared < 1e-9:
             self.report({'WARNING'}, "Edge has zero length, cannot determine direction.")
             return {'CANCELLED'}
+        self.world_direction = direction_vector.normalized()
         
-        world_direction = direction_vector.normalized()
+        # Determine active/other verts
+        active_vert_hist = self.bm.select_history.active
+        if not isinstance(active_vert_hist, bmesh.types.BMVert) or active_vert_hist not in self.edge.verts:
+            self.active_vert = self.v1
+        else:
+            self.active_vert = active_vert_hist
+        
+        self.other_vert = self.v2 if self.active_vert == self.v1 else self.v1
+        
+        # State
+        self.initial_length = direction_vector.length
+        self.current_length = self.initial_length
+        self.anchor_mode = 'ACTIVE'
+        self.value_str = ""
+        self.unit_scale = utils.get_unit_scale(context)
+        self.unit_scale_display_inv = 1.0 / self.unit_scale if self.unit_scale != 0 else 1.0
+        
+        # Mouse state
+        self.initial_mouse_x = event.mouse_x
+        
+        ALEC_OT_set_edge_length._active_instance = self
+        bpy.types.STATUSBAR_HT_header.prepend(ALEC_OT_set_edge_length.draw_status_bar)
+        context.window_manager.modal_handler_add(self)
+        self.update_header(context)
+        return {'RUNNING_MODAL'}
 
-        active_vert = bm.select_history.active
-        if not isinstance(active_vert, bmesh.types.BMVert) or active_vert not in active_edge.verts:
-            active_vert = v1
+    def modal(self, context, event):
+        self.update_header(context)
+        context.area.tag_redraw()
 
-        if self.anchor == 'ACTIVE_VERTEX':
-            if active_vert == v1:
-                new_world_v2_co = world_v1_co + world_direction * self.length
-                v2.co = inv_world_mx @ new_world_v2_co
+        # --- Finish or Cancel ---
+        if event.type in {'LEFTMOUSE', 'ENTER'}:
+            self.cleanup(context)
+            return {'FINISHED'}
+
+        if event.type in {'RIGHTMOUSE', 'ESC'}:
+            # Restore initial state
+            self.v1.co = self.initial_v1_co
+            self.v2.co = self.initial_v2_co
+            bmesh.update_edit_mesh(self.me)
+            self.cleanup(context)
+            return {'CANCELLED'}
+        
+        # --- Handle modal events ---
+        if event.type == 'MOUSEMOVE':
+            self.value_str = ""
+            delta_x = event.mouse_x - self.initial_mouse_x
+            sens = 0.01 * (1.0 if not event.shift else 0.1)
+            self.current_length = max(0.0, self.initial_length + delta_x * sens)
+            self.apply_length()
+        
+        # Anchor mode change
+        elif event.type in {'A', 'B', 'C'} and event.value == 'PRESS':
+            # Reset vertices to initial positions
+            self.v1.co = self.initial_v1_co
+            self.v2.co = self.initial_v2_co
+            
+            # Reset current length to initial length
+            self.current_length = self.initial_length
+            
+            # Reset mouse reference to prevent jumping on next mouse move
+            self.initial_mouse_x = event.mouse_x
+            
+            # Reset numeric input
+            self.value_str = ""
+
+            if event.type == 'A':
+                self.anchor_mode = 'ACTIVE'
+            elif event.type == 'B':
+                self.anchor_mode = 'OTHER'
+            elif event.type == 'C':
+                self.anchor_mode = 'CENTER'
+            
+            # Update the mesh to show the reset state
+            bmesh.update_edit_mesh(self.me)
+
+        # --- Keyboard Input ---
+        elif event.type == 'BACKSPACE' and event.value == 'PRESS':
+            if len(self.value_str) > 0:
+                self.value_str = self.value_str[:-1]
+
+        elif event.type == 'MINUS' and event.value == 'PRESS':
+            if self.value_str and self.value_str.startswith('-'):
+                self.value_str = self.value_str[1:]
             else:
-                new_world_v1_co = world_v2_co - world_direction * self.length
-                v1.co = inv_world_mx @ new_world_v1_co
-        elif self.anchor == 'CENTER':
-            world_center_point = (world_v1_co + world_v2_co) / 2
-            half_length = self.length / 2
-            v1.co = inv_world_mx @ (world_center_point - world_direction * half_length)
-            v2.co = inv_world_mx @ (world_center_point + world_direction * half_length)
+                self.value_str = '-' + self.value_str
+        
+        elif event.value == 'PRESS' and event.unicode:
+            if event.unicode.isdigit():
+                self.value_str += event.unicode
+            elif event.unicode == '.':
+                if '.' not in self.value_str:
+                    self.value_str += '.'
 
-        bmesh.update_edit_mesh(me)
-        return {'FINISHED'}
+        # Apply typed value if it exists
+        if self.value_str:
+            try:
+                typed_val = float(self.value_str)
+                self.current_length = abs(typed_val * self.unit_scale)
+                self.apply_length()
+            except ValueError:
+                pass # Ignore errors from partial input like "-"
+
+        return {'RUNNING_MODAL'}
 
 
 class ALEC_OT_make_collinear(bpy.types.Operator):

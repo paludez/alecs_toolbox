@@ -55,3 +55,36 @@ def apply_align_move(obj, delta_world):
     """Applies movement directly to the global matrix."""
     obj.matrix_world.translation += delta_world
     bpy.context.view_layer.update()
+
+def get_unit_scale(context):
+    """
+    Returns the appropriate scale factor to convert a scene unit value 
+    to Blender's internal units (meters).
+    """
+    settings = context.scene.unit_settings
+    
+    if settings.system in {'METRIC', 'IMPERIAL'}:
+        
+        # Conversion factors to meters
+        factors = {
+            'METRIC': {
+                'METERS': 1.0,
+                'CENTIMETERS': 0.01,
+                'MILLIMETERS': 0.001,
+                'KILOMETERS': 1000.0,
+                'MICROMETERS': 0.000001,
+            },
+            'IMPERIAL': {
+                'FEET': 0.3048,
+                'INCHES': 0.0254,
+                'MILES': 1609.34,
+                'THOU': 0.0000254,
+            }
+        }
+        
+        unit_system_factors = factors.get(settings.system)
+        if unit_system_factors:
+            factor = unit_system_factors.get(settings.length_unit, 1.0)
+            return settings.scale_length * factor
+
+    return settings.scale_length

@@ -9,6 +9,7 @@ from . import materials
 from . import modifiers
 from . import system
 from . import uv
+from . import bbox
 
 # It is important that the base classes are not included in this list
 # as they are not meant to be registered with Blender.
@@ -20,6 +21,7 @@ classes = (
     *modifiers.classes,
     *system.classes,
     *uv.classes,
+    *bbox.classes,
 )
 
 def register():
