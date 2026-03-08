@@ -2,6 +2,7 @@
 import bpy
 import bmesh
 from ..modules import utils
+from ..modules.modal_handler import ModalNumberInput, update_modal_header
 
 class ALEC_OT_set_edge_length(bpy.types.Operator):
     """Set the length of the selected edge interactively"""
@@ -47,7 +48,7 @@ class ALEC_OT_set_edge_length(bpy.types.Operator):
         context.area.header_text_set(None)
         context.area.tag_redraw()
 
-    def update_header(self, context):
+    def update_header_text(self, context):
         unit_setting = context.scene.unit_settings.length_unit
         unit_suffixes = {
             'METERS': 'm', 'CENTIMETERS': 'cm', 'MILLIMETERS': 'mm', 'KILOMETERS': 'km',
@@ -55,10 +56,14 @@ class ALEC_OT_set_edge_length(bpy.types.Operator):
         }
         suffix = unit_suffixes.get(unit_setting, '')
 
-        len_str = f"{self.current_length * self.unit_scale_display_inv:.4f}"
-        init_len_str = f"{self.initial_length * self.unit_scale_display_inv:.4f}"
+        len_val = self.current_length * self.unit_scale_display_inv
+        init_len_val = self.initial_length * self.unit_scale_display_inv
+        
+        header_text = f"Length: {len_val:.4f}{suffix} / Initial: {init_len_val:.4f}{suffix}"
+        
+        if self.number_input.has_value():
+            header_text = f"Length: {self.number_input.value_str}{suffix}"
 
-        header_text = f"Length: {len_str}{suffix} / Initial Length: {init_len_str}{suffix}"
         context.area.header_text_set(header_text)
 
     def _get_active_edge(self, bm):
@@ -133,7 +138,7 @@ class ALEC_OT_set_edge_length(bpy.types.Operator):
         self.initial_length = direction_vector.length
         self.current_length = self.initial_length
         self.anchor_mode = 'ACTIVE'
-        self.value_str = ""
+        self.number_input = ModalNumberInput()
         self.unit_scale = utils.get_unit_scale(context)
         self.unit_scale_display_inv = 1.0 / self.unit_scale if self.unit_scale != 0 else 1.0
         
@@ -143,11 +148,11 @@ class ALEC_OT_set_edge_length(bpy.types.Operator):
         ALEC_OT_set_edge_length._active_instance = self
         bpy.types.STATUSBAR_HT_header.prepend(ALEC_OT_set_edge_length.draw_status_bar)
         context.window_manager.modal_handler_add(self)
-        self.update_header(context)
+        self.update_header_text(context)
         return {'RUNNING_MODAL'}
 
     def modal(self, context, event):
-        self.update_header(context)
+        self.update_header_text(context)
         context.area.tag_redraw()
 
         # --- Finish or Cancel ---
@@ -164,8 +169,11 @@ class ALEC_OT_set_edge_length(bpy.types.Operator):
             return {'CANCELLED'}
         
         # --- Handle modal events ---
-        if event.type == 'MOUSEMOVE':
-            self.value_str = ""
+        if self.number_input.handle_event(event):
+            pass # Handled by number input
+        
+        elif event.type == 'MOUSEMOVE':
+            self.number_input.reset()
             delta_x = event.mouse_x - self.initial_mouse_x
             sens = 0.01 * (1.0 if not event.shift else 0.1)
             self.current_length = max(0.0, self.initial_length + delta_x * sens)
@@ -184,7 +192,7 @@ class ALEC_OT_set_edge_length(bpy.types.Operator):
             self.initial_mouse_x = event.mouse_x
             
             # Reset numeric input
-            self.value_str = ""
+            self.number_input.reset()
 
             if event.type == 'A':
                 self.anchor_mode = 'ACTIVE'
@@ -196,28 +204,10 @@ class ALEC_OT_set_edge_length(bpy.types.Operator):
             # Update the mesh to show the reset state
             bmesh.update_edit_mesh(self.me)
 
-        # --- Keyboard Input ---
-        elif event.type == 'BACKSPACE' and event.value == 'PRESS':
-            if len(self.value_str) > 0:
-                self.value_str = self.value_str[:-1]
-
-        elif event.type == 'MINUS' and event.value == 'PRESS':
-            if self.value_str and self.value_str.startswith('-'):
-                self.value_str = self.value_str[1:]
-            else:
-                self.value_str = '-' + self.value_str
-        
-        elif event.value == 'PRESS' and event.unicode:
-            if event.unicode.isdigit():
-                self.value_str += event.unicode
-            elif event.unicode == '.':
-                if '.' not in self.value_str:
-                    self.value_str += '.'
-
         # Apply typed value if it exists
-        if self.value_str:
+        if self.number_input.has_value():
             try:
-                typed_val = float(self.value_str)
+                typed_val = self.number_input.get_value()
                 self.current_length = abs(typed_val * self.unit_scale)
                 self.apply_length()
             except ValueError:

@@ -1,6 +1,7 @@
 # Operators for adding and managing modifiers
 import bpy
 from ..modules import utils
+from ..modules.modal_handler import ModalNumberInput, update_modal_header
 
 class ALEC_OT_boolean_op(bpy.types.Operator):
     """Add Boolean Modifier and hide target in 'Hidden_Bools'"""
@@ -94,7 +95,7 @@ class ALEC_OT_mirror_control(bpy.types.Operator):
             pass # Fails if not found
         context.area.tag_redraw()
 
-    def update_header(self, context):
+    def update_header_text(self, context):
         unit_setting = context.scene.unit_settings.length_unit
         unit_suffixes = {
             'METERS': 'm', 'CENTIMETERS': 'cm', 'MILLIMETERS': 'mm', 'KILOMETERS': 'km',
@@ -102,27 +103,11 @@ class ALEC_OT_mirror_control(bpy.types.Operator):
             'FEET': "'", 'INCHES': '"', 'MILES': 'mi', 'THOU': 'thou'
         }
         suffix = unit_suffixes.get(unit_setting, '')
+        
+        distance = self.empty.location[self.axis_idx] - self.initial_loc[self.axis_idx]
+        display_dist = distance * self.unit_scale_display_inv
 
-        header_text_val = ""
-        if self.value_str:
-            header_text_val = self.value_str
-        else:
-            distance = self.empty.location[self.axis_idx] - self.initial_loc[self.axis_idx]
-            display_dist = distance * self.unit_scale_display_inv
-            
-            # Round to a reasonable precision for display
-            display_dist = round(display_dist, 4)
-            if display_dist == -0.0:
-                display_dist = 0.0
-            
-            # Ensure at least one decimal place for whole numbers
-            if display_dist == int(display_dist):
-                header_text_val = f"{display_dist:.1f}"
-            else:
-                header_text_val = str(display_dist)
-            
-        header_text = f"Distance: {header_text_val}{suffix}"
-        context.area.header_text_set(header_text)
+        update_modal_header(context, "Distance", display_dist, self.number_input.value_str, suffix)
 
     def invoke(self, context, event):
         self.obj = context.active_object
@@ -134,7 +119,7 @@ class ALEC_OT_mirror_control(bpy.types.Operator):
         # State
         self.axes = ('X', 'Y', 'Z')
         self.axis_idx = 0
-        self.value_str = ""
+        self.number_input = ModalNumberInput()
         self.unit_scale = utils.get_unit_scale(context)
         self.unit_scale_display_inv = 1.0 / self.unit_scale if self.unit_scale != 0 else 1.0
 
@@ -160,25 +145,17 @@ class ALEC_OT_mirror_control(bpy.types.Operator):
         ALEC_OT_mirror_control._active_instance = self
         bpy.types.STATUSBAR_HT_header.prepend(ALEC_OT_mirror_control.draw_status_bar)
         context.window_manager.modal_handler_add(self)
-        self.update_header(context)
+        self.update_header_text(context)
         return {'RUNNING_MODAL'}
 
     def modal(self, context, event):
-        self.update_header(context)
+        self.update_header_text(context)
         context.area.tag_redraw()
 
         # --- Finish or Cancel ---
         if event.type in {'LEFTMOUSE', 'ENTER'}:
-            if self.value_str: # Apply final typed value
-                try:
-                    typed_val = float(self.value_str)
-                    typed_dist_abs = abs(typed_val * self.unit_scale)
-                    delta_x = event.mouse_x - self.initial_mouse_x
-                    direction = 1 if delta_x >= 0 else -1
-                    final_dist = typed_dist_abs * direction
-                    self.empty.location[self.axis_idx] = self.initial_loc[self.axis_idx] + final_dist
-                except ValueError:
-                    pass # Ignore invalid final string
+            if self.number_input.has_value(): # Apply final typed value
+                self.apply_typed_value(event)
             self.cleanup(context)
             context.area.header_text_set(None)
             bpy.ops.object.select_all(action='DESELECT')
@@ -201,10 +178,12 @@ class ALEC_OT_mirror_control(bpy.types.Operator):
             return {'CANCELLED'}
         
         # --- Handle modal events ---
-        
+        if self.number_input.handle_event(event):
+            self.apply_typed_value(event)
+
         # Mouse move resets typing
-        if event.type == 'MOUSEMOVE':
-            self.value_str = ""
+        elif event.type == 'MOUSEMOVE':
+            self.number_input.reset()
             delta_x = event.mouse_x - self.initial_mouse_x
             sens = 0.02
             dist = delta_x * sens
@@ -212,7 +191,7 @@ class ALEC_OT_mirror_control(bpy.types.Operator):
             
         # Axis change resets typing
         elif event.type in self.axes and event.value == 'PRESS':
-            self.value_str = ""
+            self.number_input.reset()
             self.axis_idx = self.axes.index(event.type)
             self.mod.use_axis = [i == self.axis_idx for i in range(3)]
             # Re-apply mouse delta on new axis
@@ -221,39 +200,20 @@ class ALEC_OT_mirror_control(bpy.types.Operator):
             dist = delta_x * sens
             self.empty.location = self.initial_loc.copy()
             self.empty.location[self.axis_idx] += dist
-
-        # --- Keyboard Input ---
-        elif event.type == 'BACKSPACE' and event.value == 'PRESS':
-            if len(self.value_str) > 0:
-                self.value_str = self.value_str[:-1]
-
-        elif event.type == 'MINUS' and event.value == 'PRESS':
-            if self.value_str and self.value_str.startswith('-'):
-                self.value_str = self.value_str[1:]
-            else:
-                self.value_str = '-' + self.value_str
         
-        elif event.value == 'PRESS' and event.unicode:
-            if event.unicode.isdigit():
-                self.value_str += event.unicode
-            elif event.unicode == '.':
-                if '.' not in self.value_str:
-                    self.value_str += '.'
-
-        # Apply typed value if it exists
-        if self.value_str:
-            try:
-                typed_val = float(self.value_str)
-                typed_dist_abs = abs(typed_val * self.unit_scale)
-                delta_x = event.mouse_x - self.initial_mouse_x
-                direction = 1 if delta_x >= 0 else -1
-                final_dist = typed_dist_abs * direction
-                self.empty.location[self.axis_idx] = self.initial_loc[self.axis_idx] + final_dist
-            except ValueError:
-                pass # Ignore errors from partial input like "-"
-
         return {'RUNNING_MODAL'}
 
+    def apply_typed_value(self, event):
+        if not self.number_input.has_value(): return
+        try:
+            typed_val = self.number_input.get_value()
+            typed_dist_abs = abs(typed_val * self.unit_scale)
+            delta_x = event.mouse_x - self.initial_mouse_x
+            direction = 1 if delta_x >= 0 else -1
+            final_dist = typed_dist_abs * direction
+            self.empty.location[self.axis_idx] = self.initial_loc[self.axis_idx] + final_dist
+        except ValueError:
+            pass # Ignore errors from partial input like "-"
 
 class ALEC_OT_add_mirror(bpy.types.Operator):
     """Add Mirror Modifier and switch to Modifiers tab"""
