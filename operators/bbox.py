@@ -1,6 +1,6 @@
 import bpy
 from ..modules import bbox_tools, utils
-from ..modules.modal_handler import ModalNumberInput, draw_modal_status_bar, update_modal_header
+from ..modules.modal_handler import ModalNumberInput, update_modal_header
 
 class ALEC_OT_bbox_offset_modal(bpy.types.Operator):
     """Create an offset of a mesh object with interactive mouse and keyboard control."""
@@ -25,7 +25,8 @@ class ALEC_OT_bbox_offset_modal(bpy.types.Operator):
     def draw_status_bar(panel_self, context):
         self = ALEC_OT_bbox_offset_modal._active_instance
         if not self: return
-        draw_modal_status_bar(panel_self.layout, "Confirm: [LMB] | Cancel: [RMB] | Reset: [R]")
+        row = panel_self.layout.row(align=True)
+        row.label(text="Confirm: [LMB] | Cancel: [RMB] | Reset: [R]")
 
     def cleanup(self, context):
         """Remove modal state and drawings."""

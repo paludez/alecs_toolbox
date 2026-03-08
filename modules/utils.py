@@ -88,3 +88,27 @@ def get_unit_scale(context):
             return settings.scale_length * factor
 
     return settings.scale_length
+
+
+def find_farthest_vertices(vertices):
+    """
+    Finds the two most distant vertices from a list of vertices.
+    Returns a tuple (v_start, v_end), or (None, None) if not enough vertices.
+    """
+    if len(vertices) < 2:
+        return None, None
+
+    v_start, v_end = None, None
+    max_dist_sq = -1.0
+    
+    for i in range(len(vertices)):
+        for j in range(i + 1, len(vertices)):
+            v_i = vertices[i]
+            v_j = vertices[j]
+            dist_sq = (v_i.co - v_j.co).length_squared
+            if dist_sq > max_dist_sq:
+                max_dist_sq = dist_sq
+                v_start = v_i
+                v_end = v_j
+    
+    return v_start, v_end

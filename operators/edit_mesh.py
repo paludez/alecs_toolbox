@@ -3,6 +3,7 @@ import bpy
 import bmesh
 from ..modules import utils
 from ..modules.modal_handler import ModalNumberInput, update_modal_header
+from ..modules.utils import find_farthest_vertices
 
 class ALEC_OT_set_edge_length(bpy.types.Operator):
     """Set the length of the selected edge interactively"""
@@ -57,14 +58,13 @@ class ALEC_OT_set_edge_length(bpy.types.Operator):
         suffix = unit_suffixes.get(unit_setting, '')
 
         len_val = self.current_length * self.unit_scale_display_inv
-        init_len_val = self.initial_length * self.unit_scale_display_inv
         
-        header_text = f"Length: {len_val:.4f}{suffix} / Initial: {init_len_val:.4f}{suffix}"
-        
-        if self.number_input.has_value():
-            header_text = f"Length: {self.number_input.value_str}{suffix}"
+        secondary = ""
+        if not self.number_input.has_value():
+            init_len_val = self.initial_length * self.unit_scale_display_inv
+            secondary = f"Initial: {init_len_val:.4f}{suffix}"
 
-        context.area.header_text_set(header_text)
+        update_modal_header(context, "Length", len_val, self.number_input.value_str, suffix, secondary_text=secondary)
 
     def _get_active_edge(self, bm):
         active_edge = bm.select_history.active
@@ -152,7 +152,6 @@ class ALEC_OT_set_edge_length(bpy.types.Operator):
         return {'RUNNING_MODAL'}
 
     def modal(self, context, event):
-        self.update_header_text(context)
         context.area.tag_redraw()
 
         # --- Finish or Cancel ---
@@ -212,7 +211,8 @@ class ALEC_OT_set_edge_length(bpy.types.Operator):
                 self.apply_length()
             except ValueError:
                 pass # Ignore errors from partial input like "-"
-
+        
+        self.update_header_text(context)
         return {'RUNNING_MODAL'}
 
 
@@ -253,24 +253,14 @@ class ALEC_OT_make_collinear(bpy.types.Operator):
         bm = bmesh.from_edit_mesh(me)
 
         selected_verts = [v for v in bm.verts if v.select]
-
-        v_start = None
-        v_end = None
+        v_start, v_end = None, None
 
         if self.mode == 'FARTHEST':
             if len(selected_verts) < 2:
                 self.report({'WARNING'}, "Select at least 2 vertices")
                 return {'CANCELLED'}
-            max_dist_sq = -1.0
-            for i in range(len(selected_verts)):
-                for j in range(i + 1, len(selected_verts)):
-                    v_i = selected_verts[i]
-                    v_j = selected_verts[j]
-                    dist_sq = (v_i.co - v_j.co).length_squared
-                    if dist_sq > max_dist_sq:
-                        max_dist_sq = dist_sq
-                        v_start = v_i
-                        v_end = v_j
+            v_start, v_end = find_farthest_vertices(selected_verts)
+
         elif self.mode == 'HISTORY':
             history = [elem for elem in bm.select_history if isinstance(elem, bmesh.types.BMVert)]
             if len(history) < 2:
@@ -430,14 +420,7 @@ class ALEC_OT_distribute_vertices(bpy.types.Operator):
             self.report({'WARNING'}, "Select at least 3 vertices to distribute")
             return {'CANCELLED'}
 
-        v_start, v_end = None, None
-        max_dist_sq = -1.0
-        for i in range(len(selected_verts)):
-            for j in range(i + 1, len(selected_verts)):
-                dist_sq = (selected_verts[i].co - selected_verts[j].co).length_squared
-                if dist_sq > max_dist_sq:
-                    max_dist_sq = dist_sq
-                    v_start, v_end = selected_verts[i], selected_verts[j]
+        v_start, v_end = find_farthest_vertices(selected_verts)
         
         if not v_start or not v_end:
             self.report({'ERROR'}, "Could not determine endpoints.")

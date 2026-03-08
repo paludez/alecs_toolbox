@@ -6,35 +6,32 @@ class ModalNumberInput:
     
     def __init__(self):
         self.value_str = ""
-        self.num_map = {
-            'ZERO': '0', 'ONE': '1', 'TWO': '2', 'THREE': '3', 'FOUR': '4',
-            'FIVE': '5', 'SIX': '6', 'SEVEN': '7', 'EIGHT': '8', 'NINE': '9',
-            'NUMPAD_0': '0', 'NUMPAD_1': '1', 'NUMPAD_2': '2', 'NUMPAD_3': '3', 'NUMPAD_4': '4',
-            'NUMPAD_5': '5', 'NUMPAD_6': '6', 'NUMPAD_7': '7', 'NUMPAD_8': '8', 'NUMPAD_9': '9'
-        }
 
     def handle_event(self, event):
         """
         Process a keyboard event and update the number string.
         Returns True if the event was handled, False otherwise.
         """
-        if event.type == 'BACKSPACE' and event.value == 'PRESS':
+        # Handle Backspace on release
+        if event.type == 'BACK_SPACE' and event.value == 'RELEASE':
             if len(self.value_str) > 0:
                 self.value_str = self.value_str[:-1]
             return True
-        elif event.type == 'MINUS' and event.value == 'PRESS':
-            if self.value_str and self.value_str.startswith('-'):
-                self.value_str = self.value_str[1:]
-            else:
-                self.value_str = '-' + self.value_str
-            return True
-        elif event.type in self.num_map and event.value == 'PRESS':
-            self.value_str += self.num_map[event.type]
-            return True
-        elif event.type in {'PERIOD', 'NUMPAD_PERIOD'} and event.value == 'PRESS':
-            if '.' not in self.value_str:
-                self.value_str += '.'
-            return True
+
+        if event.value == 'PRESS':
+            if event.type in {'MINUS', 'NUMPAD_MINUS'}:
+                if self.value_str and self.value_str.startswith('-'):
+                    self.value_str = self.value_str[1:]
+                else:
+                    self.value_str = '-' + self.value_str
+                return True
+            elif event.type in {'PERIOD', 'NUMPAD_PERIOD'}:
+                if '.' not in self.value_str:
+                    self.value_str += '.'
+                return True
+            elif event.unicode and event.unicode.isdigit():
+                self.value_str += event.unicode
+                return True
         
         return False
 
@@ -57,16 +54,10 @@ class ModalNumberInput:
         self.value_str = ""
 
 
-def draw_modal_status_bar(layout, message="Confirm: [LMB] | Cancel: [RMB]"):
-    """Draws a standard status bar for modal operators."""
-    row = layout.row(align=True)
-    row.label(text=message)
-
-
-def update_modal_header(context, base_text="Value", value=0.0, value_str="", unit_suffix=''):
+def update_modal_header(context, base_text="Value", value=0.0, value_str="", unit_suffix='', secondary_text=""):
     """
     Updates the header with a formatted value.
-    Example: "Offset: 1.25m" or "Segments: 12"
+    Can also include secondary information like "Length: 1.5m / Initial: 1.0m"
     """
     header_text_val = ""
     if value_str:
@@ -83,4 +74,8 @@ def update_modal_header(context, base_text="Value", value=0.0, value_str="", uni
         else:
             header_text_val = f"{display_val:.4f}".rstrip('0').rstrip('.')
 
-    context.area.header_text_set(f"{base_text}: {header_text_val}{unit_suffix}")
+    final_text = f"{base_text}: {header_text_val}{unit_suffix}"
+    if secondary_text:
+        final_text += f" / {secondary_text}"
+
+    context.area.header_text_set(final_text)

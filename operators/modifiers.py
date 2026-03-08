@@ -149,7 +149,6 @@ class ALEC_OT_mirror_control(bpy.types.Operator):
         return {'RUNNING_MODAL'}
 
     def modal(self, context, event):
-        self.update_header_text(context)
         context.area.tag_redraw()
 
         # --- Finish or Cancel ---
@@ -201,6 +200,7 @@ class ALEC_OT_mirror_control(bpy.types.Operator):
             self.empty.location = self.initial_loc.copy()
             self.empty.location[self.axis_idx] += dist
         
+        self.update_header_text(context)
         return {'RUNNING_MODAL'}
 
     def apply_typed_value(self, event):
