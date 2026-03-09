@@ -191,6 +191,7 @@ class ALEC_MT_edit_menu(bpy.types.Menu):
         box_dim = col.box()
         box_dim.label(text="Dimensions", icon='DRIVER_DISTANCE')
         col_inner_dim = box_dim.column(align=True)
+        col_inner_dim.operator("alec.equalize_edge_lengths", text="Equalize Lengths", icon='ALIGN_JUSTIFY')
         col_inner_dim.operator("alec.set_edge_length", text="Set Edge Length", icon='SEQ_STRIP_DUPLICATE')
         
         row = col_inner_dim.row(align=True)

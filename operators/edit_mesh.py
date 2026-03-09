@@ -309,6 +309,64 @@ class ALEC_OT_set_edge_length(bpy.types.Operator):
         self.update_header_text(context)
         return {'RUNNING_MODAL'}
 
+class ALEC_OT_equalize_edge_lengths(bpy.types.Operator):
+    """Make all selected edges equal in length to the active edge (scaling from center)"""
+    bl_idname = "alec.equalize_edge_lengths"
+    bl_label = "Equalize Edge Lengths"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return (context.active_object is not None and
+                context.active_object.type == 'MESH' and
+                context.mode == 'EDIT_MESH')
+
+    def execute(self, context):
+        obj = context.active_object
+        me = obj.data
+        bm = bmesh.from_edit_mesh(me)
+
+        active_elem = bm.select_history.active
+        active_edge = None
+        if isinstance(active_elem, bmesh.types.BMEdge):
+            active_edge = active_elem
+        else:
+            # Try to find the single selected edge if history is ambiguous
+            sel_edges = [e for e in bm.edges if e.select]
+            if len(sel_edges) == 1:
+                active_edge = sel_edges[0]
+        
+        if not active_edge:
+            self.report({'WARNING'}, "No active edge found. Select edges, making sure one is active.")
+            return {'CANCELLED'}
+
+        target_len = active_edge.calc_length()
+        count = 0
+        
+        for e in bm.edges:
+            if e.select and e != active_edge:
+                v1 = e.verts[0]
+                v2 = e.verts[1]
+                
+                center = (v1.co + v2.co) / 2.0
+                vec = v2.co - v1.co
+                current_len = vec.length
+                
+                if current_len > 1e-6:
+                    direction = vec / current_len
+                    offset = direction * (target_len * 0.5)
+                    
+                    v1.co = center - offset
+                    v2.co = center + offset
+                    count += 1
+        
+        bmesh.update_edit_mesh(me)
+        if count == 0:
+            self.report({'WARNING'}, "No other edges selected.")
+            return {'CANCELLED'}
+            
+        return {'FINISHED'}
+
 class ALEC_OT_dimension_action(bpy.types.Operator):
     """Manage Edge Dimensions: Add, Remove, Clear"""
     bl_idname = "alec.dimension_action"
@@ -1386,6 +1444,7 @@ class ALEC_OT_extract_and_solidify(bpy.types.Operator):
 
 classes = [
     ALEC_OT_set_edge_length,
+    ALEC_OT_equalize_edge_lengths,
     ALEC_OT_dimension_action,
     ALEC_OT_select_dimension_edges,
     ALEC_OT_set_edge_angle,
