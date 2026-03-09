@@ -1,7 +1,8 @@
 # Operators for grouping, bbox, and quick alignment
 import bpy
-from ..modules import misc_tools, align_tools, bbox_tools
-from .base import BBoxOperatorBase, QuickAlignBase
+from ..modules import misc_tools, bbox_tools
+from .base import BBoxOperatorBase
+from ..dialog import ALEC_OT_align_dialog
 
 class ALEC_OT_group(bpy.types.Operator):
     """Group selected objects under a new Empty at the world origin"""
@@ -45,19 +46,55 @@ class ALEC_OT_bbox_world(BBoxOperatorBase, bpy.types.Operator):
     bl_label = "WORLD"
     mode = 'WORLD'
 
-class ALEC_OT_quick_center(QuickAlignBase, bpy.types.Operator):
+class ALEC_OT_quick_center(ALEC_OT_align_dialog):
     """Align selected objects to active object's bounding box center"""
     bl_idname = "alec.quick_center"
     bl_label = "Quick Center"
-    source_point = 'CENTER'
-    target_point = 'CENTER'
+    
+    def invoke(self, context, event):
+        self.align_x = True
+        self.align_y = True
+        self.align_z = True
+        self.orient_x = False
+        self.orient_y = False
+        self.orient_z = False
+        self.scale_x = False
+        self.scale_y = False
+        self.scale_z = False
+        self.offset_x = 0.0
+        self.offset_y = 0.0
+        self.offset_z = 0.0
+        self.use_active_orient = False
+        self.reset_requested = False
+        
+        self.source_point = 'CENTER'
+        self.target_point = 'CENTER'
+        return self.execute(context)
 
-class ALEC_OT_quick_pivot(QuickAlignBase, bpy.types.Operator):
+class ALEC_OT_quick_pivot(ALEC_OT_align_dialog):
     """Align selected objects to active object's pivot point"""
     bl_idname = "alec.quick_pivot"
     bl_label = "Quick Pivot"
-    source_point = 'PIVOT'
-    target_point = 'PIVOT'
+    
+    def invoke(self, context, event):
+        self.align_x = True
+        self.align_y = True
+        self.align_z = True
+        self.orient_x = False
+        self.orient_y = False
+        self.orient_z = False
+        self.scale_x = False
+        self.scale_y = False
+        self.scale_z = False
+        self.offset_x = 0.0
+        self.offset_y = 0.0
+        self.offset_z = 0.0
+        self.use_active_orient = False
+        self.reset_requested = False
+        
+        self.source_point = 'PIVOT'
+        self.target_point = 'PIVOT'
+        return self.execute(context)
 
 classes = [
     ALEC_OT_group,

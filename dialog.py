@@ -1,6 +1,5 @@
 import bpy
 from .modules import align_tools
-from .modules import bbox_tools
 
 class ALEC_OT_align_dialog(bpy.types.Operator):
     """Align Dialog 3ds Max style"""
@@ -42,14 +41,48 @@ class ALEC_OT_align_dialog(bpy.types.Operator):
     scale_y: bpy.props.BoolProperty(name="Y", default=False, description="Match scale on Y axis") #type: ignore
     scale_z: bpy.props.BoolProperty(name="Z", default=False, description="Match scale on Z axis") #type: ignore
 
+    use_active_orient: bpy.props.BoolProperty(
+        name="Local (Active)", 
+        default=False, 
+        description="Align along the active object's local axes instead of world axes"
+    ) #type: ignore
+
+    offset_x: bpy.props.FloatProperty(name="Offset X", default=0.0, unit='LENGTH') #type: ignore
+    offset_y: bpy.props.FloatProperty(name="Offset Y", default=0.0, unit='LENGTH') #type: ignore
+    offset_z: bpy.props.FloatProperty(name="Offset Z", default=0.0, unit='LENGTH') #type: ignore
+
+    reset_requested: bpy.props.BoolProperty(name="Reset", description="Reset to defaults") #type: ignore
+
+    _initial_state = {}
+    _is_modal = False
+
     def draw(self, context):
         layout = self.layout
+
+        row = layout.row(align=True)
+        row.prop(self, "reset_requested", toggle=True, icon='FILE_REFRESH', text="Reset")
 
         row = layout.row(align=True)
         row.label(text="POS")
         row.prop(self, "align_x", toggle=True)
         row.prop(self, "align_y", toggle=True)
         row.prop(self, "align_z", toggle=True)
+        layout.prop(self, "use_active_orient")
+
+        row = layout.row(align=True)
+        row.label(text="Offset")
+        
+        sub = row.column(align=True)
+        sub.prop(self, "offset_x", text="X")
+        sub.enabled = self.align_x
+        
+        sub = row.column(align=True)
+        sub.prop(self, "offset_y", text="Y")
+        sub.enabled = self.align_y
+        
+        sub = row.column(align=True)
+        sub.prop(self, "offset_z", text="Z")
+        sub.enabled = self.align_z
 
         row = layout.row(align=True)
         col = row.column(align=True)
@@ -71,40 +104,80 @@ class ALEC_OT_align_dialog(bpy.types.Operator):
         row.prop(self, "scale_y", toggle=True)
         row.prop(self, "scale_z", toggle=True)
 
+    def invoke(self, context, event):
+        self._is_modal = True
+        self._initial_state = {}
+        target = context.active_object
+        sources = [o for o in context.selected_objects if o != target]
+        
+        # Save initial state for interactive preview
+        for obj in sources:
+            self._initial_state[obj.name] = {
+                'location': obj.location.copy(),
+                'rotation_euler': obj.rotation_euler.copy(),
+                'scale': obj.scale.copy()
+            }
+            
+        self.execute(context)
+        return context.window_manager.invoke_props_dialog(self, width=400)
+
+    def check(self, context):
+        if self.reset_requested:
+            self.align_x = False
+            self.align_y = False
+            self.align_z = False
+            self.source_point = 'PIVOT'
+            self.target_point = 'PIVOT'
+            self.orient_x = False
+            self.orient_y = False
+            self.orient_z = False
+            self.scale_x = False
+            self.scale_y = False
+            self.scale_z = False
+            self.use_active_orient = False
+            self.offset_x = 0.0
+            self.offset_y = 0.0
+            self.offset_z = 0.0
+            self.reset_requested = False
+
+        self.execute(context)
+        return True
+
+    def cancel(self, context):
+        # Restore state if cancelled
+        if getattr(self, '_is_modal', False) and self._initial_state:
+            for name, state in self._initial_state.items():
+                obj = bpy.data.objects.get(name)
+                if obj:
+                    obj.location = state['location']
+                    obj.rotation_euler = state['rotation_euler']
+                    obj.scale = state['scale']
+
     def execute(self, context):
+        # Restore state if running interactively (to handle unchecking boxes)
+        if getattr(self, '_is_modal', False) and self._initial_state:
+            for name, state in self._initial_state.items():
+                obj = bpy.data.objects.get(name)
+                if obj:
+                    obj.location = state['location']
+                    obj.rotation_euler = state['rotation_euler']
+                    obj.scale = state['scale']
+
         target = context.active_object
         sources = [o for o in context.selected_objects if o != target]
         for source in sources:
-            align_tools.align_position(source, target,
-                x=self.align_x, y=self.align_y, z=self.align_z,
-                source_point=self.source_point,
-                target_point=self.target_point)
+            # Apply rotation and scale first, so position alignment respects the new bounds
             align_tools.align_orientation(source, target,
                 x=self.orient_x, y=self.orient_y, z=self.orient_z)
             align_tools.match_scale(source, target,
                 x=self.scale_x, y=self.scale_y, z=self.scale_z)
-        return {'FINISHED'}
-
-class ALEC_OT_bboxoff_dialog(bpy.types.Operator):
-    """Create bounding box with custom offset"""
-    bl_idname = "alec.bboxoff_dialog"
-    bl_label = "BBox Offset Settings"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    # Offset property
-    offset: bpy.props.FloatProperty(
-        name="Offset Amount",
-        description="The amount to offset the bounding box from the original object",
-        default=0.5,
-        min=0.0,
-        soft_max=10.0) #type: ignore
-
-    def draw(self, context):
-        layout = self.layout
-        layout.prop(self, "offset")
-
-    def execute(self, context):
-        bbox_tools.create_offset_bbox(context.active_object, offset=self.offset)
+            
+            align_tools.align_position(source, target,
+                x=self.align_x, y=self.align_y, z=self.align_z,
+                source_point=self.source_point,
+                target_point=self.target_point,
+                use_active_orient=self.use_active_orient,
+                offset_x=self.offset_x, offset_y=self.offset_y, offset_z=self.offset_z)
         return {'FINISHED'}
 
 class ALEC_OT_modify_material_slot(bpy.types.Operator):
@@ -202,7 +275,7 @@ class ALEC_OT_material_apply_operation(bpy.types.Operator):
             swapped_back_mat = targets[0].material_slots[self.target_index].material
             
             for tgt in targets:
-                 if self.target_index < len(tgt.material_slots):
+                if self.target_index < len(tgt.material_slots):
                     tgt.material_slots[self.target_index].material = src_mat
             
             source_obj.material_slots[self.source_index].material = swapped_back_mat
@@ -325,7 +398,6 @@ class ALEC_OT_material_linker(bpy.types.Operator):
 
 classes = [
     ALEC_OT_align_dialog,
-    ALEC_OT_bboxoff_dialog,
     ALEC_OT_modify_material_slot,
     ALEC_OT_material_apply_operation,
     ALEC_OT_material_linker,

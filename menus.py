@@ -125,8 +125,9 @@ class ALEC_MT_edit_menu(bpy.types.Menu):
     def draw(self, context):
         pie = self.layout.menu_pie()
 
-        # LEFT: Collinear
+        # LEFT: Align (Collinear + Coplanar)
         col = pie.column()
+        
         box = col.box()
         box.label(text="Collinear", icon='PROP_CON')
         col_inner = box.column(align=True)
@@ -135,8 +136,6 @@ class ALEC_MT_edit_menu(bpy.types.Menu):
         op = col_inner.operator("alec.make_collinear", text="Last Two Selected")
         op.mode = 'HISTORY'
 
-        # RIGHT: Coplanar
-        col = pie.column()
         box = col.box()
         box.label(text="Coplanar", icon='GRID')
         col_inner = box.column(align=True)
@@ -145,22 +144,40 @@ class ALEC_MT_edit_menu(bpy.types.Menu):
         op = col_inner.operator("alec.make_coplanar", text="Last Three Selected")
         op.mode = 'HISTORY'
 
-        # DOWN: Distribute
-        col = pie.column()
+        # Extract
         box = col.box()
-        col_inner = box.column(align=True)
-        col_inner.operator("alec.distribute_vertices", text="Distribute Vertices", icon='NODE_TEXTURE')
+        box.label(text="Extract", icon='DUPLICATE')
+        box.operator("alec.extract_and_solidify", text="Panel (Solidify)")
 
-        # UP: Set Edge Length
+        # RIGHT: Orientation
         col = pie.column()
         box = col.box()
+        box.label(text="Orientation", icon='ORIENTATION_GLOBAL')
         col_inner = box.column(align=True)
-        col_inner.operator("alec.set_edge_length", text="Set Edge Length", icon='SEQ_STRIP_DUPLICATE')
+        op = col_inner.operator("transform.create_orientation", text="Create New", icon='ADD')
+        op.use = True
+        op.overwrite = True
         
+        # Cleanup
+        box_clean = col.box()
+        box_clean.label(text="Cleanup", icon='BRUSH_DATA')
+        box_clean.operator("alec.clean_mesh", text="Clean Planar")
+
+        # DOWN: Origin Tools (Base/Pivot)
+        col = pie.column()
         box = col.box()
         box.label(text="Origin", icon='OBJECT_ORIGIN')
-        box.operator("alec.origin_to_selected_edit", text="To Selection")
-        box.operator("alec.origin_to_selected_edit_aligned", text="To Selection (Aligned)")
+        col_inner = box.column(align=True)
+        col_inner.operator("alec.origin_to_selected_edit", text="To Selection")
+        col_inner.operator("alec.origin_to_selected_edit_aligned", text="To Selection (Aligned)")
+
+        # UP: Dimensions & Spacing (Adjustments)
+        col = pie.column()
+        box = col.box()
+        box.label(text="Dimensions", icon='DRIVER_DISTANCE')
+        col_inner = box.column(align=True)
+        col_inner.operator("alec.set_edge_length", text="Set Edge Length", icon='SEQ_STRIP_DUPLICATE')
+        col_inner.operator("alec.distribute_vertices", text="Distribute Vertices", icon='NODE_TEXTURE')
 
 class ALEC_MT_object_menu(bpy.types.Menu):
     bl_idname = "ALEC_MT_object_menu"
@@ -187,29 +204,48 @@ class ALEC_MT_object_menu(bpy.types.Menu):
         box_align = col_a.box()
         box_align.label(text="Align", icon='LIGHTPROBE_VOLUME')
         col_inner = box_align.column(align=True)
-        col_inner.operator("alec.quick_center", text="OBJ_Centers")
-        col_inner.operator("alec.quick_pivot", text="OBJ_Origins")
+        col_inner.operator("alec.quick_center", text="Align_Centers")
+        col_inner.operator("alec.quick_pivot", text="Align_Origins")
         col_inner.operator("alec.align_dialog", text="Align Dialog")
 
         # RIGHT: Modifiers
         col_right = pie.column()
         box_mods = col_right.box()
         box_mods.label(text="Modifiers", icon='MODIFIER')
-        col_inner = box_mods.column(align=True)
-        col_inner.operator("alec.boolean_op", text="Union", icon='MOD_BOOLEAN').operation = 'UNION'
-        col_inner.operator("alec.boolean_op", text="Difference", icon='MOD_BOOLEAN').operation = 'DIFFERENCE'
-        col_inner.operator("alec.boolean_op", text="Intersect", icon='MOD_BOOLEAN').operation = 'INTERSECT'
-        col_inner.separator()
-        col_inner.operator("alec.add_mirror", text="Mirror", icon='MOD_MIRROR')
-        col_inner.operator("alec.mirror_control", text="Mirror (Null)", icon='EMPTY_AXIS')
-        col_inner.operator("alec.solidify_modal", text="Solidify", icon='MOD_SOLIDIFY')
+        
+        # Booleans (2 Columns)
+        grid_bool = box_mods.grid_flow(columns=2, align=True)
+        grid_bool.operator("alec.boolean_op", text="Union", icon='MOD_BOOLEAN').operation = 'UNION'
+        grid_bool.operator("alec.boolean_op", text="Diff", icon='MOD_BOOLEAN').operation = 'DIFFERENCE'
+        grid_bool.operator("alec.boolean_op", text="Intersect", icon='MOD_BOOLEAN').operation = 'INTERSECT'
+        grid_bool.operator("alec.slice_boolean", text="Slice", icon='MOD_BOOLEAN')
+        
+        box_mods.separator()
+        
+        # Generators (1 Column)
+        col_gen = box_mods.column(align=True)
+        col_gen.operator("alec.add_mirror", text="Mirror", icon='MOD_MIRROR')
+        col_gen.operator("alec.mirror_control", text="Mirror (Null)", icon='EMPTY_AXIS')
+        col_gen.operator("alec.solidify_modal", text="Solidify", icon='MOD_SOLIDIFY')
+        col_gen.operator("alec.add_subdivision", text="Subdivision", icon='MOD_SUBSURF')
+        
+        box_mods.separator()
+        
+        # Manage (2 Columns: Apply vs Delete)
+        grid_man = box_mods.grid_flow(columns=2, align=True, row_major=True)
+        grid_man.operator("alec.modifier_action", text="Move Up", icon='TRIA_UP').action = 'MOVE_UP'
+        grid_man.operator("alec.modifier_action", text="Move Down", icon='TRIA_DOWN').action = 'MOVE_DOWN'
+        grid_man.operator("alec.modifier_action", text="Apply Last", icon='CHECKMARK').action = 'APPLY_LAST'
+        grid_man.operator("alec.modifier_action", text="Apply All", icon='FILE_TICK').action = 'APPLY_ALL'
+        grid_man.operator("alec.modifier_action", text="Del Last", icon='X').action = 'DELETE_LAST'
+        grid_man.operator("alec.modifier_action", text="Del All", icon='TRASH').action = 'DELETE_ALL'
 
         
         # DOWN: Grouping & Materials
         col_down = pie.column()
         b5 = col_down.box()
         b5.label(text="Grouping", icon='GROUP')
-        col_grp = b5.grid_flow(columns=3, align=True)
+        col_grp = b5.grid_flow(columns=2, align=True)
         col_grp.operator("alec.group", text="Group", icon='OUTLINER_OB_EMPTY')
         col_grp.operator("alec.group_active", text="Group Active", icon='EMPTY_AXIS')
         col_grp.operator("alec.ungroup", text="Ungroup", icon='MOD_EXPLODE')
@@ -228,23 +264,23 @@ class ALEC_MT_object_menu(bpy.types.Menu):
 
         box_parent = col_up.box()
         box_parent.label(text="Parenting", icon='ORIENTATION_PARENT')
-        col_inner = box_parent.grid_flow(columns=3, align=True)
+        col_inner = box_parent.grid_flow(columns=2, align=True)
         op = col_inner.operator("object.parent_set", text="Parent", icon='LINKED')
         op.type = 'OBJECT'
         op.keep_transform = True
         col_inner.operator("object.parent_clear", text="Clear Parent", icon='X').type = 'CLEAR'
-        col_inner.operator("object.parent_clear", text="Keep Transform", icon='UNLINKED').type = 'CLEAR_KEEP_TRANSFORM'
+        col_inner.operator("object.parent_clear", text="Keep Tran.", icon='UNLINKED').type = 'CLEAR_KEEP_TRANSFORM'
 
         box_origin = col_up.box()
         box_origin.label(text="Origin", icon='OBJECT_ORIGIN')
-        grid = box_origin.grid_flow(columns=3, align=True)
+        grid = box_origin.grid_flow(columns=2, align=True)
         op = grid.operator("object.origin_set", text="BBox", icon='PIVOT_BOUNDBOX')
         op.type = 'ORIGIN_GEOMETRY'
         op.center = 'BOUNDS'
         grid.operator("object.origin_set", text="To Cursor", icon='PIVOT_CURSOR').type = 'ORIGIN_CURSOR'
         grid.operator("alec.origin_to_cursor", text="To Cur (Rot)", icon='ORIENTATION_GIMBAL')
         grid.operator("alec.origin_to_active", text="To Active", icon='PIVOT_ACTIVE')
-        grid.operator("alec.origin_to_bottom", text="To Bottom", icon='TRIA_DOWN')
+        grid.operator("alec.origin_to_bottom", text="To Bott.", icon='TRIA_DOWN')
 
 
 

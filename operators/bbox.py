@@ -1,6 +1,7 @@
 import bpy
 from ..modules import bbox_tools, utils
 from ..modules.modal_handler import ModalNumberInput, update_modal_header
+from ..modules.utils import unit_suffixes, draw_modal_status_bar
 
 class ALEC_OT_bbox_offset_modal(bpy.types.Operator):
     """Create an offset of a mesh object with interactive mouse and keyboard control."""
@@ -24,9 +25,15 @@ class ALEC_OT_bbox_offset_modal(bpy.types.Operator):
     @staticmethod
     def draw_status_bar(panel_self, context):
         self = ALEC_OT_bbox_offset_modal._active_instance
-        if not self: return
-        row = panel_self.layout.row(align=True)
-        row.label(text="Confirm: [LMB] | Cancel: [RMB] | Reset: [R]")
+        if not self:
+            return
+
+        items = [
+            ("Confirm", "[LMB]"),
+            ("Cancel", "[RMB]"),
+            ("Reset", "[R]"),
+        ]
+        draw_modal_status_bar(panel_self.layout, items)
 
     def cleanup(self, context):
         """Remove modal state and drawings."""
@@ -37,15 +44,6 @@ class ALEC_OT_bbox_offset_modal(bpy.types.Operator):
             pass  # Fails if not found
         context.area.tag_redraw()
         context.area.header_text_set(None)
-
-    def get_unit_suffix(self, context):
-        """Get the length unit suffix for display."""
-        unit_setting = context.scene.unit_settings.length_unit
-        unit_suffixes = {
-            'METERS': 'm', 'CENTIMETERS': 'cm', 'MILLIMETERS': 'mm', 'KILOMETERS': 'km',
-            'MICROMETERS': 'μm', 'FEET': "'", 'INCHES': '"', 'MILES': 'mi', 'THOU': 'thou'
-        }
-        return unit_suffixes.get(unit_setting, '')
 
     def invoke(self, context, event):
         """Setup for the modal operator."""
@@ -128,7 +126,7 @@ class ALEC_OT_bbox_offset_modal(bpy.types.Operator):
         bbox_tools.update_interactive_offset_bbox(self.offset_obj, offset, self.orig_coords, self.orig_normals)
         
         display_dist = offset * self.unit_scale_display_inv
-        suffix = self.get_unit_suffix(context)
+        suffix = unit_suffixes.get(context.scene.unit_settings.length_unit, '')
         update_modal_header(context, "Offset", display_dist, self.number_input.value_str, suffix)
 
 classes = [

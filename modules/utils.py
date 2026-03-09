@@ -2,6 +2,35 @@ import bpy
 import numpy as np
 from mathutils import Vector
 
+def get_bounds_in_space(obj, space_matrix):
+    """
+    Calculates the min/max bounds of an object's vertices within a given coordinate space.
+    'space_matrix' is the world matrix of the coordinate space (e.g., target.matrix_world).
+    Returns (min_bound, max_bound) in that space's local coordinates.
+    """
+    bpy.context.view_layer.update()
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    obj_eval = obj.evaluated_get(depsgraph)
+    mesh_eval = obj_eval.to_mesh()
+
+    if not mesh_eval.vertices:
+        obj_eval.to_mesh_clear()
+        # Return a zero vector if there are no vertices
+        return (Vector((0,0,0)), Vector((0,0,0)))
+
+    # Matrix to transform from obj's local space to the target space
+    transform_matrix = space_matrix.inverted() @ obj_eval.matrix_world
+
+    # Transform all vertices
+    coords = [transform_matrix @ v.co for v in mesh_eval.vertices]
+    obj_eval.to_mesh_clear()
+
+    # Find min/max in the target space
+    min_bound = Vector((min(v.x for v in coords), min(v.y for v in coords), min(v.z for v in coords)))
+    max_bound = Vector((max(v.x for v in coords), max(v.y for v in coords), max(v.z for v in coords)))
+    
+    return (min_bound, max_bound)
+
 def get_bounds_data(obj, point_type='CENTER', space='LOCAL'):
     """
     Calculates critical points based on local or world space bounding boxes.
@@ -56,59 +85,66 @@ def apply_align_move(obj, delta_world):
     obj.matrix_world.translation += delta_world
     bpy.context.view_layer.update()
 
+unit_suffixes = {
+    'NONE': '',
+    'METERS': 'm',
+    'CENTIMETERS': 'cm',
+    'MILLIMETERS': 'mm',
+    'MICROMETERS': 'μm',
+    'KILOMETERS': 'km',
+    'MILES': 'mi',
+    'FEET': 'ft',
+    'INCHES': '"',
+    'THOU': 'thou',
+}
+
 def get_unit_scale(context):
     """
-    Returns the appropriate scale factor to convert a scene unit value 
-    to Blender's internal units (meters).
+    Returns the scale factor to convert from the current display unit to Blender's internal meters.
+    e.g., if scene is in 'CM', returns 0.01.
     """
-    settings = context.scene.unit_settings
-    
-    if settings.system in {'METRIC', 'IMPERIAL'}:
-        
-        # Conversion factors to meters
-        factors = {
-            'METRIC': {
-                'METERS': 1.0,
-                'CENTIMETERS': 0.01,
-                'MILLIMETERS': 0.001,
-                'KILOMETERS': 1000.0,
-                'MICROMETERS': 0.000001,
-            },
-            'IMPERIAL': {
-                'FEET': 0.3048,
-                'INCHES': 0.0254,
-                'MILES': 1609.34,
-                'THOU': 0.0000254,
-            }
-        }
-        
-        unit_system_factors = factors.get(settings.system)
-        if unit_system_factors:
-            factor = unit_system_factors.get(settings.length_unit, 1.0)
-            return settings.scale_length * factor
+    return context.scene.unit_settings.scale_length
 
-    return settings.scale_length
-
-
-def find_farthest_vertices(vertices):
+def find_farthest_vertices(verts):
     """
-    Finds the two most distant vertices from a list of vertices.
-    Returns a tuple (v_start, v_end), or (None, None) if not enough vertices.
+    Finds the two most distant vertices from a list of bmesh vertices.
+    Returns a tuple (v1, v2).
     """
-    if len(vertices) < 2:
+    if len(verts) < 2:
         return None, None
 
-    v_start, v_end = None, None
+    v_a, v_b = None, None
     max_dist_sq = -1.0
-    
-    for i in range(len(vertices)):
-        for j in range(i + 1, len(vertices)):
-            v_i = vertices[i]
-            v_j = vertices[j]
-            dist_sq = (v_i.co - v_j.co).length_squared
+
+    for i in range(len(verts)):
+        for j in range(i + 1, len(verts)):
+            dist_sq = (verts[i].co - verts[j].co).length_squared
             if dist_sq > max_dist_sq:
                 max_dist_sq = dist_sq
-                v_start = v_i
-                v_end = v_j
+                v_a, v_b = verts[i], verts[j]
     
-    return v_start, v_end
+    return v_a, v_b
+
+def draw_modal_status_bar(layout, items):
+    """
+    Draws a consistent status bar for modal operators.
+    'items' is a list of tuples: (label, value, is_active_flag) or None for a separator.
+    """
+    row = layout.row(align=True)
+    row.alignment = 'CENTER'
+    
+    for item in items:
+        if item is None:
+            row.separator(factor=2)
+            continue
+            
+        label, value, *active = item
+        is_active = active[0] if active else False
+        
+        sub_row = row.row(align=True)
+        if is_active:
+            sub_row.alert = True
+        
+        if label:
+            sub_row.label(text=f"{label}:")
+        sub_row.label(text=value)

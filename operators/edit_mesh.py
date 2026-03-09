@@ -3,7 +3,7 @@ import bpy
 import bmesh
 from ..modules import utils
 from ..modules.modal_handler import ModalNumberInput, update_modal_header
-from ..modules.utils import find_farthest_vertices
+from ..modules.utils import find_farthest_vertices, unit_suffixes, draw_modal_status_bar
 
 class ALEC_OT_set_edge_length(bpy.types.Operator):
     """Set the length of the selected edge interactively"""
@@ -19,26 +19,15 @@ class ALEC_OT_set_edge_length(bpy.types.Operator):
         if not self:
             return
 
-        layout = panel_self.layout
-        row = layout.row(align=True)
-
-        row.label(text="Anchor:")
-        
-        anchor_row = row.row(align=True)
-        sub = anchor_row.row(align=True)
-        sub.alert = self.anchor_mode == 'ACTIVE'
-        sub.label(text="[A] Active")
-
-        sub = anchor_row.row(align=True)
-        sub.alert = self.anchor_mode == 'OTHER'
-        sub.label(text="[B] Other")
-
-        sub = anchor_row.row(align=True)
-        sub.alert = self.anchor_mode == 'CENTER'
-        sub.label(text="[C] Center")
-        
-        row.separator()
-        row.label(text="Confirm: [LMB] | Cancel: [RMB]")
+        items = [
+            ("Anchor", "[A] Active", self.anchor_mode == 'ACTIVE'),
+            ("", "[B] Other", self.anchor_mode == 'OTHER'),
+            ("", "[C] Center", self.anchor_mode == 'CENTER'),
+            None, # Separator
+            ("Confirm", "[LMB]"),
+            ("Cancel", "[RMB]"),
+        ]
+        draw_modal_status_bar(panel_self.layout, items)
 
     def cleanup(self, context):
         ALEC_OT_set_edge_length._active_instance = None
@@ -51,10 +40,6 @@ class ALEC_OT_set_edge_length(bpy.types.Operator):
 
     def update_header_text(self, context):
         unit_setting = context.scene.unit_settings.length_unit
-        unit_suffixes = {
-            'METERS': 'm', 'CENTIMETERS': 'cm', 'MILLIMETERS': 'mm', 'KILOMETERS': 'km',
-            'MICROMETERS': 'μm', 'FEET': "'", 'INCHES': '"', 'MILES': 'mi', 'THOU': 'thou'
-        }
         suffix = unit_suffixes.get(unit_setting, '')
 
         len_val = self.current_length * self.unit_scale_display_inv
@@ -448,9 +433,67 @@ class ALEC_OT_distribute_vertices(bpy.types.Operator):
         bmesh.update_edit_mesh(me)
         return {'FINISHED'}
 
+class ALEC_OT_clean_mesh(bpy.types.Operator):
+    """Dissolve redundant edges on flat surfaces and merge double vertices"""
+    bl_idname = "alec.clean_mesh"
+    bl_label = "Clean Mesh"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    angle_limit: bpy.props.FloatProperty(
+        name="Angle Limit",
+        default=0.0872665, # 5 degrees in radians
+        subtype='ANGLE',
+        description="Max angle between faces to dissolve"
+    ) # type: ignore
+
+    @classmethod
+    def poll(cls, context):
+        return context.active_object and context.mode == 'EDIT_MESH'
+
+    def execute(self, context):
+        bpy.ops.mesh.remove_doubles()
+        bpy.ops.mesh.dissolve_limited(angle_limit=self.angle_limit)
+        return {'FINISHED'}
+
+class ALEC_OT_extract_and_solidify(bpy.types.Operator):
+    """Duplicate selected faces, separate them, and add Solidify"""
+    bl_idname = "alec.extract_and_solidify"
+    bl_label = "Extract & Solidify"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return context.mode == 'EDIT_MESH' and context.active_object
+
+    def execute(self, context):
+        bpy.ops.mesh.duplicate()
+        bpy.ops.mesh.separate(type='SELECTED')
+        bpy.ops.object.mode_set(mode='OBJECT')
+        
+        active = context.active_object
+        selected = context.selected_objects
+        new_obj = None
+        
+        for obj in selected:
+            if obj != active:
+                new_obj = obj
+                break
+        
+        if new_obj:
+            bpy.ops.object.select_all(action='DESELECT')
+            new_obj.select_set(True)
+            context.view_layer.objects.active = new_obj
+            
+            # Trigger the modal solidify operator
+            bpy.ops.alec.solidify_modal('INVOKE_DEFAULT')
+            
+        return {'FINISHED'}
+
 classes = [
     ALEC_OT_set_edge_length,
     ALEC_OT_make_collinear,
     ALEC_OT_make_coplanar,
     ALEC_OT_distribute_vertices,
+    ALEC_OT_clean_mesh,
+    ALEC_OT_extract_and_solidify,
 ]
