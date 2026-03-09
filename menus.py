@@ -1,4 +1,5 @@
 import bpy
+import math
 
 addon_keymaps = []
 
@@ -189,6 +190,10 @@ class ALEC_MT_edit_menu(bpy.types.Menu):
         
         col_inner.operator("alec.dimension_action", text="Clear All", icon='TRASH').action = 'CLEAR'
         col_inner.operator("alec.select_dimension_edges", text="Select Dim Edges", icon='RESTRICT_SELECT_OFF')
+
+        col_inner.separator()
+        col_inner.operator("alec.set_edge_angle", text="Set to 90°", icon='IPO_CONSTANT').angle = math.pi / 2.0
+        col_inner.operator("alec.set_edge_angle", text="Set Angle...", icon='IPO_EASE_IN_OUT').run_modal = True
 
 class ALEC_MT_object_menu(bpy.types.Menu):
     bl_idname = "ALEC_MT_object_menu"

@@ -189,7 +189,7 @@ class ALEC_OT_mirror_control(bpy.types.Operator):
         context.area.tag_redraw()
 
         # --- Finish or Cancel ---
-        if event.type in {'LEFTMOUSE', 'ENTER'}:
+        if event.type in {'LEFTMOUSE', 'RET', 'NUMPAD_ENTER'}:
             if self.number_input.has_value(): # Apply final typed value
                 self.apply_typed_value(event)
             self.cleanup(context)
@@ -348,7 +348,7 @@ class ALEC_OT_solidify_modal(bpy.types.Operator):
         context.area.tag_redraw()
 
         # --- Finish or Cancel ---
-        if event.type in {'LEFTMOUSE', 'ENTER'}:
+        if event.type in {'LEFTMOUSE', 'RET', 'NUMPAD_ENTER'}:
             self.cleanup(context)
             return {'FINISHED'}
 

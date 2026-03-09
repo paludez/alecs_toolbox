@@ -5,6 +5,8 @@ from ..modules import utils
 import blf
 import gpu
 from bpy_extras.view3d_utils import location_3d_to_region_2d
+import math
+from mathutils import Matrix
 from ..modules.modal_handler import ModalNumberInput, update_modal_header
 from ..modules.utils import find_farthest_vertices, unit_suffixes, draw_modal_status_bar
 
@@ -240,7 +242,7 @@ class ALEC_OT_set_edge_length(bpy.types.Operator):
         context.area.tag_redraw()
 
         # --- Finish or Cancel ---
-        if event.type in {'LEFTMOUSE', 'ENTER'}:
+        if event.type in {'LEFTMOUSE', 'RET', 'NUMPAD_ENTER'}:
             self.cleanup(context)
             return {'FINISHED'}
 
@@ -422,6 +424,157 @@ class ALEC_OT_select_dimension_edges(bpy.types.Operator):
         bm.select_flush(True)
         bmesh.update_edit_mesh(obj.data)
         return {'FINISHED'}
+
+class ALEC_OT_set_edge_angle(bpy.types.Operator):
+    """Set the angle between two edges by rotating the selection"""
+    bl_idname = "alec.set_edge_angle"
+    bl_label = "Set Edge Angle"
+    bl_options = {'REGISTER', 'UNDO', 'BLOCKING', 'GRAB_CURSOR'}
+
+    angle: bpy.props.FloatProperty(
+        name="Angle", subtype='ANGLE', default=math.pi / 2.0,
+        description="The target angle between the edges"
+    ) # type: ignore
+
+    run_modal: bpy.props.BoolProperty(
+        name="Interactive", default=False,
+        description="Run in interactive modal mode"
+    ) # type: ignore
+
+    _active_instance = None
+    _initial_state = {}
+    _bm = None
+    _obj = None
+    _pivot_vert_co = None
+    _rot_axis = None
+    _stationary_vec = None
+    _verts_to_transform_indices = []
+    _initial_angle = 0.0
+    _current_angle = 0.0
+
+    @staticmethod
+    def draw_status_bar(panel_self, context):
+        self = ALEC_OT_set_edge_angle._active_instance
+        if not self: return
+        items = [("Confirm", "[LMB]"), ("Cancel", "[RMB]")]
+        draw_modal_status_bar(panel_self.layout, items)
+
+    def cleanup(self, context):
+        ALEC_OT_set_edge_angle._active_instance = None
+        try:
+            bpy.types.STATUSBAR_HT_header.remove(ALEC_OT_set_edge_angle.draw_status_bar)
+        except: pass
+        context.area.header_text_set(None)
+        context.area.tag_redraw()
+
+    def update_header_text(self, context):
+        angle_deg = math.degrees(self._current_angle)
+        secondary = ""
+        if not self.number_input.has_value():
+            init_angle_deg = math.degrees(self._initial_angle)
+            secondary = f"Initial: {init_angle_deg:.2f}°"
+        update_modal_header(context, "Angle", angle_deg, self.number_input.value_str, "°", secondary_text=secondary)
+
+    @classmethod
+    def poll(cls, context):
+        if not (context.active_object and context.mode == 'EDIT_MESH'):
+            return False
+        try:
+            bm = bmesh.from_edit_mesh(context.active_object.data)
+            history = [elem for elem in bm.select_history if isinstance(elem, bmesh.types.BMEdge)]
+            return len(history) >= 2
+        except:
+            return False
+
+    def _get_op_data(self, context):
+        self._obj = context.active_object
+        self._bm = bmesh.from_edit_mesh(self._obj.data)
+        self._bm.select_flush(False)
+
+        history = [elem for elem in self._bm.select_history if isinstance(elem, bmesh.types.BMEdge)]
+        if len(history) < 2:
+            self.report({'WARNING'}, "Select two edges in order (last one is stationary)")
+            return False
+
+        stationary_edge, moving_edge = history[-1], history[-2]
+        common_verts = set(stationary_edge.verts) & set(moving_edge.verts)
+        if not common_verts:
+            self.report({'WARNING'}, "Edges must share a common vertex")
+            return False
+        pivot_vert = common_verts.pop()
+        self._pivot_vert_co = pivot_vert.co.copy()
+
+        v_stat = [v for v in stationary_edge.verts if v != pivot_vert][0]
+        v_mov = [v for v in moving_edge.verts if v != pivot_vert][0]
+        self._stationary_vec = (v_stat.co - self._pivot_vert_co).normalized()
+        moving_vec = (v_mov.co - self._pivot_vert_co).normalized()
+
+        self._rot_axis = self._stationary_vec.cross(moving_vec)
+        if self._rot_axis.length < 1e-6:
+            self.report({'WARNING'}, "Edges are collinear, cannot determine rotation axis")
+            return False
+        self._rot_axis.normalize()
+
+        self._initial_angle = self._stationary_vec.angle(moving_vec)
+        self._current_angle = self._initial_angle
+
+        stationary_verts_indices = {v.index for v in stationary_edge.verts}
+        self._verts_to_transform_indices = [v.index for v in self._bm.verts if v.select and v.index not in stationary_verts_indices]
+        self._bm.verts.ensure_lookup_table()
+        self._initial_state = {idx: self._bm.verts[idx].co.copy() for idx in self._verts_to_transform_indices}
+        return True
+
+    def _apply_rotation(self, target_angle):
+        angle_delta = target_angle - self._initial_angle
+        rot_mat = Matrix.Rotation(angle_delta, 4, self._rot_axis)
+        T = Matrix.Translation(self._pivot_vert_co)
+        transform_mat = T @ rot_mat @ T.inverted()
+
+        self._bm.verts.ensure_lookup_table()
+        for v_idx in self._verts_to_transform_indices:
+            v = self._bm.verts[v_idx]
+            v.co = transform_mat @ self._initial_state[v_idx]
+        bmesh.update_edit_mesh(self._obj.data)
+
+    def execute(self, context):
+        if not self._get_op_data(context): return {'CANCELLED'}
+        self._apply_rotation(self.angle)
+        return {'FINISHED'}
+
+    def invoke(self, context, event):
+        if not self.run_modal: return self.execute(context)
+        if not self._get_op_data(context): return {'CANCELLED'}
+
+        self.number_input = ModalNumberInput()
+        self.initial_mouse_x = event.mouse_x
+        ALEC_OT_set_edge_angle._active_instance = self
+        bpy.types.STATUSBAR_HT_header.prepend(ALEC_OT_set_edge_angle.draw_status_bar)
+        context.window_manager.modal_handler_add(self)
+        self.update_header_text(context)
+        return {'RUNNING_MODAL'}
+
+    def modal(self, context, event):
+        context.area.tag_redraw()
+        if event.type in {'LEFTMOUSE', 'RET', 'NUMPAD_ENTER'}:
+            self.cleanup(context)
+            return {'FINISHED'}
+        if event.type in {'RIGHTMOUSE', 'ESC'}:
+            self._apply_rotation(self._initial_angle)
+            self.cleanup(context)
+            return {'CANCELLED'}
+        if self.number_input.handle_event(event): pass
+        elif event.type == 'MOUSEMOVE':
+            self.number_input.reset()
+            delta_x = event.mouse_x - self.initial_mouse_x
+            sens = 0.005 * (0.1 if event.shift else 1.0)
+            self._current_angle = self._initial_angle + delta_x * sens
+            self._apply_rotation(self._current_angle)
+        if self.number_input.has_value():
+            try: self._current_angle = math.radians(self.number_input.get_value())
+            except ValueError: pass
+            self._apply_rotation(self._current_angle)
+        self.update_header_text(context)
+        return {'RUNNING_MODAL'}
 
 class ALEC_OT_make_collinear(bpy.types.Operator):
     """Makes selected vertices collinear"""
@@ -689,6 +842,7 @@ classes = [
     ALEC_OT_set_edge_length,
     ALEC_OT_dimension_action,
     ALEC_OT_select_dimension_edges,
+    ALEC_OT_set_edge_angle,
     ALEC_OT_make_collinear,
     ALEC_OT_make_coplanar,
     ALEC_OT_clean_mesh,

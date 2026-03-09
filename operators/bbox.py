@@ -89,7 +89,7 @@ class ALEC_OT_bbox_offset_modal(bpy.types.Operator):
         offset = 0.0
 
         # --- Finish or Cancel ---
-        if event.type in {'LEFTMOUSE', 'ENTER'}:
+        if event.type in {'LEFTMOUSE', 'RET', 'NUMPAD_ENTER'}:
             self.cleanup(context)
             # Final selection setup
             bpy.ops.object.select_all(action='DESELECT')
