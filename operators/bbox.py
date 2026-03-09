@@ -2,8 +2,20 @@ import bpy
 from ..modules import bbox_tools, utils
 from ..modules.modal_handler import ModalNumberInput, update_modal_header
 from ..modules.utils import unit_suffixes, draw_modal_status_bar
-from .base import BBoxOperatorBase
 
+class BBoxOperatorBase:
+    bl_options = {'REGISTER', 'UNDO'}
+    mode: str = ""
+
+    def execute(self, context):
+        if not self.mode:
+            self.report({'ERROR'}, "Mode not set in BBox operator subclass") # type: ignore
+            return {'CANCELLED'}
+        
+        # Delegate to bbox_tools
+        bbox_tools.create_bbox(context, mode=self.mode)
+        return {'FINISHED'}
+        
 class ALEC_OT_bbox_offset_modal(bpy.types.Operator):
     """Create an offset of a mesh object with interactive mouse and keyboard control."""
     bl_idname = "alec.bbox_offset_modal"

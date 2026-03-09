@@ -2,8 +2,104 @@
 import bpy
 import bmesh
 from ..modules import utils
+import blf
+import gpu
+from bpy_extras.view3d_utils import location_3d_to_region_2d
 from ..modules.modal_handler import ModalNumberInput, update_modal_header
 from ..modules.utils import find_farthest_vertices, unit_suffixes, draw_modal_status_bar
+
+_draw_handler = None
+_draw_data = {}
+
+def depsgraph_update_handler(scene):
+    """Clear draw data if Edit Mode is exited or target object is invalid."""
+    global _draw_handler, _draw_data
+    if not _draw_data:
+        return
+
+    should_clear = False
+    
+    # 1. Check Mode: If not in Edit Mode, wipe everything.
+    if bpy.context.mode != 'EDIT_MESH':
+        should_clear = True
+    else:
+        # 2. Check Object Validity
+        obj_name = _draw_data.get('object_name')
+        mesh_name = _draw_data.get('mesh_name')
+        obj = bpy.data.objects.get(obj_name) if obj_name else None
+        
+        if not obj or not mesh_name or obj.data.name != mesh_name:
+            should_clear = True
+
+    if should_clear:
+        if _draw_handler:
+            try:
+                bpy.types.SpaceView3D.draw_handler_remove(_draw_handler, 'WINDOW')
+            except ValueError:
+                pass # Already removed
+            _draw_handler = None
+        _draw_data.clear()
+        
+        # Force redraw to remove text from all views
+        for window in bpy.context.window_manager.windows:
+            for area in window.screen.areas:
+                if area.type == 'VIEW_3D':
+                    area.tag_redraw()
+
+def unregister_draw_handler():
+    """Force remove the draw handler when unregistering the addon."""
+    global _draw_handler
+    if _draw_handler:
+        try:
+            bpy.types.SpaceView3D.draw_handler_remove(_draw_handler, 'WINDOW')
+        except ValueError:
+            pass # Already removed
+        _draw_handler = None
+
+def draw_callback_px(context):
+    """Draw handler to display edge lengths in the 3D View."""
+    if context.mode != 'EDIT_MESH' or not context.edit_object:
+        return
+
+    obj = context.edit_object
+    # Ensure we are drawing for the correct object and mesh datablock
+    if not _draw_data or obj.name != _draw_data.get('object_name') or obj.data.name != _draw_data.get('mesh_name'):
+        return
+
+    bm = bmesh.from_edit_mesh(obj.data)
+    bm.edges.ensure_lookup_table()
+    
+    edge_indices = _draw_data.get('edge_indices', [])
+    if not edge_indices:
+        return
+
+    world_mx = obj.matrix_world
+    region = context.region
+    region_3d = context.space_data.region_3d
+    
+    font_id = 0  # Default font
+    font_size = 12
+    blf.size(font_id, font_size)
+    blf.color(font_id, 1.0, 1.0, 1.0, 1.0) # White text
+    blf.shadow(font_id, 3, 0.0, 0.0, 0.0, 0.8) # Black shadow
+
+    for idx in edge_indices:
+        if idx >= len(bm.edges):
+            continue
+        edge = bm.edges[idx]
+        
+        v1_world = world_mx @ edge.verts[0].co
+        v2_world = world_mx @ edge.verts[1].co
+        
+        length = (v1_world - v2_world).length
+        mid_point_world = (v1_world + v2_world) / 2.0
+        
+        pos_2d = location_3d_to_region_2d(region, region_3d, mid_point_world)
+        if pos_2d:
+            display_length = length * _draw_data.get('unit_inv', 1.0)
+            text = f"{display_length:.4f}{_draw_data.get('suffix', '')}"
+            blf.position(font_id, pos_2d.x - blf.dimensions(font_id, text)[0] / 2, pos_2d.y, 0)
+            blf.draw(font_id, text)
 
 class ALEC_OT_set_edge_length(bpy.types.Operator):
     """Set the length of the selected edge interactively"""
@@ -65,21 +161,25 @@ class ALEC_OT_set_edge_length(bpy.types.Operator):
     def apply_length(self):
         world_direction = self.world_direction
         
-        if self.anchor_mode == 'ACTIVE':
-            stationary_co = self.world_mx @ self.active_vert.co
-            moved_co = self.world_mx @ self.other_vert.co
-            new_moved_co = stationary_co + world_direction * self.current_length
-            self.other_vert.co = self.inv_world_mx @ new_moved_co
-        elif self.anchor_mode == 'OTHER':
-            stationary_co = self.world_mx @ self.other_vert.co
-            moved_co = self.world_mx @ self.active_vert.co
-            new_moved_co = stationary_co - world_direction * self.current_length
-            self.active_vert.co = self.inv_world_mx @ new_moved_co
-        elif self.anchor_mode == 'CENTER':
+        if self.anchor_mode == 'CENTER':
             world_center_point = (self.world_mx @ self.v1.co + self.world_mx @ self.v2.co) / 2
             half_length = self.current_length / 2
             self.v1.co = self.inv_world_mx @ (world_center_point - world_direction * half_length)
             self.v2.co = self.inv_world_mx @ (world_center_point + world_direction * half_length)
+        else:
+            # Determine stationary and moved vertices based on mode
+            if self.anchor_mode == 'ACTIVE':
+                stationary_vert, moved_vert = self.active_vert, self.other_vert
+            else: # OTHER
+                stationary_vert, moved_vert = self.other_vert, self.active_vert
+
+            stationary_co = self.world_mx @ stationary_vert.co
+            
+            # Direction is v1 -> v2. If stationary is v1, we add. If stationary is v2, we subtract.
+            sign = 1.0 if stationary_vert == self.v1 else -1.0
+            
+            new_moved_co = stationary_co + (world_direction * sign) * self.current_length
+            moved_vert.co = self.inv_world_mx @ new_moved_co
 
         bmesh.update_edit_mesh(self.me)
 
@@ -200,6 +300,128 @@ class ALEC_OT_set_edge_length(bpy.types.Operator):
         self.update_header_text(context)
         return {'RUNNING_MODAL'}
 
+class ALEC_OT_dimension_action(bpy.types.Operator):
+    """Manage Edge Dimensions: Add, Remove, Clear"""
+    bl_idname = "alec.dimension_action"
+    bl_label = "Dimension Action"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    action: bpy.props.EnumProperty(
+        items=[
+            ('ADD', "Add Selected", "Add dimensions to selected edges"),
+            ('REMOVE', "Remove Selected", "Remove dimensions from selected edges"),
+            ('CLEAR', "Clear All", "Clear all dimensions"),
+        ]
+    ) # type: ignore
+
+    @classmethod
+    def poll(cls, context):
+        return context.mode == 'EDIT_MESH'
+
+    def _update_handler(self, context, has_items):
+        global _draw_handler
+        if has_items and not _draw_handler:
+            _draw_handler = bpy.types.SpaceView3D.draw_handler_add(draw_callback_px, (context,), 'WINDOW', 'POST_PIXEL')
+        elif not has_items and _draw_handler:
+            bpy.types.SpaceView3D.draw_handler_remove(_draw_handler, 'WINDOW')
+            _draw_handler = None
+
+    def execute(self, context):
+        global _draw_data
+        
+        # Aggressive Clear: Wipe everything and stop handler immediately
+        if self.action == 'CLEAR':
+            _draw_data.clear()
+            self._update_handler(context, False)
+            self.report({'INFO'}, "All dimensions cleared")
+            for area in context.screen.areas:
+                if area.type == 'VIEW_3D':
+                    area.tag_redraw()
+            return {'FINISHED'}
+
+        obj = context.edit_object
+        bm = bmesh.from_edit_mesh(obj.data)
+        
+        # Reset data if we switched objects
+        if _draw_data.get('object_name') != obj.name or _draw_data.get('mesh_name') != obj.data.name:
+            _draw_data.clear()
+            _draw_data['object_name'] = obj.name
+            _draw_data['mesh_name'] = obj.data.name
+            _draw_data['edge_indices'] = []
+
+        # Update unit settings (in case they changed)
+        unit_scale = utils.get_unit_scale(context)
+        unit_setting = context.scene.unit_settings.length_unit
+        _draw_data['unit_inv'] = 1.0 / unit_scale if unit_scale != 0 else 1.0
+        _draw_data['suffix'] = unit_suffixes.get(unit_setting, '')
+
+        current_indices = set(_draw_data.get('edge_indices', []))
+        selected_indices = set(e.index for e in bm.edges if e.select)
+
+        if self.action == 'ADD':
+            if not selected_indices:
+                self.report({'WARNING'}, "Select edges first")
+                return {'CANCELLED'}
+            current_indices.update(selected_indices)
+            self.report({'INFO'}, f"Dimensions added")
+
+        elif self.action == 'REMOVE':
+            if not selected_indices:
+                self.report({'WARNING'}, "Select edges first")
+                return {'CANCELLED'}
+            current_indices.difference_update(selected_indices)
+            self.report({'INFO'}, f"Dimensions removed")
+
+        # Save back to global data
+        _draw_data['edge_indices'] = list(current_indices)
+        
+        # Manage the draw handler
+        self._update_handler(context, bool(current_indices))
+
+        # Redraw all 3D views to show/hide the text immediately
+        for area in context.screen.areas:
+            if area.type == 'VIEW_3D':
+                area.tag_redraw()
+        return {'FINISHED'}
+
+class ALEC_OT_select_dimension_edges(bpy.types.Operator):
+    """Select edges that currently have dimensions displayed"""
+    bl_idname = "alec.select_dimension_edges"
+    bl_label = "Select Dimension Edges"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return context.mode == 'EDIT_MESH'
+
+    def execute(self, context):
+        obj = context.edit_object
+        if not _draw_data or obj.name != _draw_data.get('object_name') or obj.data.name != _draw_data.get('mesh_name'):
+            self.report({'WARNING'}, "No dimensions displayed for this object")
+            return {'CANCELLED'}
+        
+        indices = _draw_data.get('edge_indices', [])
+        if not indices:
+            return {'CANCELLED'}
+
+        bm = bmesh.from_edit_mesh(obj.data)
+        bm.edges.ensure_lookup_table()
+        
+        # Deselect all first
+        for e in bm.edges: e.select = False
+        for v in bm.verts: v.select = False
+        for f in bm.faces: f.select = False
+            
+        for idx in indices:
+            if idx < len(bm.edges):
+                bm.edges[idx].select = True
+                # Ensure vertices are selected so the edge selection persists
+                bm.edges[idx].verts[0].select = True
+                bm.edges[idx].verts[1].select = True
+        
+        bm.select_flush(True)
+        bmesh.update_edit_mesh(obj.data)
+        return {'FINISHED'}
 
 class ALEC_OT_make_collinear(bpy.types.Operator):
     """Makes selected vertices collinear"""
@@ -224,6 +446,12 @@ class ALEC_OT_make_collinear(bpy.types.Operator):
         min=0.0,
         max=1.0,
         subtype='FACTOR'
+    ) # type: ignore
+
+    distribute: bpy.props.BoolProperty(
+        name="Distribute",
+        description="Evenly distribute vertices along the line",
+        default=False
     ) # type: ignore
 
     @classmethod
@@ -273,14 +501,34 @@ class ALEC_OT_make_collinear(bpy.types.Operator):
             
         line_direction = line_vector.normalized()
 
+        # Calculate projections for all selected vertices
+        # List of tuples: (distance_along_line, vertex)
+        projections = []
         for v in selected_verts:
-            projected_world_co = line_origin + (world_mx @ v.co - line_origin).dot(line_direction) * line_direction
-            target_local_co = inv_world_mx @ projected_world_co
-            v.co = v.co * (1.0 - self.factor) + target_local_co * self.factor
+            vec = world_mx @ v.co - line_origin
+            dist = vec.dot(line_direction)
+            projections.append((dist, v))
+
+        if self.distribute and len(projections) > 1:
+            projections.sort(key=lambda x: x[0])
+            start_dist = projections[0][0]
+            end_dist = projections[-1][0]
+            total_len = end_dist - start_dist
+            
+            for i, (dist, v) in enumerate(projections):
+                fraction = i / (len(projections) - 1)
+                target_dist = start_dist + total_len * fraction
+                target_world_co = line_origin + line_direction * target_dist
+                target_local_co = inv_world_mx @ target_world_co
+                v.co = v.co * (1.0 - self.factor) + target_local_co * self.factor
+        else:
+            for dist, v in projections:
+                target_world_co = line_origin + line_direction * dist
+                target_local_co = inv_world_mx @ target_world_co
+                v.co = v.co * (1.0 - self.factor) + target_local_co * self.factor
 
         bmesh.update_edit_mesh(me)
         return {'FINISHED'}
-
 
 class ALEC_OT_make_coplanar(bpy.types.Operator):
     """Makes selected vertices coplanar"""
@@ -381,58 +629,6 @@ class ALEC_OT_make_coplanar(bpy.types.Operator):
         bmesh.update_edit_mesh(me)
         return {'FINISHED'}
 
-
-class ALEC_OT_distribute_vertices(bpy.types.Operator):
-    """Spaces selected vertices evenly along the line connecting the two most distant ones"""
-    bl_idname = "alec.distribute_vertices"
-    bl_label = "Distribute Vertices"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    @classmethod
-    def poll(cls, context):
-        return (context.active_object is not None and
-                context.active_object.type == 'MESH' and
-                context.mode == 'EDIT_MESH')
-
-    def execute(self, context):
-        obj = context.active_object
-        me = obj.data
-        bm = bmesh.from_edit_mesh(me)
-
-        selected_verts = [v for v in bm.verts if v.select]
-
-        if len(selected_verts) < 3:
-            self.report({'WARNING'}, "Select at least 3 vertices to distribute")
-            return {'CANCELLED'}
-
-        v_start, v_end = find_farthest_vertices(selected_verts)
-        
-        if not v_start or not v_end:
-            self.report({'ERROR'}, "Could not determine endpoints.")
-            return {'CANCELLED'}
-
-        line_vec = v_end.co - v_start.co
-        if line_vec.length_squared < 1e-9:
-            self.report({'WARNING'}, "Endpoints are at the same location.")
-            return {'CANCELLED'}
-        line_dir = line_vec.normalized()
-
-        projections = sorted([( (v.co - v_start.co).dot(line_dir), v ) for v in selected_verts])
-        ordered_verts = [p[1] for p in projections]
-
-        world_mx = obj.matrix_world
-        inv_world_mx = world_mx.inverted()
-        start_pos_world = world_mx @ ordered_verts[0].co
-        end_pos_world = world_mx @ ordered_verts[-1].co
-        num_segments = len(ordered_verts) - 1
-
-        for i in range(1, num_segments):
-            fraction = i / num_segments
-            ordered_verts[i].co = inv_world_mx @ start_pos_world.lerp(end_pos_world, fraction)
-
-        bmesh.update_edit_mesh(me)
-        return {'FINISHED'}
-
 class ALEC_OT_clean_mesh(bpy.types.Operator):
     """Dissolve redundant edges on flat surfaces and merge double vertices"""
     bl_idname = "alec.clean_mesh"
@@ -491,9 +687,10 @@ class ALEC_OT_extract_and_solidify(bpy.types.Operator):
 
 classes = [
     ALEC_OT_set_edge_length,
+    ALEC_OT_dimension_action,
+    ALEC_OT_select_dimension_edges,
     ALEC_OT_make_collinear,
     ALEC_OT_make_coplanar,
-    ALEC_OT_distribute_vertices,
     ALEC_OT_clean_mesh,
     ALEC_OT_extract_and_solidify,
 ]

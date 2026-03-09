@@ -147,3 +147,17 @@ def draw_modal_status_bar(layout, items):
         if label:
             sub_row.label(text=f"{label}:")
         sub_row.label(text=value)
+
+def move_to_collection(obj, target_collection):
+    # Make a copy of the collections list as it will be modified during iteration
+    source_collections = list(obj.users_collection)
+    
+    # If already in target, only remove from others. Otherwise remove all and link.
+    if target_collection in source_collections:
+        for coll in source_collections:
+            if coll != target_collection:
+                coll.objects.unlink(obj)
+    else:
+        for coll in source_collections:
+            coll.objects.unlink(obj)
+        target_collection.objects.link(obj)

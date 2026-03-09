@@ -1,5 +1,6 @@
 # Operators for manipulating object origins and the 3D cursor
 import bpy
+from mathutils import Matrix
 from ..modules import cursor_tools, bbox_tools
 
 class ALEC_OT_cursor_to_selected(bpy.types.Operator):
@@ -74,14 +75,13 @@ class ALEC_OT_origin_to_bottom(bpy.types.Operator):
                 
                 bbox = bbox_tools.create_bbox(context, mode='WORLD')
                 if bbox:
-                    context.scene.cursor.location = (bbox.location.x, bbox.location.y, bbox.location.z - bbox.dimensions.z/2)
+                    loc = obj.matrix_world.translation
+                    context.scene.cursor.location = (loc.x, loc.y, bbox.location.z - bbox.dimensions.z/2)
                     
                     bpy.ops.object.select_all(action='DESELECT')
-                    bbox.select_set(True)
-                    context.view_layer.objects.active = bbox
-                    bpy.ops.object.origin_set(type='ORIGIN_CURSOR')
                     obj.select_set(True)
-                    bpy.ops.alec.origin_to_active()
+                    context.view_layer.objects.active = obj
+                    bpy.ops.object.origin_set(type='ORIGIN_CURSOR')
                     bpy.data.objects.remove(bbox, do_unlink=True)
         
         context.scene.cursor.matrix = saved_cursor
@@ -122,8 +122,6 @@ class ALEC_OT_origin_to_selected_edit_aligned(bpy.types.Operator):
         return context.mode == 'EDIT_MESH'
 
     def execute(self, context):
-        from mathutils import Matrix
-        
         obj = context.active_object
         saved_cursor_matrix = context.scene.cursor.matrix.copy()
         

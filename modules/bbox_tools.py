@@ -1,6 +1,7 @@
 import bpy
 from mathutils import Vector, Matrix
 import bmesh
+from .utils import move_to_collection
 
 def get_or_create_collection(context, coll_name="BBox_Helpers", color='COLOR_04'):
     if coll_name not in bpy.data.collections:
@@ -18,11 +19,6 @@ def setup_bbox_visibility(bbox, color=(0.0, 1.0, 0.2, 1.0)):
     bbox.hide_render = True
     bbox.visible_camera = False
     bbox.visible_shadow = False
-
-def move_to_collection(obj, target_collection):
-    for coll in obj.users_collection:
-        coll.objects.unlink(obj)
-    target_collection.objects.link(obj)
 
 def set_shading_to_object(context):
     for area in context.screen.areas:
@@ -99,35 +95,6 @@ def create_bbox(context, mode='LOCAL'):
     context.view_layer.objects.active = active
     
     return bbox
-
-def create_offset_bbox(obj, offset=0.1):
-    if not obj or obj.type != 'MESH': return None
-
-    bpy.ops.object.select_all(action='DESELECT')
-    obj.select_set(True)
-    bpy.context.view_layer.objects.active = obj
-    bpy.ops.object.duplicate()
-    new_obj = bpy.context.active_object
-
-    # Ensure we don't modify the original mesh if duplicate was linked
-    if new_obj.data.users > 1:
-        new_obj.data = new_obj.data.copy()
-    
-    bm = bmesh.new()
-    bm.from_mesh(new_obj.data)
-    for v in bm.verts:
-        v.co += v.normal * offset
-    bm.to_mesh(new_obj.data)
-    bm.free()
-    
-    new_obj.name = f"{obj.name}_offset"
-    
-    # Set display properties
-    setup_bbox_visibility(new_obj, color=(0.0, 0.5, 1.0, 1.0))
-    set_shading_to_object(bpy.context)
-    
-    move_to_collection(new_obj, get_or_create_collection(bpy.context))
-    return new_obj
 
 def create_interactive_offset_bbox(context):
     """Duplicates the object and prepares it for interactive offsetting."""

@@ -133,8 +133,13 @@ class ALEC_MT_edit_menu(bpy.types.Menu):
         col_inner = box.column(align=True)
         op = col_inner.operator("alec.make_collinear", text="Farthest Points")
         op.mode = 'FARTHEST'
+        op.distribute = False
         op = col_inner.operator("alec.make_collinear", text="Last Two Selected")
         op.mode = 'HISTORY'
+        op.distribute = False
+        op = col_inner.operator("alec.make_collinear", text="Align & Distribute")
+        op.mode = 'FARTHEST'
+        op.distribute = True
 
         box = col.box()
         box.label(text="Coplanar", icon='GRID')
@@ -177,7 +182,13 @@ class ALEC_MT_edit_menu(bpy.types.Menu):
         box.label(text="Dimensions", icon='DRIVER_DISTANCE')
         col_inner = box.column(align=True)
         col_inner.operator("alec.set_edge_length", text="Set Edge Length", icon='SEQ_STRIP_DUPLICATE')
-        col_inner.operator("alec.distribute_vertices", text="Distribute Vertices", icon='NODE_TEXTURE')
+        
+        row = col_inner.row(align=True)
+        row.operator("alec.dimension_action", text="Add", icon='ADD').action = 'ADD'
+        row.operator("alec.dimension_action", text="Rem", icon='REMOVE').action = 'REMOVE'
+        
+        col_inner.operator("alec.dimension_action", text="Clear All", icon='TRASH').action = 'CLEAR'
+        col_inner.operator("alec.select_dimension_edges", text="Select Dim Edges", icon='RESTRICT_SELECT_OFF')
 
 class ALEC_MT_object_menu(bpy.types.Menu):
     bl_idname = "ALEC_MT_object_menu"

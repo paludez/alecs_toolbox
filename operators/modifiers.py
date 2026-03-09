@@ -45,11 +45,7 @@ class ALEC_OT_boolean_op(bpy.types.Operator):
             mod.operation = self.operation
             mod.object = target
             
-            # Move to collection
-            for c in target.users_collection:
-                c.objects.unlink(target)
-            if target.name not in coll.objects:
-                coll.objects.link(target)
+            utils.move_to_collection(target, coll)
 
         return {'FINISHED'}
 
@@ -98,11 +94,7 @@ class ALEC_OT_slice_boolean(bpy.types.Operator):
             mod_diff.operation = 'DIFFERENCE'
             mod_diff.object = target
             
-            # 3. Move target to hidden collection
-            for c in target.users_collection:
-                c.objects.unlink(target)
-            if target.name not in coll.objects:
-                coll.objects.link(target)
+            utils.move_to_collection(target, coll)
 
         # Restore selection to active
         bpy.ops.object.select_all(action='DESELECT')
