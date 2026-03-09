@@ -101,23 +101,6 @@ class AlignBase:
         row.prop(self, "scale_y", toggle=True)
         row.prop(self, "scale_z", toggle=True)
 
-    def invoke(self, context, event):
-        self._is_modal = True
-        self._initial_state = {}
-        target = context.active_object
-        sources = [o for o in context.selected_objects if o != target]
-        
-        # Save initial state for interactive preview
-        for obj in sources:
-            self._initial_state[obj.name] = {
-                'location': obj.location.copy(),
-                'rotation_euler': obj.rotation_euler.copy(),
-                'scale': obj.scale.copy()
-            }
-            
-        self.execute(context)
-        return context.window_manager.invoke_props_dialog(self, width=400)
-
     def check(self, context):
         if self.reset_requested:
             self.align_x = False
@@ -196,7 +179,12 @@ class ALEC_OT_align_dialog(AlignBase, bpy.types.Operator):
                 'rotation_euler': obj.rotation_euler.copy(),
                 'scale': obj.scale.copy()
             }
-            
+
+        # Move cursor to center-ish of screen so the dialog spawns there
+        # Center X, and slightly lower than center Y (40% height)
+        if context.window:
+            context.window.cursor_warp(context.window.width // 2, int(context.window.height * 0.4))
+
         self.execute(context)
         return context.window_manager.invoke_props_dialog(self, width=400)
 

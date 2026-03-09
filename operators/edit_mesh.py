@@ -1,14 +1,12 @@
 # Operators for mesh editing in Edit Mode
 import bpy
 import bmesh
-from ..modules import utils
 import blf
-import gpu
 from bpy_extras.view3d_utils import location_3d_to_region_2d
 import math
-from mathutils import Matrix
+from mathutils import Matrix, Vector, geometry
 from ..modules.modal_handler import ModalNumberInput, update_modal_header
-from ..modules.utils import find_farthest_vertices, unit_suffixes, draw_modal_status_bar
+from ..modules.utils import find_farthest_vertices, unit_suffixes, draw_modal_status_bar, get_unit_scale
 
 _draw_handler = None
 _draw_data = {}
@@ -141,13 +139,15 @@ class ALEC_OT_set_edge_length(bpy.types.Operator):
         suffix = unit_suffixes.get(unit_setting, '')
 
         len_val = self.current_length * self.unit_scale_display_inv
+        init_len_val = self.initial_length * self.unit_scale_display_inv
         
         secondary = ""
         if not self.number_input.has_value():
-            init_len_val = self.initial_length * self.unit_scale_display_inv
-            secondary = f"Initial: {init_len_val:.4f}{suffix}"
+            formatted_init = f"{init_len_val:.4f}".rstrip('0').rstrip('.')
+            if formatted_init == '-0': formatted_init = '0'
+            secondary = f"Initial: {formatted_init}{suffix}"
 
-        update_modal_header(context, "Length", len_val, self.number_input.value_str, suffix, secondary_text=secondary)
+        update_modal_header(context, "Length", len_val, self.number_input.value_str, suffix, secondary_text=secondary, initial_value=init_len_val)
 
     def _get_active_edge(self, bm):
         active_edge = bm.select_history.active
@@ -190,12 +190,19 @@ class ALEC_OT_set_edge_length(bpy.types.Operator):
         self.me = self.obj.data
         self.bm = bmesh.from_edit_mesh(self.me)
 
+        # Try to get an edge first, otherwise check for 2 vertices
         self.edge = self._get_active_edge(self.bm)
-        if not self.edge:
-            self.report({'WARNING'}, "No edge selected")
-            return {'CANCELLED'}
         
-        self.v1, self.v2 = self.edge.verts
+        if self.edge:
+            self.v1, self.v2 = self.edge.verts
+        else:
+            selected_verts = [v for v in self.bm.verts if v.select]
+            if len(selected_verts) == 2:
+                self.v1, self.v2 = selected_verts
+            else:
+                self.report({'WARNING'}, "Select an edge or exactly 2 vertices")
+                return {'CANCELLED'}
+
         self.initial_v1_co = self.v1.co.copy()
         self.initial_v2_co = self.v2.co.copy()
 
@@ -203,21 +210,21 @@ class ALEC_OT_set_edge_length(bpy.types.Operator):
         self.world_mx = self.obj.matrix_world
         self.inv_world_mx = self.world_mx.inverted()
         
-        # Determine edge direction
+        # Determine direction
         world_v1_co = self.world_mx @ self.v1.co
         world_v2_co = self.world_mx @ self.v2.co
         direction_vector = world_v2_co - world_v1_co
         if direction_vector.length_squared < 1e-9:
-            self.report({'WARNING'}, "Edge has zero length, cannot determine direction.")
+            self.report({'WARNING'}, "Distance is zero, cannot determine direction.")
             return {'CANCELLED'}
         self.world_direction = direction_vector.normalized()
         
         # Determine active/other verts
         active_vert_hist = self.bm.select_history.active
-        if not isinstance(active_vert_hist, bmesh.types.BMVert) or active_vert_hist not in self.edge.verts:
-            self.active_vert = self.v1
-        else:
+        if isinstance(active_vert_hist, bmesh.types.BMVert) and active_vert_hist in (self.v1, self.v2):
             self.active_vert = active_vert_hist
+        else:
+            self.active_vert = self.v1
         
         self.other_vert = self.v2 if self.active_vert == self.v1 else self.v1
         
@@ -226,7 +233,7 @@ class ALEC_OT_set_edge_length(bpy.types.Operator):
         self.current_length = self.initial_length
         self.anchor_mode = 'ACTIVE'
         self.number_input = ModalNumberInput()
-        self.unit_scale = utils.get_unit_scale(context)
+        self.unit_scale = get_unit_scale(context)
         self.unit_scale_display_inv = 1.0 / self.unit_scale if self.unit_scale != 0 else 1.0
         
         # Mouse state
@@ -293,7 +300,7 @@ class ALEC_OT_set_edge_length(bpy.types.Operator):
         # Apply typed value if it exists
         if self.number_input.has_value():
             try:
-                typed_val = self.number_input.get_value()
+                typed_val = self.number_input.get_value(initial_value=self.initial_length * self.unit_scale_display_inv)
                 self.current_length = abs(typed_val * self.unit_scale)
                 self.apply_length()
             except ValueError:
@@ -352,7 +359,7 @@ class ALEC_OT_dimension_action(bpy.types.Operator):
             _draw_data['edge_indices'] = []
 
         # Update unit settings (in case they changed)
-        unit_scale = utils.get_unit_scale(context)
+        unit_scale = get_unit_scale(context)
         unit_setting = context.scene.unit_settings.length_unit
         _draw_data['unit_inv'] = 1.0 / unit_scale if unit_scale != 0 else 1.0
         _draw_data['suffix'] = unit_suffixes.get(unit_setting, '')
@@ -469,11 +476,13 @@ class ALEC_OT_set_edge_angle(bpy.types.Operator):
 
     def update_header_text(self, context):
         angle_deg = math.degrees(self._current_angle)
+        init_angle_deg = math.degrees(self._initial_angle)
         secondary = ""
         if not self.number_input.has_value():
-            init_angle_deg = math.degrees(self._initial_angle)
-            secondary = f"Initial: {init_angle_deg:.2f}°"
-        update_modal_header(context, "Angle", angle_deg, self.number_input.value_str, "°", secondary_text=secondary)
+            formatted_init = f"{init_angle_deg:.2f}".rstrip('0').rstrip('.')
+            if formatted_init == '-0': formatted_init = '0'
+            secondary = f"Initial: {formatted_init}°"
+        update_modal_header(context, "Angle", angle_deg, self.number_input.value_str, "°", secondary_text=secondary, initial_value=init_angle_deg, precision=2)
 
     @classmethod
     def poll(cls, context):
@@ -570,11 +579,116 @@ class ALEC_OT_set_edge_angle(bpy.types.Operator):
             self._current_angle = self._initial_angle + delta_x * sens
             self._apply_rotation(self._current_angle)
         if self.number_input.has_value():
-            try: self._current_angle = math.radians(self.number_input.get_value())
+            try: self._current_angle = math.radians(self.number_input.get_value(initial_value=math.degrees(self._initial_angle)))
             except ValueError: pass
             self._apply_rotation(self._current_angle)
         self.update_header_text(context)
         return {'RUNNING_MODAL'}
+
+class ALEC_OT_distribute_vertices(bpy.types.Operator):
+    """Distributes selected vertices evenly along the existing path"""
+    bl_idname = "alec.distribute_vertices"
+    bl_label = "Distribute Vertices"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return (context.active_object is not None and
+                context.active_object.type == 'MESH' and
+                context.mode == 'EDIT_MESH')
+
+    def execute(self, context):
+        obj = context.active_object
+        me = obj.data
+        bm = bmesh.from_edit_mesh(me)
+
+        selected_verts = [v for v in bm.verts if v.select]
+        if len(selected_verts) < 3:
+            self.report({'WARNING'}, "Select at least 3 vertices forming a chain")
+            return {'CANCELLED'}
+
+        # Build adjacency list for selected vertices based on selected edges
+        adj = {v: [] for v in selected_verts}
+        for edge in bm.edges:
+            if edge.select and edge.verts[0] in selected_verts and edge.verts[1] in selected_verts:
+                adj[edge.verts[0]].append(edge.verts[1])
+                adj[edge.verts[1]].append(edge.verts[0])
+
+        # Find endpoints (vertices with only one connection in the selection)
+        endpoints = [v for v, neighbors in adj.items() if len(neighbors) == 1]
+        
+        if len(endpoints) != 2:
+            self.report({'WARNING'}, "Selection must form a single, unbranched chain of edges.")
+            return {'CANCELLED'}
+
+        # Order the vertices from one endpoint to the other
+        ordered_chain = []
+        current_vert = endpoints[0]
+        prev_vert = None
+        
+        while current_vert:
+            ordered_chain.append(current_vert)
+            if len(ordered_chain) > len(selected_verts): # Failsafe for loops
+                 self.report({'WARNING'}, "Selection seems to contain a loop. Operation aborted.")
+                 return {'CANCELLED'}
+            
+            neighbors = adj.get(current_vert, [])
+            next_vert = None
+            for v in neighbors:
+                if v != prev_vert:
+                    next_vert = v
+                    break
+            
+            prev_vert = current_vert
+            current_vert = next_vert
+
+        if len(ordered_chain) != len(selected_verts):
+            self.report({'WARNING'}, "Selection contains disconnected parts. Select a continuous chain.")
+            return {'CANCELLED'}
+
+        # Store original coordinates to avoid reading modified values during update
+        original_coords = [v.co.copy() for v in ordered_chain]
+
+        # Calculate cumulative distances along the chain
+        distances = [0.0]
+        total_length = 0.0
+        for i in range(len(ordered_chain) - 1):
+            p1 = original_coords[i]
+            p2 = original_coords[i+1]
+            segment_length = (p2 - p1).length
+            total_length += segment_length
+            distances.append(total_length)
+
+        if total_length < 1e-6:
+            self.report({'INFO'}, "Chain has zero length, nothing to do.")
+            return {'CANCELLED'}
+
+        # Reposition intermediate vertices
+        num_segments = len(ordered_chain) - 1
+        equal_segment_length = total_length / num_segments
+        
+        for i in range(1, num_segments): # Iterate over intermediate vertices
+            target_dist = i * equal_segment_length
+            
+            # Find which original segment this target distance falls into
+            current_segment_idx = next((j for j, d in enumerate(distances) if d >= target_dist), len(distances) - 2)
+            if distances[current_segment_idx] > target_dist:
+                current_segment_idx -= 1
+
+            # Interpolate position within that segment
+            p_start = original_coords[current_segment_idx]
+            p_end = original_coords[current_segment_idx + 1]
+            
+            original_segment_len = (p_end - p_start).length
+            
+            if original_segment_len > 1e-9:
+                dist_into_segment = target_dist - distances[current_segment_idx]
+                interpolation_factor = dist_into_segment / original_segment_len
+                new_pos = p_start.lerp(p_end, interpolation_factor)
+                ordered_chain[i].co = new_pos
+
+        bmesh.update_edit_mesh(me)
+        return {'FINISHED'}
 
 class ALEC_OT_make_collinear(bpy.types.Operator):
     """Makes selected vertices collinear"""
@@ -782,6 +896,438 @@ class ALEC_OT_make_coplanar(bpy.types.Operator):
         bmesh.update_edit_mesh(me)
         return {'FINISHED'}
 
+class ALEC_OT_make_circle(bpy.types.Operator):
+    """Flatten selected vertices into a perfect circle"""
+    bl_idname = "alec.make_circle"
+    bl_label = "Make Circle"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    radius: bpy.props.FloatProperty(
+        name="Radius",
+        default=1.0,
+        min=0.0,
+        unit='LENGTH'
+    ) # type: ignore
+
+    influence: bpy.props.FloatProperty(
+        name="Influence", 
+        default=1.0, 
+        min=0.0, 
+        max=1.0,
+        subtype='FACTOR'
+    ) # type: ignore
+    
+    regular: bpy.props.BoolProperty(
+        name="Regular", 
+        default=True, 
+        description="Distribute vertices evenly along the circle"
+    ) # type: ignore
+
+    @classmethod
+    def poll(cls, context):
+        return (context.active_object is not None and
+                context.active_object.type == 'MESH' and
+                context.mode == 'EDIT_MESH')
+
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(self, "radius")
+        
+        layout.prop(self, "influence")
+        layout.prop(self, "regular")
+
+    def _get_target_verts(self, bm, context):
+        # If Face Mode is active, try to get boundary vertices
+        if context.tool_settings.mesh_select_mode[2]:
+            selected_faces = [f for f in bm.faces if f.select]
+            if selected_faces:
+                boundary_verts = set()
+                for f in selected_faces:
+                    for e in f.edges:
+                        # Boundary edge has exactly one selected face linked
+                        if sum(1 for lf in e.link_faces if lf.select) == 1:
+                            boundary_verts.add(e.verts[0])
+                            boundary_verts.add(e.verts[1])
+                if boundary_verts:
+                    return list(boundary_verts)
+        
+        # Fallback: return all selected vertices
+        return [v for v in bm.verts if v.select]
+
+    def invoke(self, context, event):
+        # Pre-calculate radius so the slider starts at a logical value
+        obj = context.active_object
+        if obj and obj.mode == 'EDIT':
+            bm = bmesh.from_edit_mesh(obj.data)
+            sel_verts = self._get_target_verts(bm, context)
+            if len(sel_verts) >= 3:
+                center = Vector((0,0,0))
+                for v in sel_verts: center += v.co
+                center /= len(sel_verts)
+                
+                # Calculate max radius (Best Fit) to initialize the slider
+                max_dist_sq = max(((v.co - center).length_squared for v in sel_verts), default=1.0)
+                self.radius = math.sqrt(max_dist_sq)
+        
+        return self.execute(context)
+
+    def execute(self, context):
+        obj = context.active_object
+        me = obj.data
+        bm = bmesh.from_edit_mesh(me)
+
+        selected_verts = self._get_target_verts(bm, context)
+
+        if len(selected_verts) < 3:
+            self.report({'WARNING'}, "Select at least 3 vertices (or a face selection boundary)")
+            return {'CANCELLED'}
+
+        # 1. Calculate Center
+        center = Vector((0,0,0))
+        for v in selected_verts: 
+            center += v.co
+        center /= len(selected_verts)
+
+        # 2. Calculate Plane (Best Fit)
+        try:
+            normal = geometry.normal([v.co for v in selected_verts])
+        except:
+            normal = Vector((0,0,1))
+        
+        if normal.length_squared < 1e-6:
+             normal = Vector((0,0,1))
+
+        # Create basis vectors for the plane
+        tangent = normal.orthogonal()
+        bitangent = normal.cross(tangent)
+
+        # --- Align Orientation to Geometry & Calculate Radius ---
+        # Find vertex farthest from center to align the circle start point
+        # This prevents the circle from shrinking (uses max radius) and prevents rotation
+        max_dist_sq = 0.0
+        farthest_v = None
+        
+        for v in selected_verts:
+            d_sq = (v.co - center).length_squared
+            if d_sq > max_dist_sq:
+                max_dist_sq = d_sq
+                farthest_v = v
+        
+        # Align basis so the farthest vertex is at angle 0 (on the Tangent axis)
+        if farthest_v:
+            vec = farthest_v.co - center
+            vec = vec - vec.dot(normal) * normal # Project to plane
+            if vec.length_squared > 1e-6:
+                # Current angle of the farthest vertex
+                angle = math.atan2(vec.dot(bitangent), vec.dot(tangent))
+                # Rotate basis so this vertex aligns with 0 degrees
+                rot_angle = angle
+                
+                rot_mat = Matrix.Rotation(rot_angle, 3, normal)
+                tangent = rot_mat @ tangent
+                bitangent = rot_mat @ bitangent
+
+        target_radius = self.radius
+
+        # 4. Project and Position
+        if self.regular:
+            # Project to 2D plane defined by (tangent, bitangent) to get angles
+            vert_angles = []
+            for v in selected_verts:
+                vec = v.co - center
+                x = vec.dot(tangent)
+                y = vec.dot(bitangent)
+                angle = math.atan2(y, x)
+                vert_angles.append((v, angle))
+            
+            # Sort by angle to ensure sequential ordering around the circle
+            vert_angles.sort(key=lambda x: x[1])
+            
+            start_angle = vert_angles[0][1]
+            step = (2 * math.pi) / len(selected_verts)
+
+            for i, (v, _) in enumerate(vert_angles):
+                theta = start_angle + i * step
+                circle_pos = center + (tangent * math.cos(theta) + bitangent * math.sin(theta)) * target_radius
+                v.co = v.co.lerp(circle_pos, self.influence)
+        else:
+            for v in selected_verts:
+                vec = v.co - center
+                dist_from_plane = vec.dot(normal)
+                vec_on_plane = vec - (normal * dist_from_plane)
+                
+                if vec_on_plane.length_squared > 1e-6:
+                    vec_on_plane.normalize()
+                    circle_pos = center + vec_on_plane * target_radius
+                    v.co = v.co.lerp(circle_pos, self.influence)
+
+        bmesh.update_edit_mesh(me)
+        return {'FINISHED'}
+
+class ALEC_OT_make_square(bpy.types.Operator):
+    """Flatten selected vertices into a perfect square"""
+    bl_idname = "alec.make_square"
+    bl_label = "Make Square"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    radius: bpy.props.FloatProperty(
+        name="Radius",
+        default=1.0,
+        min=0.0,
+        unit='LENGTH'
+    ) # type: ignore
+
+    influence: bpy.props.FloatProperty(
+        name="Influence", 
+        default=1.0, 
+        min=0.0, 
+        max=1.0,
+        subtype='FACTOR'
+    ) # type: ignore
+    
+    regular: bpy.props.BoolProperty(
+        name="Regular", 
+        default=True, 
+        description="Distribute vertices evenly along the square"
+    ) # type: ignore
+
+    @classmethod
+    def poll(cls, context):
+        return (context.active_object is not None and
+                context.active_object.type == 'MESH' and
+                context.mode == 'EDIT_MESH')
+
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(self, "radius")
+        layout.prop(self, "influence")
+        layout.prop(self, "regular")
+
+    def _get_target_verts(self, bm, context):
+        # If Face Mode is active, try to get boundary vertices
+        if context.tool_settings.mesh_select_mode[2]:
+            selected_faces = [f for f in bm.faces if f.select]
+            if selected_faces:
+                boundary_verts = set()
+                for f in selected_faces:
+                    for e in f.edges:
+                        # Boundary edge has exactly one selected face linked
+                        if sum(1 for lf in e.link_faces if lf.select) == 1:
+                            boundary_verts.add(e.verts[0])
+                            boundary_verts.add(e.verts[1])
+                if boundary_verts:
+                    return list(boundary_verts)
+        
+        # Fallback: return all selected vertices
+        return [v for v in bm.verts if v.select]
+
+    def invoke(self, context, event):
+        # Pre-calculate radius so the slider starts at a logical value
+        obj = context.active_object
+        if obj and obj.mode == 'EDIT':
+            bm = bmesh.from_edit_mesh(obj.data)
+            sel_verts = self._get_target_verts(bm, context)
+            if len(sel_verts) >= 3:
+                center = Vector((0,0,0))
+                for v in sel_verts: center += v.co
+                center /= len(sel_verts)
+                
+                # Calculate max radius (Best Fit) to initialize the slider
+                max_dist_sq = max(((v.co - center).length_squared for v in sel_verts), default=1.0)
+                self.radius = math.sqrt(max_dist_sq)
+        
+        return self.execute(context)
+
+    def execute(self, context):
+        obj = context.active_object
+        me = obj.data
+        bm = bmesh.from_edit_mesh(me)
+
+        selected_verts = self._get_target_verts(bm, context)
+
+        if len(selected_verts) < 3:
+            self.report({'WARNING'}, "Select at least 3 vertices (or a face selection boundary)")
+            return {'CANCELLED'}
+
+        # 1. Calculate Center
+        center = Vector((0,0,0))
+        for v in selected_verts: 
+            center += v.co
+        center /= len(selected_verts)
+
+        # 2. Calculate Plane (Best Fit)
+        try:
+            normal = geometry.normal([v.co for v in selected_verts])
+        except:
+            normal = Vector((0,0,1))
+        
+        if normal.length_squared < 1e-6:
+             normal = Vector((0,0,1))
+
+        # Create basis vectors for the plane
+        # Try to align tangent to Object X axis projected on plane for predictable rotation
+        ref_axis = Vector((1, 0, 0))
+        if abs(normal.dot(ref_axis)) > 0.9: # If normal is roughly X, use Y
+            ref_axis = Vector((0, 1, 0))
+            
+        tangent = (ref_axis - ref_axis.dot(normal) * normal).normalized()
+        bitangent = normal.cross(tangent)
+
+        # --- Align Orientation to Geometry ---
+        # Find vertex farthest from center to align corners
+        # This prevents "beveled" corners when the mesh is rotated relative to the calculated basis
+        max_dist_sq = 0.0
+        candidates = []
+        
+        for v in selected_verts:
+            d_sq = (v.co - center).length_squared
+            if d_sq > max_dist_sq + 1e-5:
+                max_dist_sq = d_sq
+                candidates = [v]
+            elif d_sq > max_dist_sq - 1e-5:
+                candidates.append(v)
+        
+        # Pick the candidate that minimizes basis rotation (closest to 45 degrees in current basis)
+        best_rot_angle = 0.0
+        min_abs_rot = 1000.0
+        
+        for v in candidates:
+            vec = v.co - center
+            vec = vec - vec.dot(normal) * normal # Project to plane
+            if vec.length_squared > 1e-6:
+                angle = math.atan2(vec.dot(bitangent), vec.dot(tangent))
+                # Rotate basis so this vertex is at 45 degrees (PI/4)
+                rot = angle - (math.pi / 4)
+                # Normalize to -pi..pi
+                while rot > math.pi: rot -= 2*math.pi
+                while rot <= -math.pi: rot += 2*math.pi
+                
+                if abs(rot) < min_abs_rot:
+                    min_abs_rot = abs(rot)
+                    best_rot_angle = rot
+
+        if candidates:
+            rot_mat = Matrix.Rotation(best_rot_angle, 3, normal)
+            tangent = rot_mat @ tangent
+            bitangent = rot_mat @ bitangent
+
+        # 3. Calculate Size
+        # Use the radius property (distance to corner) to determine size
+        half_size = self.radius * (math.sqrt(2) / 2.0)
+        
+        if half_size < 1e-6:
+            self.report({'INFO'}, "Selection has zero size, cannot create square.")
+            return {'CANCELLED'}
+
+        # 4. Project and Position
+        
+        # Calculate angles and sort vertices
+        vert_angles = []
+        for v in selected_verts:
+            vec = v.co - center
+            x = vec.dot(tangent)
+            y = vec.dot(bitangent)
+            angle = math.atan2(y, x) # -pi to pi
+            vert_angles.append((v, angle))
+        
+        vert_angles.sort(key=lambda x: x[1])
+
+        # Corner-aware distribution for Regular Squares
+        if self.regular and len(selected_verts) >= 4:
+            # Identify indices of the 4 corners based on angle proximity
+            # Targets: BL(-135), BR(-45), TR(45), TL(135)
+            targets = [-3*math.pi/4, -math.pi/4, math.pi/4, 3*math.pi/4]
+            corner_indices = []
+            used_indices = set()
+            for target in targets:
+                best_idx = -1
+                min_dist = 100.0
+                for i, (v, a) in enumerate(vert_angles):
+                    if i in used_indices: continue
+                    dist = abs(a - target)
+                    if dist > math.pi: dist = 2*math.pi - dist # Handle wrap-around
+                    if dist < min_dist:
+                        min_dist = dist
+                        best_idx = i
+                corner_indices.append(best_idx)
+                used_indices.add(best_idx)
+            
+            # Corner positions in normalized space corresponding to targets
+            corners_pos = [Vector((-1,-1)), Vector((1,-1)), Vector((1,1)), Vector((-1,1))]
+            
+            # Distribute vertices between corners
+            for i in range(4):
+                idx_start = corner_indices[i]
+                idx_end = corner_indices[(i+1)%4]
+                p_start = corners_pos[i]
+                p_end = corners_pos[(i+1)%4]
+                
+                # Collect indices for this side
+                segment_indices = []
+                curr = idx_start
+                while curr != idx_end:
+                    segment_indices.append(curr)
+                    curr = (curr + 1) % len(vert_angles)
+                segment_indices.append(idx_end)
+                
+                # Distribute linearly along the edge
+                # We exclude the last point to avoid processing corners twice (it will be start of next segment)
+                count = len(segment_indices)
+                for k, v_idx in enumerate(segment_indices[:-1]):
+                    factor = k / (count - 1) if count > 1 else 0
+                    pos_2d = p_start.lerp(p_end, factor)
+                    
+                    v = vert_angles[v_idx][0]
+                    final_pos = center + (tangent * pos_2d.x + bitangent * pos_2d.y) * half_size
+                    v.co = v.co.lerp(final_pos, self.influence)
+
+        else:
+            # Fallback / Regular=False: Project each vertex to the nearest point on the square perimeter
+            
+            # Identify corners to snap them (prevents beveled corners)
+            corner_verts = set()
+            if len(selected_verts) >= 4:
+                targets = [-3*math.pi/4, -math.pi/4, math.pi/4, 3*math.pi/4]
+                used_indices = set()
+                for target in targets:
+                    best_v = None
+                    min_dist = 100.0
+                    best_idx = -1
+                    for i, (v, a) in enumerate(vert_angles):
+                        if i in used_indices: continue
+                        dist = abs(a - target)
+                        if dist > math.pi: dist = 2*math.pi - dist # Handle wrap-around
+                        if dist < min_dist:
+                            min_dist = dist
+                            best_v = v
+                            best_idx = i
+                    if best_v:
+                        corner_verts.add(best_v)
+                        used_indices.add(best_idx)
+
+            for v, angle in vert_angles:
+                vec = v.co - center
+                x = vec.dot(tangent)
+                y = vec.dot(bitangent)
+
+                # If this vertex was identified as a corner candidate, snap it exactly
+                if v in corner_verts:
+                    sx = 1.0 if x >= 0 else -1.0
+                    sy = 1.0 if y >= 0 else -1.0
+                else:
+                    # Standard radial projection for sides
+                    max_comp = max(abs(x), abs(y))
+                    if max_comp < 1e-9: continue
+                    scale = 1.0 / max_comp
+                    sx = x * scale
+                    sy = y * scale
+                
+                square_pos = center + (tangent * sx + bitangent * sy) * half_size
+                v.co = v.co.lerp(square_pos, self.influence)
+
+        bmesh.update_edit_mesh(me)
+        return {'FINISHED'}
+
 class ALEC_OT_clean_mesh(bpy.types.Operator):
     """Dissolve redundant edges on flat surfaces and merge double vertices"""
     bl_idname = "alec.clean_mesh"
@@ -843,8 +1389,11 @@ classes = [
     ALEC_OT_dimension_action,
     ALEC_OT_select_dimension_edges,
     ALEC_OT_set_edge_angle,
+    ALEC_OT_distribute_vertices,
     ALEC_OT_make_collinear,
     ALEC_OT_make_coplanar,
+    ALEC_OT_make_circle,
+    ALEC_OT_make_square,
     ALEC_OT_clean_mesh,
     ALEC_OT_extract_and_solidify,
 ]

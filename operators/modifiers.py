@@ -1,8 +1,7 @@
 # Operators for adding and managing modifiers
 import bpy
-from ..modules import utils
 from ..modules.modal_handler import ModalNumberInput, update_modal_header
-from ..modules.utils import unit_suffixes, draw_modal_status_bar
+from ..modules.utils import unit_suffixes, draw_modal_status_bar, get_unit_scale, move_to_collection
 
 def get_boolean_collection(context):
     """Helper to get or create the hidden boolean collection."""
@@ -45,7 +44,7 @@ class ALEC_OT_boolean_op(bpy.types.Operator):
             mod.operation = self.operation
             mod.object = target
             
-            utils.move_to_collection(target, coll)
+            move_to_collection(target, coll)
 
         return {'FINISHED'}
 
@@ -94,7 +93,7 @@ class ALEC_OT_slice_boolean(bpy.types.Operator):
             mod_diff.operation = 'DIFFERENCE'
             mod_diff.object = target
             
-            utils.move_to_collection(target, coll)
+            move_to_collection(target, coll)
 
         # Restore selection to active
         bpy.ops.object.select_all(action='DESELECT')
@@ -157,7 +156,7 @@ class ALEC_OT_mirror_control(bpy.types.Operator):
         self.axes = ('X', 'Y', 'Z')
         self.axis_idx = 0
         self.number_input = ModalNumberInput()
-        self.unit_scale = utils.get_unit_scale(context)
+        self.unit_scale = get_unit_scale(context)
         self.unit_scale_display_inv = 1.0 / self.unit_scale if self.unit_scale != 0 else 1.0
 
         # Start at object center
@@ -311,8 +310,9 @@ class ALEC_OT_solidify_modal(bpy.types.Operator):
         suffix = unit_suffixes.get(unit_setting, '')
         
         thickness_val = self.mod.thickness * self.unit_scale_display_inv
+        init_val = self.initial_thickness * self.unit_scale_display_inv
         
-        update_modal_header(context, "Thickness", thickness_val, self.number_input.value_str, suffix)
+        update_modal_header(context, "Thickness", thickness_val, self.number_input.value_str, suffix, initial_value=init_val)
 
     def invoke(self, context, event):
         obj = context.active_object
@@ -329,7 +329,7 @@ class ALEC_OT_solidify_modal(bpy.types.Operator):
         
         # State
         self.number_input = ModalNumberInput()
-        self.unit_scale = utils.get_unit_scale(context)
+        self.unit_scale = get_unit_scale(context)
         self.unit_scale_display_inv = 1.0 / self.unit_scale if self.unit_scale != 0 else 1.0
 
         # Mouse state
@@ -379,7 +379,7 @@ class ALEC_OT_solidify_modal(bpy.types.Operator):
         # Apply typed value if it exists
         if self.number_input.has_value():
             try:
-                typed_val = self.number_input.get_value()
+                typed_val = self.number_input.get_value(initial_value=self.initial_thickness * self.unit_scale_display_inv)
                 self.mod.thickness = typed_val * self.unit_scale
             except ValueError:
                 pass  # Ignore errors from partial input like "-"

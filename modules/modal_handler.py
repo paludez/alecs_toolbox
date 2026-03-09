@@ -4,7 +4,7 @@ import re
 
 # A restricted list of characters allowed in the math expression
 # This is a security measure for using eval()
-ALLOWED_CHARS = re.compile(r"^[0-9\.\+\-\*\/\(\)\s]+$")
+ALLOWED_CHARS = re.compile(r"^[0-9\.\+\-\*\/\(\)\sEe]+$")
 
 class ModalNumberInput:
     """
@@ -22,23 +22,28 @@ class ModalNumberInput:
         """Returns True if there is an active input string."""
         return self.value_str != ""
 
-    def get_value(self):
+    def get_value(self, initial_value=None):
         """
         Evaluates the input string as a number or a mathematical expression.
         Raises ValueError if the expression is invalid.
+        If initial_value is provided and input starts with an operator, it is prepended.
         """
         if not self.value_str:
             raise ValueError("No value to get.")
         
+        expr = self.value_str
+        if initial_value is not None and expr and expr[0] in {'*', '/', '+', '-'}:
+            expr = f"{initial_value}{expr}"
+
         # Security check: only allow safe characters
-        if not ALLOWED_CHARS.match(self.value_str):
+        if not ALLOWED_CHARS.match(expr):
             raise ValueError("Invalid characters in expression.")
             
         # Use Python's eval to compute the result
         try:
             # The first argument to eval is the source, the others are globals/locals.
             # By providing empty dicts, we restrict the execution environment.
-            return float(eval(self.value_str, {"__builtins__": {}}, {}))
+            return float(eval(expr, {"__builtins__": {}}, {}))
         except (SyntaxError, ZeroDivisionError, TypeError, NameError) as e:
             # Catch potential errors from eval and raise a ValueError
             raise ValueError(f"Invalid math expression: {e}")
@@ -106,12 +111,19 @@ class ModalNumberInput:
 
         return False
 
-def update_modal_header(context, main_label, main_value, typed_str, suffix="", secondary_text=""):
+def update_modal_header(context, main_label, main_value, typed_str, suffix="", secondary_text="", initial_value=None, precision=4):
     """Updates the 3D View header with formatted text for a modal operator."""
     if typed_str:
-        header_text = f"{main_label}: {typed_str}"
+        if initial_value is not None and typed_str[0] in {'*', '/', '+', '-'}:
+            formatted_initial = f"{initial_value:.{precision}f}".rstrip('0').rstrip('.')
+            if formatted_initial == '-0': formatted_initial = '0'
+            header_text = f"{main_label}: {formatted_initial}{suffix} {typed_str}"
+        else:
+            header_text = f"{main_label}: {typed_str}"
     else:
-        header_text = f"{main_label}: {main_value:.4f}{suffix}"
+        formatted_main = f"{main_value:.{precision}f}".rstrip('0').rstrip('.')
+        if formatted_main == '-0': formatted_main = '0'
+        header_text = f"{main_label}: {formatted_main}{suffix}"
     
     if secondary_text:
         header_text += f"  |  {secondary_text}"

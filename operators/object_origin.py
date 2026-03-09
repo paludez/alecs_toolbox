@@ -1,7 +1,8 @@
 # Operators for manipulating object origins and the 3D cursor
 import bpy
 from mathutils import Matrix
-from ..modules import cursor_tools, bbox_tools
+from ..modules import cursor_tools
+from ..modules.utils import get_bounds_data
 
 class ALEC_OT_cursor_to_selected(bpy.types.Operator):
     """Move&Rotate 3D cursor to selected object's origin"""
@@ -73,16 +74,15 @@ class ALEC_OT_origin_to_bottom(bpy.types.Operator):
                 obj.select_set(True)
                 context.view_layer.objects.active = obj
                 
-                bbox = bbox_tools.create_bbox(context, mode='WORLD')
-                if bbox:
-                    loc = obj.matrix_world.translation
-                    context.scene.cursor.location = (loc.x, loc.y, bbox.location.z - bbox.dimensions.z/2)
-                    
-                    bpy.ops.object.select_all(action='DESELECT')
-                    obj.select_set(True)
-                    context.view_layer.objects.active = obj
-                    bpy.ops.object.origin_set(type='ORIGIN_CURSOR')
-                    bpy.data.objects.remove(bbox, do_unlink=True)
+                # Calculate world bounds mathematically (faster/cleaner than creating a bbox object)
+                bounds_min = get_bounds_data(obj, point_type='MIN', space='WORLD')
+                loc = obj.matrix_world.translation
+                
+                # Move cursor to (Obj X, Obj Y, Bounds Min Z)
+                context.scene.cursor.location = (loc.x, loc.y, bounds_min.z)
+                
+                # Apply origin
+                bpy.ops.object.origin_set(type='ORIGIN_CURSOR')
         
         context.scene.cursor.matrix = saved_cursor
         bpy.ops.object.select_all(action='DESELECT')

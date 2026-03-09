@@ -141,6 +141,7 @@ class ALEC_MT_edit_menu(bpy.types.Menu):
         op = col_inner.operator("alec.make_collinear", text="Align & Distribute")
         op.mode = 'FARTHEST'
         op.distribute = True
+        col_inner.operator("alec.distribute_vertices", text="Distribute Evenly")
 
         box = col.box()
         box.label(text="Coplanar", icon='GRID')
@@ -157,6 +158,13 @@ class ALEC_MT_edit_menu(bpy.types.Menu):
 
         # RIGHT: Orientation
         col = pie.column()
+        
+        box_shapes = col.box()
+        box_shapes.label(text="Shapes", icon='MESH_CIRCLE')
+        col_inner = box_shapes.column(align=True)
+        col_inner.operator("alec.make_circle", text="Perfect Circle")
+        col_inner.operator("alec.make_square", text="Perfect Square")
+        
         box = col.box()
         box.label(text="Orientation", icon='ORIENTATION_GLOBAL')
         col_inner = box.column(align=True)
@@ -179,21 +187,22 @@ class ALEC_MT_edit_menu(bpy.types.Menu):
 
         # UP: Dimensions & Spacing (Adjustments)
         col = pie.column()
-        box = col.box()
-        box.label(text="Dimensions", icon='DRIVER_DISTANCE')
-        col_inner = box.column(align=True)
-        col_inner.operator("alec.set_edge_length", text="Set Edge Length", icon='SEQ_STRIP_DUPLICATE')
         
-        row = col_inner.row(align=True)
+        box_dim = col.box()
+        box_dim.label(text="Dimensions", icon='DRIVER_DISTANCE')
+        col_inner_dim = box_dim.column(align=True)
+        col_inner_dim.operator("alec.set_edge_length", text="Set Edge Length", icon='SEQ_STRIP_DUPLICATE')
+        
+        row = col_inner_dim.row(align=True)
         row.operator("alec.dimension_action", text="Add", icon='ADD').action = 'ADD'
         row.operator("alec.dimension_action", text="Rem", icon='REMOVE').action = 'REMOVE'
         
-        col_inner.operator("alec.dimension_action", text="Clear All", icon='TRASH').action = 'CLEAR'
-        col_inner.operator("alec.select_dimension_edges", text="Select Dim Edges", icon='RESTRICT_SELECT_OFF')
+        col_inner_dim.operator("alec.dimension_action", text="Clear All", icon='TRASH').action = 'CLEAR'
+        col_inner_dim.operator("alec.select_dimension_edges", text="Select Dim Edges", icon='RESTRICT_SELECT_OFF')
 
-        col_inner.separator()
-        col_inner.operator("alec.set_edge_angle", text="Set to 90°", icon='IPO_CONSTANT').angle = math.pi / 2.0
-        col_inner.operator("alec.set_edge_angle", text="Set Angle...", icon='IPO_EASE_IN_OUT').run_modal = True
+        col_inner_dim.separator()
+        col_inner_dim.operator("alec.set_edge_angle", text="Set to 90°", icon='IPO_CONSTANT').angle = math.pi / 2.0
+        col_inner_dim.operator("alec.set_edge_angle", text="Set Angle...", icon='IPO_EASE_IN_OUT').run_modal = True
 
 class ALEC_MT_object_menu(bpy.types.Menu):
     bl_idname = "ALEC_MT_object_menu"

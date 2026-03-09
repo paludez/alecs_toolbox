@@ -1,7 +1,7 @@
 import bpy
-from ..modules import bbox_tools, utils
+from ..modules import bbox_tools
 from ..modules.modal_handler import ModalNumberInput, update_modal_header
-from ..modules.utils import unit_suffixes, draw_modal_status_bar
+from ..modules.utils import unit_suffixes, draw_modal_status_bar, get_unit_scale
 
 class BBoxOperatorBase:
     bl_options = {'REGISTER', 'UNDO'}
@@ -68,7 +68,7 @@ class ALEC_OT_bbox_offset_modal(bpy.types.Operator):
 
         # Initial State
         self.number_input = ModalNumberInput()
-        self.unit_scale = utils.get_unit_scale(context)
+        self.unit_scale = get_unit_scale(context)
         self.unit_scale_display_inv = 1.0 / self.unit_scale if self.unit_scale != 0 else 1.0
 
         # Mouse State
