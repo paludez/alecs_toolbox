@@ -2,6 +2,7 @@ import bpy
 from ..modules import bbox_tools, utils
 from ..modules.modal_handler import ModalNumberInput, update_modal_header
 from ..modules.utils import unit_suffixes, draw_modal_status_bar
+from .base import BBoxOperatorBase
 
 class ALEC_OT_bbox_offset_modal(bpy.types.Operator):
     """Create an offset of a mesh object with interactive mouse and keyboard control."""
@@ -129,6 +130,20 @@ class ALEC_OT_bbox_offset_modal(bpy.types.Operator):
         suffix = unit_suffixes.get(context.scene.unit_settings.length_unit, '')
         update_modal_header(context, "Offset", display_dist, self.number_input.value_str, suffix)
 
+class ALEC_OT_bbox_local(BBoxOperatorBase, bpy.types.Operator):
+    """Create a bounding box aligned to the object's local axes"""
+    bl_idname = "alec.bbox_local"
+    bl_label = "LOCAL"
+    mode = 'LOCAL'
+
+class ALEC_OT_bbox_world(BBoxOperatorBase, bpy.types.Operator):
+    """Create a bounding box aligned to the world axes"""
+    bl_idname = "alec.bbox_world"
+    bl_label = "WORLD"
+    mode = 'WORLD'
+
 classes = [
     ALEC_OT_bbox_offset_modal,
+    ALEC_OT_bbox_local,
+    ALEC_OT_bbox_world,
 ]

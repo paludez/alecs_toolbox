@@ -4,6 +4,7 @@ import bpy
 
 from . import object_grouping
 from . import object_origin
+from . import align
 from . import edit_mesh
 from . import materials
 from . import modifiers
@@ -16,6 +17,7 @@ from . import bbox
 classes = (
     *object_grouping.classes,
     *object_origin.classes,
+    *align.classes,
     *edit_mesh.classes,
     *materials.classes,
     *modifiers.classes,

@@ -8,7 +8,6 @@ def get_bounds_in_space(obj, space_matrix):
     'space_matrix' is the world matrix of the coordinate space (e.g., target.matrix_world).
     Returns (min_bound, max_bound) in that space's local coordinates.
     """
-    bpy.context.view_layer.update()
     depsgraph = bpy.context.evaluated_depsgraph_get()
     obj_eval = obj.evaluated_get(depsgraph)
     mesh_eval = obj_eval.to_mesh()
