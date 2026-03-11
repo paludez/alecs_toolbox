@@ -15,8 +15,8 @@ class ALEC_MT_quad_menu(bpy.types.Menu):
         box_view = col.box()
         box_view.label(text="Viewport", icon='RESTRICT_VIEW_OFF')
         col_inner = box_view.column(align=True)
-        col_inner.prop(context.space_data.overlay, "show_wireframes", text="Wireframe")
         if context.space_data and context.space_data.type == 'VIEW_3D':
+            col_inner.prop(context.space_data.overlay, "show_wireframes", text="Wireframe")
             r = col_inner.row(align=True)
             r.prop(context.space_data, "show_gizmo_object_translate", text="Move")
             r.prop(context.space_data, "show_gizmo_object_rotate", text="Rotate")
@@ -72,8 +72,13 @@ class ALEC_MT_quad_menu(bpy.types.Menu):
         # DOWN: Empty
         pie.column()
 
-        # UP: Empty
-        pie.column()
+        # UP: Floating Shaders
+        col_up = pie.column()
+        box = col_up.box()
+        box.label(text="Floating Shaders", icon='WINDOW')
+        col_inner = box.column(align=True)
+        col_inner.operator("alec.floating_shader_editor", text="Object Shader", icon='NODE_MATERIAL').mode = 'OBJECT'
+        col_inner.operator("alec.floating_shader_editor", text="World Shader", icon='WORLD').mode = 'WORLD'
 
 class ALEC_MT_uv_menu(bpy.types.Menu):
     bl_idname = "ALEC_MT_uv_menu"
@@ -216,7 +221,7 @@ class ALEC_MT_object_menu(bpy.types.Menu):
         col_left = pie.column()
         row = col_left.row()
 
-            # 1. BBox
+        # 1. BBox
         col_b = row.column()
         box_bbox = col_b.box()
         box_bbox.label(text="BBox", icon='MESH_CUBE')
@@ -225,7 +230,7 @@ class ALEC_MT_object_menu(bpy.types.Menu):
         col_inner.operator("alec.bbox_world", text="BBox World")
         col_inner.operator("alec.bbox_offset_modal", text="BBox Offset")
 
-            # 2. Align
+        # 2. Align
         col_a = row.column()
         box_align = col_a.box()
         box_align.label(text="Align", icon='LIGHTPROBE_VOLUME')
