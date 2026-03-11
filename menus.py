@@ -167,8 +167,8 @@ class ALEC_MT_edit_menu(bpy.types.Menu):
         box_shapes = col.box()
         box_shapes.label(text="Shapes", icon='MESH_CIRCLE')
         col_inner = box_shapes.column(align=True)
-        col_inner.operator("alec.make_circle", text="Perfect Circle")
-        col_inner.operator("alec.make_square", text="Perfect Square")
+        col_inner.operator("alec.make_circle_v2", text="Perfect Circle")
+        col_inner.operator("alec.make_square_v2", text="Perfect Square")
         
         box = col.box()
         box.label(text="Orientation", icon='ORIENTATION_GLOBAL')

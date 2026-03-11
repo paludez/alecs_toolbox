@@ -46,7 +46,7 @@ class ModalNumberInput:
             return float(eval(expr, {"__builtins__": {}}, {}))
         except (SyntaxError, ZeroDivisionError, TypeError, NameError) as e:
             # Catch potential errors from eval and raise a ValueError
-            raise ValueError(f"Invalid math expression: {e}")
+            raise ValueError(f"Invalid math expression: {e}") from None
 
     def handle_event(self, event):
         """

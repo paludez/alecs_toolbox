@@ -126,8 +126,11 @@ class ALEC_OT_bbox_offset_modal(bpy.types.Operator):
 
         # --- Apply Offset ---
         if self.number_input.has_value():
-            typed_val = self.number_input.get_value()
-            offset = typed_val * self.unit_scale
+            try:
+                typed_val = self.number_input.get_value()
+                offset = typed_val * self.unit_scale
+            except ValueError:
+                pass
         
         self.update_offset(context, offset)
         

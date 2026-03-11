@@ -1,6 +1,5 @@
 # Operators for manipulating object origins and the 3D cursor
 import bpy
-from mathutils import Matrix
 from ..modules import cursor_tools
 from ..modules.utils import get_bounds_data
 

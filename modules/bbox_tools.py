@@ -1,17 +1,7 @@
 import bpy
 from mathutils import Vector, Matrix
 import bmesh
-from .utils import move_to_collection
-
-def get_or_create_collection(context, coll_name="BBox_Helpers", color='COLOR_04'):
-    if coll_name not in bpy.data.collections:
-        bbox_coll = bpy.data.collections.new(coll_name)
-        context.scene.collection.children.link(bbox_coll)
-        bbox_coll.color_tag = color
-        bbox_coll.hide_render = True
-    else:
-        bbox_coll = bpy.data.collections[coll_name]
-    return bbox_coll
+from .utils import move_to_collection, get_or_create_collection
 
 def setup_bbox_visibility(bbox, color=(0.0, 1.0, 0.2, 1.0)):
     bbox.display_type = 'WIRE'
@@ -115,7 +105,6 @@ def create_interactive_offset_bbox(context):
         offset_obj.data = offset_obj.data.copy()
 
     # 2. Store original mesh data using bmesh for robustness
-    import bmesh
     orig_mesh = active_obj.data
     bm = bmesh.new()
     bm.from_mesh(orig_mesh)

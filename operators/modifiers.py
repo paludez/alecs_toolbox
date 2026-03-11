@@ -1,7 +1,7 @@
 # Operators for adding and managing modifiers
 import bpy
 from ..modules.modal_handler import ModalNumberInput, update_modal_header
-from ..modules.utils import unit_suffixes, draw_modal_status_bar, get_unit_scale, move_to_collection
+from ..modules.utils import unit_suffixes, draw_modal_status_bar, get_unit_scale, move_to_collection, switch_to_modifier_tab
 
 def get_boolean_collection(context):
     """Helper to get or create the hidden boolean collection."""
@@ -263,9 +263,7 @@ class ALEC_OT_add_mirror(bpy.types.Operator):
 
     def execute(self, context):
         bpy.ops.object.modifier_add(type='MIRROR')
-        for area in context.screen.areas:
-            if area.type == 'PROPERTIES':
-                area.spaces[0].context = 'MODIFIER'
+        switch_to_modifier_tab(context)
         return {'FINISHED'}
 
 class ALEC_OT_solidify_modal(bpy.types.Operator):
@@ -322,11 +320,8 @@ class ALEC_OT_solidify_modal(bpy.types.Operator):
         self.mod = obj.modifiers.new(name="Solidify", type='SOLIDIFY')
         self.initial_thickness = self.mod.thickness
 
-        # Switch to modifier tab
-        for area in context.screen.areas:
-            if area.type == 'PROPERTIES':
-                area.spaces[0].context = 'MODIFIER'
-        
+        switch_to_modifier_tab(context)
+
         # State
         self.number_input = ModalNumberInput()
         self.unit_scale = get_unit_scale(context)
@@ -399,9 +394,7 @@ class ALEC_OT_add_subdivision(bpy.types.Operator):
 
     def execute(self, context):
         bpy.ops.object.modifier_add(type='SUBSURF')
-        for area in context.screen.areas:
-            if area.type == 'PROPERTIES':
-                area.spaces[0].context = 'MODIFIER'
+        switch_to_modifier_tab(context)
         return {'FINISHED'}
 
 class ALEC_OT_modifier_action(bpy.types.Operator):

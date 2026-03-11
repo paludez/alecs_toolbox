@@ -123,8 +123,7 @@ class AlignBase:
         self.execute(context)
         return True
 
-    def cancel(self, context):
-        # Restore state if cancelled
+    def _restore_state(self):
         if getattr(self, '_is_modal', False) and self._initial_state:
             for name, state in self._initial_state.items():
                 obj = bpy.data.objects.get(name)
@@ -133,15 +132,12 @@ class AlignBase:
                     obj.rotation_euler = state['rotation_euler']
                     obj.scale = state['scale']
 
+    def cancel(self, context):
+        self._restore_state()
+
     def execute(self, context):
         # Restore state if running interactively (to handle unchecking boxes)
-        if getattr(self, '_is_modal', False) and self._initial_state:
-            for name, state in self._initial_state.items():
-                obj = bpy.data.objects.get(name)
-                if obj:
-                    obj.location = state['location']
-                    obj.rotation_euler = state['rotation_euler']
-                    obj.scale = state['scale']
+        self._restore_state()
 
         target = context.active_object
         sources = [o for o in context.selected_objects if o != target]
@@ -195,21 +191,6 @@ class ALEC_OT_quick_center(AlignBase, bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
     
     def invoke(self, context, event):
-        self.align_x = True
-        self.align_y = True
-        self.align_z = True
-        self.orient_x = False
-        self.orient_y = False
-        self.orient_z = False
-        self.scale_x = False
-        self.scale_y = False
-        self.scale_z = False
-        self.offset_x = 0.0
-        self.offset_y = 0.0
-        self.offset_z = 0.0
-        self.use_active_orient = False
-        self.reset_requested = False
-        
         self.source_point = 'CENTER'
         self.target_point = 'CENTER'
         return self.execute(context)
@@ -219,23 +200,8 @@ class ALEC_OT_quick_pivot(AlignBase, bpy.types.Operator):
     bl_idname = "alec.quick_pivot"
     bl_label = "Quick Pivot"
     bl_options = {'REGISTER', 'UNDO'}
-    
+
     def invoke(self, context, event):
-        self.align_x = True
-        self.align_y = True
-        self.align_z = True
-        self.orient_x = False
-        self.orient_y = False
-        self.orient_z = False
-        self.scale_x = False
-        self.scale_y = False
-        self.scale_z = False
-        self.offset_x = 0.0
-        self.offset_y = 0.0
-        self.offset_z = 0.0
-        self.use_active_orient = False
-        self.reset_requested = False
-        
         self.source_point = 'PIVOT'
         self.target_point = 'PIVOT'
         return self.execute(context)

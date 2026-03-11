@@ -151,7 +151,7 @@ def draw_modal_status_bar(layout, items):
 def move_to_collection(obj, target_collection):
     # Make a copy of the collections list as it will be modified during iteration
     source_collections = list(obj.users_collection)
-    
+
     # If already in target, only remove from others. Otherwise remove all and link.
     if target_collection in source_collections:
         for coll in source_collections:
@@ -161,3 +161,18 @@ def move_to_collection(obj, target_collection):
         for coll in source_collections:
             coll.objects.unlink(obj)
         target_collection.objects.link(obj)
+
+def get_or_create_collection(context, coll_name="BBox_Helpers", color='COLOR_04', hide_render=True):
+    if coll_name not in bpy.data.collections:
+        coll = bpy.data.collections.new(coll_name)
+        context.scene.collection.children.link(coll)
+        coll.color_tag = color
+        coll.hide_render = hide_render
+    else:
+        coll = bpy.data.collections[coll_name]
+    return coll
+
+def switch_to_modifier_tab(context):
+    for area in context.screen.areas:
+        if area.type == 'PROPERTIES':
+            area.spaces[0].context = 'MODIFIER'

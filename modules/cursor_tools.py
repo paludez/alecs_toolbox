@@ -1,5 +1,5 @@
 import bpy
-from mathutils import Vector
+from .utils import get_bounds_data
 
 def cursor_to_selected(context):
     obj = context.active_object
@@ -8,12 +8,7 @@ def cursor_to_selected(context):
 
 def cursor_to_geometry_center(context):
     obj = context.active_object
-    corners = [Vector(c) for c in obj.bound_box]
-    min_co = Vector((min(v.x for v in corners), min(v.y for v in corners), min(v.z for v in corners)))
-    max_co = Vector((max(v.x for v in corners), max(v.y for v in corners), max(v.z for v in corners)))
-    center_local = (min_co + max_co) / 2
-    center_world = obj.matrix_world @ center_local
-    context.scene.cursor.location = center_world
+    context.scene.cursor.location = get_bounds_data(obj, 'CENTER', 'LOCAL')
     context.scene.cursor.rotation_euler = obj.rotation_euler.copy()
 
 def origin_to_cursor(context):

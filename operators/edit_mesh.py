@@ -954,437 +954,255 @@ class ALEC_OT_make_coplanar(bpy.types.Operator):
         bmesh.update_edit_mesh(me)
         return {'FINISHED'}
 
-class ALEC_OT_make_circle(bpy.types.Operator):
-    """Flatten selected vertices into a perfect circle"""
-    bl_idname = "alec.make_circle"
-    bl_label = "Make Circle"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    radius: bpy.props.FloatProperty(
-        name="Radius",
-        default=1.0,
-        min=0.0,
-        unit='LENGTH'
-    ) # type: ignore
-
-    influence: bpy.props.FloatProperty(
-        name="Influence", 
-        default=1.0, 
-        min=0.0, 
-        max=1.0,
-        subtype='FACTOR'
-    ) # type: ignore
-    
-    regular: bpy.props.BoolProperty(
-        name="Regular", 
-        default=True, 
-        description="Distribute vertices evenly along the circle"
-    ) # type: ignore
-
-    @classmethod
-    def poll(cls, context):
-        return (context.active_object is not None and
-                context.active_object.type == 'MESH' and
-                context.mode == 'EDIT_MESH')
-
-    def draw(self, context):
-        layout = self.layout
-        layout.prop(self, "radius")
-        
-        layout.prop(self, "influence")
-        layout.prop(self, "regular")
+class _ShapeOpMixin:
+    """Shared logic for make_circle and make_square."""
 
     def _get_target_verts(self, bm, context):
-        # If Face Mode is active, try to get boundary vertices
         if context.tool_settings.mesh_select_mode[2]:
             selected_faces = [f for f in bm.faces if f.select]
             if selected_faces:
                 boundary_verts = set()
                 for f in selected_faces:
                     for e in f.edges:
-                        # Boundary edge has exactly one selected face linked
                         if sum(1 for lf in e.link_faces if lf.select) == 1:
                             boundary_verts.add(e.verts[0])
                             boundary_verts.add(e.verts[1])
                 if boundary_verts:
                     return list(boundary_verts)
-        
-        # Fallback: return all selected vertices
         return [v for v in bm.verts if v.select]
 
     def invoke(self, context, event):
-        # Pre-calculate radius so the slider starts at a logical value
         obj = context.active_object
         if obj and obj.mode == 'EDIT':
             bm = bmesh.from_edit_mesh(obj.data)
             sel_verts = self._get_target_verts(bm, context)
             if len(sel_verts) >= 3:
-                center = Vector((0,0,0))
-                for v in sel_verts: center += v.co
+                center = Vector((0, 0, 0))
+                for v in sel_verts:
+                    center += v.co
                 center /= len(sel_verts)
-                
-                # Calculate max radius (Best Fit) to initialize the slider
                 max_dist_sq = max(((v.co - center).length_squared for v in sel_verts), default=1.0)
                 self.radius = math.sqrt(max_dist_sq)
-        
         return self.execute(context)
+
+
+class ALEC_OT_make_circle_v2(_ShapeOpMixin, bpy.types.Operator):
+    """Flatten selected vertices into a perfect circle (claude version)"""
+    bl_idname = "alec.make_circle_v2"
+    bl_label = "Make Circle V2"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    radius: bpy.props.FloatProperty(name="Radius", default=1.0, min=0.0, unit='LENGTH') # type: ignore
+    influence: bpy.props.FloatProperty(name="Influence", default=1.0, min=0.0, max=1.0, subtype='FACTOR') # type: ignore
+    regular: bpy.props.BoolProperty(name="Regular", default=True, description="Distribute vertices evenly") # type: ignore
+
+    @classmethod
+    def poll(cls, context):
+        return context.active_object and context.active_object.type == 'MESH' and context.mode == 'EDIT_MESH'
+
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(self, "radius")
+        layout.prop(self, "influence")
+        layout.prop(self, "regular")
+
+    def _get_plane_normal(self, bm, context, verts):
+        # Face mode: average of selected face normals — always correct
+        if context.tool_settings.mesh_select_mode[2]:
+            faces = [f for f in bm.faces if f.select]
+            if faces:
+                n = Vector((0, 0, 0))
+                for f in faces:
+                    n += f.normal
+                if n.length_squared > 1e-10:
+                    return n.normalized()
+
+        # Vertex/edge mode: pick verts at 0, n//3, 2n//3 — roughly spread
+        # across the selection for a stable cross product
+        count = len(verts)
+        a = verts[0].co
+        b = verts[count // 3].co
+        c = verts[2 * count // 3].co
+        n = (b - a).cross(c - a)
+        if n.length_squared > 1e-10:
+            return n.normalized()
+
+        return Vector((0, 0, 1))
 
     def execute(self, context):
         obj = context.active_object
-        me = obj.data
-        bm = bmesh.from_edit_mesh(me)
+        bm = bmesh.from_edit_mesh(obj.data)
 
-        selected_verts = self._get_target_verts(bm, context)
-
-        if len(selected_verts) < 3:
-            self.report({'WARNING'}, "Select at least 3 vertices (or a face selection boundary)")
+        verts = self._get_target_verts(bm, context)
+        if len(verts) < 3:
+            self.report({'WARNING'}, "Select at least 3 vertices")
             return {'CANCELLED'}
 
-        # 1. Calculate Center
-        center = Vector((0,0,0))
-        for v in selected_verts: 
+        center = Vector((0, 0, 0))
+        for v in verts:
             center += v.co
-        center /= len(selected_verts)
+        center /= len(verts)
 
-        # 2. Calculate Plane (Best Fit)
-        try:
-            normal = geometry.normal([v.co for v in selected_verts])
-        except:
-            normal = Vector((0,0,1))
-        
-        if normal.length_squared < 1e-6:
-             normal = Vector((0,0,1))
+        normal = self._get_plane_normal(bm, context, verts)
 
-        # Create basis vectors for the plane
-        tangent = normal.orthogonal()
-        bitangent = normal.cross(tangent)
+        # Orthonormal basis on the plane
+        tangent: Vector = normal.orthogonal() # type: ignore[assignment]
+        tangent.normalize()
+        bitangent: Vector = normal.cross(tangent) # type: ignore[assignment]
+        bitangent.normalize()
 
-        # --- Align Orientation to Geometry & Calculate Radius ---
-        # Find vertex farthest from center to align the circle start point
-        # This prevents the circle from shrinking (uses max radius) and prevents rotation
-        max_dist_sq = 0.0
-        farthest_v = None
-        
-        for v in selected_verts:
-            d_sq = (v.co - center).length_squared
-            if d_sq > max_dist_sq:
-                max_dist_sq = d_sq
-                farthest_v = v
-        
-        # Align basis so the farthest vertex is at angle 0 (on the Tangent axis)
-        if farthest_v:
-            vec = farthest_v.co - center
-            vec = vec - vec.dot(normal) * normal # Project to plane
-            if vec.length_squared > 1e-6:
-                # Current angle of the farthest vertex
-                angle = math.atan2(vec.dot(bitangent), vec.dot(tangent))
-                # Rotate basis so this vertex aligns with 0 degrees
-                rot_angle = angle
-                
-                rot_mat = Matrix.Rotation(rot_angle, 3, normal)
-                tangent = rot_mat @ tangent
-                bitangent = rot_mat @ bitangent
+        # Project each vertex onto the plane and compute its angle
+        pairs = []
+        for v in verts:
+            d = v.co - center
+            d -= d.dot(normal) * normal  # flatten to plane
+            angle = math.atan2(d.dot(bitangent), d.dot(tangent))
+            pairs.append((v, angle))
 
-        target_radius = self.radius
+        pairs.sort(key=lambda x: x[1])
+        count = len(pairs)
+        r = self.radius
 
-        # 4. Project and Position
         if self.regular:
-            # Project to 2D plane defined by (tangent, bitangent) to get angles
-            vert_angles = []
-            for v in selected_verts:
-                vec = v.co - center
-                x = vec.dot(tangent)
-                y = vec.dot(bitangent)
-                angle = math.atan2(y, x)
-                vert_angles.append((v, angle))
-            
-            # Sort by angle to ensure sequential ordering around the circle
-            vert_angles.sort(key=lambda x: x[1])
-            
-            start_angle = vert_angles[0][1]
-            step = (2 * math.pi) / len(selected_verts)
-
-            for i, (v, _) in enumerate(vert_angles):
-                theta = start_angle + i * step
-                circle_pos = center + (tangent * math.cos(theta) + bitangent * math.sin(theta)) * target_radius
-                v.co = v.co.lerp(circle_pos, self.influence)
+            step = 2 * math.pi / count
+            # Choose the phase that minimizes total angular displacement.
+            # Each vertex i (sorted) will land at (phase + i*step).
+            # Optimal phase = mean(original_angle_i - i*step).
+            phase = sum(pairs[i][1] - i * step for i in range(count)) / count
+            for i, (v, _) in enumerate(pairs):
+                theta = phase + i * step
+                target = center + tangent * math.cos(theta) * r + bitangent * math.sin(theta) * r
+                v.co = v.co.lerp(target, self.influence)
         else:
-            for v in selected_verts:
-                vec = v.co - center
-                dist_from_plane = vec.dot(normal)
-                vec_on_plane = vec - (normal * dist_from_plane)
-                
-                if vec_on_plane.length_squared > 1e-6:
-                    vec_on_plane.normalize()
-                    circle_pos = center + vec_on_plane * target_radius
-                    v.co = v.co.lerp(circle_pos, self.influence)
+            for v, angle in pairs:
+                target = center + tangent * math.cos(angle) * r + bitangent * math.sin(angle) * r
+                v.co = v.co.lerp(target, self.influence)
 
-        bmesh.update_edit_mesh(me)
+        bmesh.update_edit_mesh(obj.data)
         return {'FINISHED'}
 
-class ALEC_OT_make_square(bpy.types.Operator):
+
+class ALEC_OT_make_square_v2(_ShapeOpMixin, bpy.types.Operator):
     """Flatten selected vertices into a perfect square"""
-    bl_idname = "alec.make_square"
-    bl_label = "Make Square"
+    bl_idname = "alec.make_square_v2"
+    bl_label = "Make Square V2"
     bl_options = {'REGISTER', 'UNDO'}
 
-    radius: bpy.props.FloatProperty(
-        name="Radius",
-        default=1.0,
-        min=0.0,
-        unit='LENGTH'
-    ) # type: ignore
-
-    influence: bpy.props.FloatProperty(
-        name="Influence", 
-        default=1.0, 
-        min=0.0, 
-        max=1.0,
-        subtype='FACTOR'
-    ) # type: ignore
-    
-    regular: bpy.props.BoolProperty(
-        name="Regular", 
-        default=True, 
-        description="Distribute vertices evenly along the square"
-    ) # type: ignore
+    size: bpy.props.FloatProperty(name="Size", default=1.0, min=0.0, unit='LENGTH',
+        description="Half-size of the square (distance from center to side)") # type: ignore
+    influence: bpy.props.FloatProperty(name="Influence", default=1.0, min=0.0, max=1.0, subtype='FACTOR') # type: ignore
+    regular: bpy.props.BoolProperty(name="Regular", default=True, description="Distribute vertices evenly along each side") # type: ignore
 
     @classmethod
     def poll(cls, context):
-        return (context.active_object is not None and
-                context.active_object.type == 'MESH' and
-                context.mode == 'EDIT_MESH')
+        return context.active_object and context.active_object.type == 'MESH' and context.mode == 'EDIT_MESH'
 
     def draw(self, context):
         layout = self.layout
-        layout.prop(self, "radius")
+        layout.prop(self, "size")
         layout.prop(self, "influence")
         layout.prop(self, "regular")
 
-    def _get_target_verts(self, bm, context):
-        # If Face Mode is active, try to get boundary vertices
+    def _get_plane_normal(self, bm, context, verts):
         if context.tool_settings.mesh_select_mode[2]:
-            selected_faces = [f for f in bm.faces if f.select]
-            if selected_faces:
-                boundary_verts = set()
-                for f in selected_faces:
-                    for e in f.edges:
-                        # Boundary edge has exactly one selected face linked
-                        if sum(1 for lf in e.link_faces if lf.select) == 1:
-                            boundary_verts.add(e.verts[0])
-                            boundary_verts.add(e.verts[1])
-                if boundary_verts:
-                    return list(boundary_verts)
-        
-        # Fallback: return all selected vertices
-        return [v for v in bm.verts if v.select]
+            faces = [f for f in bm.faces if f.select]
+            if faces:
+                n = Vector((0, 0, 0))
+                for f in faces:
+                    n += f.normal
+                if n.length_squared > 1e-10:
+                    return n.normalized()
+        count = len(verts)
+        a = verts[0].co
+        b = verts[count // 3].co
+        c = verts[2 * count // 3].co
+        n = (b - a).cross(c - a) # type: ignore[assignment]
+        if n.length_squared > 1e-10:
+            return n.normalized()
+        return Vector((0, 0, 1))
 
-    def invoke(self, context, event):
-        # Pre-calculate radius so the slider starts at a logical value
-        obj = context.active_object
-        if obj and obj.mode == 'EDIT':
-            bm = bmesh.from_edit_mesh(obj.data)
-            sel_verts = self._get_target_verts(bm, context)
-            if len(sel_verts) >= 3:
-                center = Vector((0,0,0))
-                for v in sel_verts: center += v.co
-                center /= len(sel_verts)
-                
-                # Calculate max radius (Best Fit) to initialize the slider
-                max_dist_sq = max(((v.co - center).length_squared for v in sel_verts), default=1.0)
-                self.radius = math.sqrt(max_dist_sq)
-        
-        return self.execute(context)
+    @staticmethod
+    def _perimeter_pos(t):
+        """Map perimeter parameter t in [0,1) to (x,y) on a unit square (half_size=1).
+        Starts at bottom-left corner, goes clockwise: bottom → right → top → left."""
+        t = t % 1.0
+        if t < 0.25:
+            return (-1.0 + t * 8.0, -1.0)
+        elif t < 0.5:
+            return (1.0, -1.0 + (t - 0.25) * 8.0)
+        elif t < 0.75:
+            return (1.0 - (t - 0.5) * 8.0, 1.0)
+        else:
+            return (-1.0, 1.0 - (t - 0.75) * 8.0)
 
     def execute(self, context):
         obj = context.active_object
-        me = obj.data
-        bm = bmesh.from_edit_mesh(me)
+        bm = bmesh.from_edit_mesh(obj.data)
 
-        selected_verts = self._get_target_verts(bm, context)
-
-        if len(selected_verts) < 3:
-            self.report({'WARNING'}, "Select at least 3 vertices (or a face selection boundary)")
+        verts = self._get_target_verts(bm, context)
+        if len(verts) < 4:
+            self.report({'WARNING'}, "Select at least 4 vertices")
             return {'CANCELLED'}
 
-        # 1. Calculate Center
-        center = Vector((0,0,0))
-        for v in selected_verts: 
+        center = Vector((0, 0, 0))
+        for v in verts:
             center += v.co
-        center /= len(selected_verts)
+        center /= len(verts)
 
-        # 2. Calculate Plane (Best Fit)
-        try:
-            normal = geometry.normal([v.co for v in selected_verts])
-        except:
-            normal = Vector((0,0,1))
-        
-        if normal.length_squared < 1e-6:
-             normal = Vector((0,0,1))
+        normal = self._get_plane_normal(bm, context, verts)
 
-        # Create basis vectors for the plane
-        # Try to align tangent to Object X axis projected on plane for predictable rotation
-        ref_axis = Vector((1, 0, 0))
-        if abs(normal.dot(ref_axis)) > 0.9: # If normal is roughly X, use Y
-            ref_axis = Vector((0, 1, 0))
-            
-        tangent = (ref_axis - ref_axis.dot(normal) * normal).normalized()
-        bitangent = normal.cross(tangent)
+        tangent: Vector = normal.orthogonal() # type: ignore[assignment]
+        tangent.normalize()
+        bitangent: Vector = normal.cross(tangent) # type: ignore[assignment]
+        bitangent.normalize()
 
-        # --- Align Orientation to Geometry ---
-        # Find vertex farthest from center to align corners
-        # This prevents "beveled" corners when the mesh is rotated relative to the calculated basis
-        max_dist_sq = 0.0
-        candidates = []
-        
-        for v in selected_verts:
-            d_sq = (v.co - center).length_squared
-            if d_sq > max_dist_sq + 1e-5:
-                max_dist_sq = d_sq
-                candidates = [v]
-            elif d_sq > max_dist_sq - 1e-5:
-                candidates.append(v)
-        
-        # Pick the candidate that minimizes basis rotation (closest to 45 degrees in current basis)
-        best_rot_angle = 0.0
-        min_abs_rot = 1000.0
-        
-        for v in candidates:
-            vec = v.co - center
-            vec = vec - vec.dot(normal) * normal # Project to plane
-            if vec.length_squared > 1e-6:
-                angle = math.atan2(vec.dot(bitangent), vec.dot(tangent))
-                # Rotate basis so this vertex is at 45 degrees (PI/4)
-                rot = angle - (math.pi / 4)
-                # Normalize to -pi..pi
-                while rot > math.pi: rot -= 2*math.pi
-                while rot <= -math.pi: rot += 2*math.pi
-                
-                if abs(rot) < min_abs_rot:
-                    min_abs_rot = abs(rot)
-                    best_rot_angle = rot
+        # Project each vert onto the plane and sort by angle
+        pairs = []
+        for v in verts:
+            d = v.co - center
+            d -= d.dot(normal) * normal
+            angle = math.atan2(d.dot(bitangent), d.dot(tangent))
+            pairs.append((v, angle))
 
-        if candidates:
-            rot_mat = Matrix.Rotation(best_rot_angle, 3, normal)
-            tangent = rot_mat @ tangent
-            bitangent = rot_mat @ bitangent
+        pairs.sort(key=lambda x: x[1])
+        count = len(pairs)
+        hs = self.size
 
-        # 3. Calculate Size
-        # Use the radius property (distance to corner) to determine size
-        half_size = self.radius * (math.sqrt(2) / 2.0)
-        
-        if half_size < 1e-6:
-            self.report({'INFO'}, "Selection has zero size, cannot create square.")
-            return {'CANCELLED'}
+        if self.regular:
+            # Vert i maps to perimeter parameter (phase + i/N).
+            # Find the optimal phase in [0, 1/N) by grid search — minimizes total squared distance.
+            best_phase = 0.0
+            best_cost = float('inf')
+            steps = max(count * 4, 64)
+            for s in range(steps):
+                phase = s / (steps * count)  # phase in [0, 1/N)
+                cost = 0.0
+                for i, (v, _) in enumerate(pairs):
+                    sx, sy = self._perimeter_pos(phase + i / count)
+                    target = center + tangent * (sx * hs) + bitangent * (sy * hs)
+                    cost += (v.co - target).length_squared
+                if cost < best_cost:
+                    best_cost = cost
+                    best_phase = phase
 
-        # 4. Project and Position
-        
-        # Calculate angles and sort vertices
-        vert_angles = []
-        for v in selected_verts:
-            vec = v.co - center
-            x = vec.dot(tangent)
-            y = vec.dot(bitangent)
-            angle = math.atan2(y, x) # -pi to pi
-            vert_angles.append((v, angle))
-        
-        vert_angles.sort(key=lambda x: x[1])
-
-        # Corner-aware distribution for Regular Squares
-        if self.regular and len(selected_verts) >= 4:
-            # Identify indices of the 4 corners based on angle proximity
-            # Targets: BL(-135), BR(-45), TR(45), TL(135)
-            targets = [-3*math.pi/4, -math.pi/4, math.pi/4, 3*math.pi/4]
-            corner_indices = []
-            used_indices = set()
-            for target in targets:
-                best_idx = -1
-                min_dist = 100.0
-                for i, (v, a) in enumerate(vert_angles):
-                    if i in used_indices: continue
-                    dist = abs(a - target)
-                    if dist > math.pi: dist = 2*math.pi - dist # Handle wrap-around
-                    if dist < min_dist:
-                        min_dist = dist
-                        best_idx = i
-                corner_indices.append(best_idx)
-                used_indices.add(best_idx)
-            
-            # Corner positions in normalized space corresponding to targets
-            corners_pos = [Vector((-1,-1)), Vector((1,-1)), Vector((1,1)), Vector((-1,1))]
-            
-            # Distribute vertices between corners
-            for i in range(4):
-                idx_start = corner_indices[i]
-                idx_end = corner_indices[(i+1)%4]
-                p_start = corners_pos[i]
-                p_end = corners_pos[(i+1)%4]
-                
-                # Collect indices for this side
-                segment_indices = []
-                curr = idx_start
-                while curr != idx_end:
-                    segment_indices.append(curr)
-                    curr = (curr + 1) % len(vert_angles)
-                segment_indices.append(idx_end)
-                
-                # Distribute linearly along the edge
-                # We exclude the last point to avoid processing corners twice (it will be start of next segment)
-                count = len(segment_indices)
-                for k, v_idx in enumerate(segment_indices[:-1]):
-                    factor = k / (count - 1) if count > 1 else 0
-                    pos_2d = p_start.lerp(p_end, factor)
-                    
-                    v = vert_angles[v_idx][0]
-                    final_pos = center + (tangent * pos_2d.x + bitangent * pos_2d.y) * half_size
-                    v.co = v.co.lerp(final_pos, self.influence)
-
+            for i, (v, _) in enumerate(pairs):
+                sx, sy = self._perimeter_pos(best_phase + i / count)
+                target = center + tangent * (sx * hs) + bitangent * (sy * hs)
+                v.co = v.co.lerp(target, self.influence)
         else:
-            # Fallback / Regular=False: Project each vertex to the nearest point on the square perimeter
-            
-            # Identify corners to snap them (prevents beveled corners)
-            corner_verts = set()
-            if len(selected_verts) >= 4:
-                targets = [-3*math.pi/4, -math.pi/4, math.pi/4, 3*math.pi/4]
-                used_indices = set()
-                for target in targets:
-                    best_v = None
-                    min_dist = 100.0
-                    best_idx = -1
-                    for i, (v, a) in enumerate(vert_angles):
-                        if i in used_indices: continue
-                        dist = abs(a - target)
-                        if dist > math.pi: dist = 2*math.pi - dist # Handle wrap-around
-                        if dist < min_dist:
-                            min_dist = dist
-                            best_v = v
-                            best_idx = i
-                    if best_v:
-                        corner_verts.add(best_v)
-                        used_indices.add(best_idx)
-
-            for v, angle in vert_angles:
-                vec = v.co - center
-                x = vec.dot(tangent)
-                y = vec.dot(bitangent)
-
-                # If this vertex was identified as a corner candidate, snap it exactly
-                if v in corner_verts:
-                    sx = 1.0 if x >= 0 else -1.0
-                    sy = 1.0 if y >= 0 else -1.0
-                else:
-                    # Standard radial projection for sides
-                    max_comp = max(abs(x), abs(y))
-                    if max_comp < 1e-9: continue
-                    scale = 1.0 / max_comp
-                    sx = x * scale
-                    sy = y * scale
+            # Project each vertex outward along its direction to the square perimeter
+            for v, angle in pairs:
+                x = math.cos(angle)
+                y = math.sin(angle)
                 
-                square_pos = center + (tangent * sx + bitangent * sy) * half_size
-                v.co = v.co.lerp(square_pos, self.influence)
+                # Scale so the farthest axis touches the square edge
+                scale = hs / max(abs(x), abs(y)) if max(abs(x), abs(y)) > 1e-10 else hs
+                target = center + tangent * (x * scale) + bitangent * (y * scale)
+                v.co = v.co.lerp(target, self.influence)
 
-        bmesh.update_edit_mesh(me)
+        bmesh.update_edit_mesh(obj.data)
         return {'FINISHED'}
+
 
 class ALEC_OT_clean_mesh(bpy.types.Operator):
     """Dissolve redundant edges on flat surfaces and merge double vertices"""
@@ -1451,8 +1269,8 @@ classes = [
     ALEC_OT_distribute_vertices,
     ALEC_OT_make_collinear,
     ALEC_OT_make_coplanar,
-    ALEC_OT_make_circle,
-    ALEC_OT_make_square,
+    ALEC_OT_make_circle_v2,
+    ALEC_OT_make_square_v2,
     ALEC_OT_clean_mesh,
     ALEC_OT_extract_and_solidify,
 ]
