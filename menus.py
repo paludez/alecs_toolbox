@@ -34,11 +34,9 @@ class ALEC_MT_quad_menu(bpy.types.Menu):
         b_pivot = col_right.box()
         b_pivot.label(text="Pivot Point", icon='PIVOT_MEDIAN')
         grid = b_pivot.grid_flow(columns=3, align=True, even_columns=True)
-        grid.prop_enum(context.tool_settings, "transform_pivot_point", value='BOUNDING_BOX_CENTER', text="BBox")
-        grid.prop_enum(context.tool_settings, "transform_pivot_point", value='CURSOR', text="Cursor")
-        grid.prop_enum(context.tool_settings, "transform_pivot_point", value='INDIVIDUAL_ORIGINS', text="Indiv")
-        grid.prop_enum(context.tool_settings, "transform_pivot_point", value='MEDIAN_POINT', text="Median")
-        grid.prop_enum(context.tool_settings, "transform_pivot_point", value='ACTIVE_ELEMENT', text="Active")
+        for val, txt in [('BOUNDING_BOX_CENTER', "BBox"), ('CURSOR', "Cursor"), ('INDIVIDUAL_ORIGINS', "Indiv"), 
+                         ('MEDIAN_POINT', "Median"), ('ACTIVE_ELEMENT', "Active")]:
+            grid.prop_enum(context.tool_settings, "transform_pivot_point", value=val, text=txt)
         grid.prop(context.tool_settings, "use_transform_pivot_point_align", text="Only Loc")
 
         # Orientation
@@ -46,28 +44,19 @@ class ALEC_MT_quad_menu(bpy.types.Menu):
         b_orient.label(text="Orientation", icon='ORIENTATION_GLOBAL')
         slot = context.scene.transform_orientation_slots[0]
         grid = b_orient.grid_flow(columns=3, align=True, even_columns=True)
-
-        grid.prop_enum(slot, "type", value='GLOBAL', text="Global")
-        grid.prop_enum(slot, "type", value='LOCAL', text="Local")
-        grid.prop_enum(slot, "type", value='NORMAL', text="Normal")
-        grid.prop_enum(slot, "type", value='GIMBAL', text="Gimbal")
-        grid.prop_enum(slot, "type", value='CURSOR', text="Cursor")
-        grid.prop_enum(slot, "type", value='PARENT', text="Parent")
+        for val in ['GLOBAL', 'LOCAL', 'NORMAL', 'GIMBAL', 'CURSOR', 'PARENT']:
+            grid.prop_enum(slot, "type", value=val, text=val.capitalize())
 
         # Snap Settings
         b5 = col_right.box()
         r5 = b5.grid_flow(columns=3, align=True)
-        r5.prop_enum(context.tool_settings, "snap_elements", value='INCREMENT', text="Incr")
-        r5.prop_enum(context.tool_settings, "snap_elements", value='VERTEX')
-        r5.prop_enum(context.tool_settings, "snap_elements", value='EDGE')
-        r5.prop_enum(context.tool_settings, "snap_elements", value='FACE')
-        r5.prop_enum(context.tool_settings, "snap_elements", value='VOLUME')
+        for val, txt in [('INCREMENT', "Incr"), ('VERTEX', "Vertex"), ('EDGE', "Edge"), ('FACE', "Face"), ('VOLUME', "Volume")]:
+            r5.prop_enum(context.tool_settings, "snap_elements", value=val, text=txt)
 
         b5.separator()
         r6 = b5.grid_flow(columns=3, align=True)
-        r6.prop_enum(context.tool_settings, "snap_target", value='CENTER')
-        r6.prop_enum(context.tool_settings, "snap_target", value='MEDIAN')
-        r6.prop_enum(context.tool_settings, "snap_target", value='ACTIVE')
+        for val in ['CENTER', 'MEDIAN', 'ACTIVE']:
+            r6.prop_enum(context.tool_settings, "snap_target", value=val, text=val.capitalize())
 
         # DOWN: Empty
         pie.column()
@@ -155,6 +144,8 @@ class ALEC_MT_edit_menu(bpy.types.Menu):
         op.mode = 'BEST_FIT'
         op = col_inner.operator("alec.make_coplanar", text="Last Three Selected")
         op.mode = 'HISTORY'
+        op = col_inner.operator("alec.make_coplanar", text="Active Face Normal")
+        op.mode = 'ACTIVE_FACE'
 
         # Extract
         box = col.box()
@@ -254,10 +245,10 @@ class ALEC_MT_object_menu(bpy.types.Menu):
         
         # Generators (1 Column)
         col_gen = box_mods.column(align=True)
-        col_gen.operator("alec.add_mirror", text="Mirror", icon='MOD_MIRROR')
+        col_gen.operator("alec.add_simple_modifier", text="Mirror", icon='MOD_MIRROR').mod_type = 'MIRROR'
         col_gen.operator("alec.mirror_control", text="Mirror (Null)", icon='EMPTY_AXIS')
         col_gen.operator("alec.solidify_modal", text="Solidify", icon='MOD_SOLIDIFY')
-        col_gen.operator("alec.add_subdivision", text="Subdivision", icon='MOD_SUBSURF')
+        col_gen.operator("alec.add_simple_modifier", text="Subdivision", icon='MOD_SUBSURF').mod_type = 'SUBSURF'
         
         box_mods.separator()
         

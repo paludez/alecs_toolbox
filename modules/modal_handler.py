@@ -129,3 +129,85 @@ def update_modal_header(context, main_label, main_value, typed_str, suffix="", s
         header_text += f"  |  {secondary_text}"
 
     context.area.header_text_set(header_text)
+
+class BaseModalOperator:
+    """Base class to handle boilerplate for interactive modal operators."""
+    _active_instance = None
+
+    @classmethod
+    def draw_status_bar(cls, panel_self, context):
+        self = cls._active_instance
+        if not self: return
+        from .utils import draw_modal_status_bar
+        draw_modal_status_bar(panel_self.layout, self.get_status_bar_items())
+
+    def base_invoke(self, context, event):
+        self.__class__._active_instance = self
+        self.number_input = ModalNumberInput()
+        
+        from .utils import get_unit_scale
+        self.unit_scale = get_unit_scale(context)
+        self.unit_scale_display_inv = 1.0 / self.unit_scale if self.unit_scale != 0 else 1.0
+        
+        # Mouse state
+        center_x = context.region.x + context.region.width // 2
+        center_y = context.region.y + context.region.height // 2
+        context.window.cursor_warp(center_x, center_y)
+        self.initial_mouse_x = center_x
+        
+        bpy.types.STATUSBAR_HT_header.prepend(self.__class__.draw_status_bar)
+        context.window_manager.modal_handler_add(self)
+        self.base_update_header(context)
+        return {'RUNNING_MODAL'}
+
+    def base_cleanup(self, context):
+        self.__class__._active_instance = None
+        try:
+            bpy.types.STATUSBAR_HT_header.remove(self.__class__.draw_status_bar)
+        except: pass
+        context.area.header_text_set(None)
+        self.on_cleanup(context)
+        context.area.tag_redraw()
+
+    def base_update_header(self, context):
+        args = self.get_header_args(context)
+        if args is not None:
+            args['typed_str'] = self.number_input.value_str
+            update_modal_header(context, **args)
+
+    def modal(self, context, event):
+        context.area.tag_redraw()
+
+        if event.type in {'LEFTMOUSE', 'RET', 'NUMPAD_ENTER'} and event.value == 'PRESS':
+            self.on_confirm(context, event)
+            self.base_cleanup(context)
+            return {'FINISHED'}
+        if event.type in {'RIGHTMOUSE', 'ESC'} and event.value == 'PRESS':
+            self.on_cancel(context, event)
+            self.base_cleanup(context)
+            return {'CANCELLED'}
+        if self.number_input.handle_event(event):
+            self.on_apply_typed_value(context, event)
+        elif event.type == 'R' and event.value == 'PRESS':
+            self.number_input.reset()
+            self.initial_mouse_x = event.mouse_x
+            self.on_reset(context, event)
+        elif event.type == 'MOUSEMOVE':
+            self.number_input.reset()
+            delta_x = event.mouse_x - self.initial_mouse_x
+            self.on_mouse_move(context, event, delta_x)
+
+        self.on_custom_event(context, event)
+        self.base_update_header(context)
+        return {'RUNNING_MODAL'}
+
+    # --- Hooks for subclasses ---
+    def get_status_bar_items(self): return [("Confirm", "[LMB]"), ("Cancel", "[RMB]"), ("Reset", "[R]")]
+    def get_header_args(self, context): return None
+    def on_confirm(self, context, event): pass
+    def on_cancel(self, context, event): pass
+    def on_reset(self, context, event): pass
+    def on_cleanup(self, context): pass
+    def on_mouse_move(self, context, event, delta_x): pass
+    def on_apply_typed_value(self, context, event): pass
+    def on_custom_event(self, context, event): pass

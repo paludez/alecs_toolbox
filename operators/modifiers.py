@@ -1,6 +1,6 @@
 # Operators for adding and managing modifiers
 import bpy
-from ..modules.modal_handler import ModalNumberInput, update_modal_header
+from ..modules.modal_handler import BaseModalOperator
 from ..modules.utils import unit_suffixes, draw_modal_status_bar, get_unit_scale, move_to_collection, switch_to_modifier_tab
 
 def get_boolean_collection(context):
@@ -102,48 +102,13 @@ class ALEC_OT_slice_boolean(bpy.types.Operator):
 
         return {'FINISHED'}
 
-class ALEC_OT_mirror_control(bpy.types.Operator):
+class ALEC_OT_mirror_control(BaseModalOperator, bpy.types.Operator):
     """Add Mirror Modifier controlled by a new Empty with interactive placement.
     X,Y,Z to change axis.
     """
     bl_idname = "alec.mirror_control"
     bl_label = "Mirror with Control"
     bl_options = {'REGISTER', 'UNDO', 'GRAB_CURSOR', 'BLOCKING'}
-
-    _active_instance = None
-
-    @staticmethod
-    def draw_status_bar(panel_self, context):
-        self = ALEC_OT_mirror_control._active_instance
-        if not self:
-            return
-
-        items = [
-            ("Axis", "[X]", self.axis_idx == 0),
-            ("", "[Y]", self.axis_idx == 1),
-            ("", "[Z]", self.axis_idx == 2),
-            None,  # Separator
-            ("Confirm", "[LMB]"),
-            ("Cancel", "[RMB]"),
-        ]
-        draw_modal_status_bar(panel_self.layout, items)
-
-    def cleanup(self, context):
-        ALEC_OT_mirror_control._active_instance = None
-        try:
-            bpy.types.STATUSBAR_HT_header.remove(ALEC_OT_mirror_control.draw_status_bar)
-        except:
-            pass # Fails if not found
-        context.area.tag_redraw()
-
-    def update_header_text(self, context):
-        unit_setting = context.scene.unit_settings.length_unit
-        suffix = unit_suffixes.get(unit_setting, '')
-        
-        distance = self.empty.location[self.axis_idx] - self.initial_loc[self.axis_idx]
-        display_dist = distance * self.unit_scale_display_inv
-
-        update_modal_header(context, "Distance", display_dist, self.number_input.value_str, suffix)
 
     def invoke(self, context, event):
         self.obj = context.active_object
@@ -155,9 +120,6 @@ class ALEC_OT_mirror_control(bpy.types.Operator):
         # State
         self.axes = ('X', 'Y', 'Z')
         self.axis_idx = 0
-        self.number_input = ModalNumberInput()
-        self.unit_scale = get_unit_scale(context)
-        self.unit_scale_display_inv = 1.0 / self.unit_scale if self.unit_scale != 0 else 1.0
 
         # Start at object center
         start_loc = self.obj.matrix_world.translation
@@ -171,75 +133,48 @@ class ALEC_OT_mirror_control(bpy.types.Operator):
         
         self.mod.use_axis = [i == self.axis_idx for i in range(3)]
         self.initial_loc = start_loc.copy()
-        
-        # Mouse state
-        center_x = context.region.x + context.region.width // 2
-        center_y = context.region.y + context.region.height // 2
-        context.window.cursor_warp(center_x, center_y)
-        self.initial_mouse_x = center_x
-        
-        ALEC_OT_mirror_control._active_instance = self
-        bpy.types.STATUSBAR_HT_header.prepend(ALEC_OT_mirror_control.draw_status_bar)
-        context.window_manager.modal_handler_add(self)
-        self.update_header_text(context)
-        return {'RUNNING_MODAL'}
 
-    def modal(self, context, event):
-        context.area.tag_redraw()
+        return self.base_invoke(context, event)
 
-        # --- Finish or Cancel ---
-        if event.type in {'LEFTMOUSE', 'RET', 'NUMPAD_ENTER'}:
-            if self.number_input.has_value(): # Apply final typed value
-                self.apply_typed_value(event)
-            self.cleanup(context)
-            context.area.header_text_set(None)
-            bpy.ops.object.select_all(action='DESELECT')
-            self.obj.select_set(True)
-            self.empty.select_set(True)
-            context.view_layer.objects.active = self.obj
-            return {'FINISHED'}
+    def get_status_bar_items(self):
+        return [("Axis", "[X]", self.axis_idx == 0), ("", "[Y]", self.axis_idx == 1), ("", "[Z]", self.axis_idx == 2),
+                None, ("Confirm", "[LMB]"), ("Cancel", "[RMB]")]
 
-        if event.type in {'RIGHTMOUSE', 'ESC'}:
-            self.cleanup(context)
-            context.area.header_text_set(None)
-            # Restore original location before cancelling
-            self.empty.location = self.initial_loc
-            self.obj.modifiers.remove(self.mod)
-            bpy.data.objects.remove(self.empty, do_unlink=True)
-            bpy.ops.object.select_all(action='DESELECT')
-            for obj in self.original_selection:
-                obj.select_set(True)
-            context.view_layer.objects.active = bpy.data.objects[self.active_obj_name]
-            return {'CANCELLED'}
-        
-        # --- Handle modal events ---
-        if self.number_input.handle_event(event):
-            self.apply_typed_value(event)
+    def get_header_args(self, context):
+        dist = self.empty.location[self.axis_idx] - self.initial_loc[self.axis_idx]
+        return {"main_label": "Distance", "main_value": dist * self.unit_scale_display_inv,
+                "suffix": unit_suffixes.get(context.scene.unit_settings.length_unit, '')}
 
-        # Mouse move resets typing
-        elif event.type == 'MOUSEMOVE':
-            self.number_input.reset()
-            delta_x = event.mouse_x - self.initial_mouse_x
-            sens = 0.02
-            dist = delta_x * sens
-            self.empty.location[self.axis_idx] = self.initial_loc[self.axis_idx] + dist
-            
-        # Axis change resets typing
-        elif event.type in self.axes and event.value == 'PRESS':
+    def on_confirm(self, context, event):
+        if self.number_input.has_value():
+            self.on_apply_typed_value(context, event)
+        bpy.ops.object.select_all(action='DESELECT')
+        self.obj.select_set(True)
+        self.empty.select_set(True)
+        context.view_layer.objects.active = self.obj
+
+    def on_cancel(self, context, event):
+        self.empty.location = self.initial_loc
+        self.obj.modifiers.remove(self.mod)
+        bpy.data.objects.remove(self.empty, do_unlink=True)
+        bpy.ops.object.select_all(action='DESELECT')
+        for obj in self.original_selection:
+            obj.select_set(True)
+        context.view_layer.objects.active = bpy.data.objects[self.active_obj_name]
+
+    def on_mouse_move(self, context, event, delta_x):
+        self.empty.location[self.axis_idx] = self.initial_loc[self.axis_idx] + delta_x * 0.02
+
+    def on_custom_event(self, context, event):
+        if event.type in self.axes and event.value == 'PRESS':
             self.number_input.reset()
             self.axis_idx = self.axes.index(event.type)
             self.mod.use_axis = [i == self.axis_idx for i in range(3)]
-            # Re-apply mouse delta on new axis
             delta_x = event.mouse_x - self.initial_mouse_x
-            sens = 0.02
-            dist = delta_x * sens
             self.empty.location = self.initial_loc.copy()
-            self.empty.location[self.axis_idx] += dist
-        
-        self.update_header_text(context)
-        return {'RUNNING_MODAL'}
+            self.empty.location[self.axis_idx] += delta_x * 0.02
 
-    def apply_typed_value(self, event):
+    def on_apply_typed_value(self, context, event):
         if not self.number_input.has_value(): return
         try:
             typed_val = self.number_input.get_value()
@@ -251,66 +186,29 @@ class ALEC_OT_mirror_control(bpy.types.Operator):
         except ValueError:
             pass # Ignore errors from partial input like "-"
 
-class ALEC_OT_add_mirror(bpy.types.Operator):
-    """Add Mirror Modifier and switch to Modifiers tab"""
-    bl_idname = "alec.add_mirror"
-    bl_label = "Add Mirror"
+class ALEC_OT_add_simple_modifier(bpy.types.Operator):
+    """Add a specific Modifier and switch to Modifiers tab"""
+    bl_idname = "alec.add_simple_modifier"
+    bl_label = "Add Modifier"
     bl_options = {'REGISTER', 'UNDO'}
+
+    mod_type: bpy.props.StringProperty() # type: ignore
 
     @classmethod
     def poll(cls, context):
         return context.active_object is not None
 
     def execute(self, context):
-        bpy.ops.object.modifier_add(type='MIRROR')
+        if self.mod_type:
+            bpy.ops.object.modifier_add(type=self.mod_type)
         switch_to_modifier_tab(context)
         return {'FINISHED'}
 
-class ALEC_OT_solidify_modal(bpy.types.Operator):
+class ALEC_OT_solidify_modal(BaseModalOperator, bpy.types.Operator):
     """Add Solidify Modifier and adjust thickness interactively"""
     bl_idname = "alec.solidify_modal"
     bl_label = "Solidify Interactive"
     bl_options = {'REGISTER', 'UNDO', 'GRAB_CURSOR', 'BLOCKING'}
-
-    _active_instance = None
-
-    mod: bpy.types.Modifier
-    number_input: ModalNumberInput
-    unit_scale: float
-    unit_scale_display_inv: float
-    initial_mouse_x: int
-    initial_thickness: float
-
-    @staticmethod
-    def draw_status_bar(panel_self, context):
-        self = ALEC_OT_solidify_modal._active_instance
-        if not self:
-            return
-
-        items = [
-            ("Confirm", "[LMB]"),
-            ("Cancel", "[RMB]"),
-            ("Reset", "[R]"),
-        ]
-        draw_modal_status_bar(panel_self.layout, items)
-
-    def cleanup(self, context):
-        ALEC_OT_solidify_modal._active_instance = None
-        try:
-            bpy.types.STATUSBAR_HT_header.remove(ALEC_OT_solidify_modal.draw_status_bar)
-        except:
-            pass  # Fails if not found
-        context.area.header_text_set(None)
-        context.area.tag_redraw()
-
-    def update_header_text(self, context):
-        unit_setting = context.scene.unit_settings.length_unit
-        suffix = unit_suffixes.get(unit_setting, '')
-        
-        thickness_val = self.mod.thickness * self.unit_scale_display_inv
-        init_val = self.initial_thickness * self.unit_scale_display_inv
-        
-        update_modal_header(context, "Thickness", thickness_val, self.number_input.value_str, suffix, initial_value=init_val)
 
     def invoke(self, context, event):
         obj = context.active_object
@@ -321,81 +219,30 @@ class ALEC_OT_solidify_modal(bpy.types.Operator):
         self.initial_thickness = self.mod.thickness
 
         switch_to_modifier_tab(context)
+        return self.base_invoke(context, event)
 
-        # State
-        self.number_input = ModalNumberInput()
-        self.unit_scale = get_unit_scale(context)
-        self.unit_scale_display_inv = 1.0 / self.unit_scale if self.unit_scale != 0 else 1.0
+    def get_header_args(self, context):
+        return {"main_label": "Thickness", "main_value": self.mod.thickness * self.unit_scale_display_inv,
+                "suffix": unit_suffixes.get(context.scene.unit_settings.length_unit, ''),
+                "initial_value": self.initial_thickness * self.unit_scale_display_inv}
 
-        # Mouse state
-        center_x = context.region.x + context.region.width // 2
-        center_y = context.region.y + context.region.height // 2
-        context.window.cursor_warp(center_x, center_y)
-        self.initial_mouse_x = center_x
-        
-        ALEC_OT_solidify_modal._active_instance = self
-        bpy.types.STATUSBAR_HT_header.prepend(ALEC_OT_solidify_modal.draw_status_bar)
-        context.window_manager.modal_handler_add(self)
-        self.update_header_text(context)
-        return {'RUNNING_MODAL'}
+    def on_cancel(self, context, event):
+        self.mod.thickness = self.initial_thickness
+        context.active_object.modifiers.remove(self.mod)
 
-    def modal(self, context, event):
-        context.area.tag_redraw()
+    def on_reset(self, context, event):
+        self.mod.thickness = self.initial_thickness
 
-        # --- Finish or Cancel ---
-        if event.type in {'LEFTMOUSE', 'RET', 'NUMPAD_ENTER'}:
-            self.cleanup(context)
-            return {'FINISHED'}
+    def on_mouse_move(self, context, event, delta_x):
+        sens = -0.01 * (0.1 if event.shift else 1.0)
+        self.mod.thickness = self.initial_thickness + (delta_x * sens)
 
-        if event.type in {'RIGHTMOUSE', 'ESC'}:
-            # Restore initial thickness and remove modifier
-            self.mod.thickness = self.initial_thickness
-            context.active_object.modifiers.remove(self.mod)
-            self.cleanup(context)
-            return {'CANCELLED'}
-
-        # --- Handle Modal Events ---
-        if self.number_input.handle_event(event):
-            pass  # Handled by number input
-
-        elif event.type == 'R' and event.value == 'PRESS':
-            self.number_input.reset()
-            self.mod.thickness = self.initial_thickness
-            # Reset mouse reference to prevent jumping on next mouse move
-            self.initial_mouse_x = event.mouse_x
-
-        elif event.type == 'MOUSEMOVE':
-            self.number_input.reset()
-            delta_x = event.mouse_x - self.initial_mouse_x
-            # Sensitivity - using a smaller factor for thickness
-            sens = -0.01 * (0.1 if event.shift else 1.0)
-            self.mod.thickness = self.initial_thickness + (delta_x * sens)
-
-        # Apply typed value if it exists
+    def on_apply_typed_value(self, context, event):
         if self.number_input.has_value():
             try:
                 typed_val = self.number_input.get_value(initial_value=self.initial_thickness * self.unit_scale_display_inv)
                 self.mod.thickness = typed_val * self.unit_scale
-            except ValueError:
-                pass  # Ignore errors from partial input like "-"
-
-        self.update_header_text(context)
-        return {'RUNNING_MODAL'}
-
-class ALEC_OT_add_subdivision(bpy.types.Operator):
-    """Add Subdivision Surface Modifier"""
-    bl_idname = "alec.add_subdivision"
-    bl_label = "Add Subdivision"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    @classmethod
-    def poll(cls, context):
-        return context.active_object is not None
-
-    def execute(self, context):
-        bpy.ops.object.modifier_add(type='SUBSURF')
-        switch_to_modifier_tab(context)
-        return {'FINISHED'}
+            except ValueError: pass
 
 class ALEC_OT_modifier_action(bpy.types.Operator):
     """Manage Modifiers: Apply, Delete, Move"""
@@ -469,8 +316,7 @@ classes = [
     ALEC_OT_boolean_op,
     ALEC_OT_slice_boolean,
     ALEC_OT_mirror_control,
-    ALEC_OT_add_mirror,
+    ALEC_OT_add_simple_modifier,
     ALEC_OT_solidify_modal,
-    ALEC_OT_add_subdivision,
     ALEC_OT_modifier_action,
 ]

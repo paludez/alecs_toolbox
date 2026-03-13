@@ -1,7 +1,9 @@
 import bpy
+import bmesh
 from ..modules import bbox_tools
-from ..modules.modal_handler import ModalNumberInput, update_modal_header
+from ..modules.modal_handler import BaseModalOperator
 from ..modules.utils import unit_suffixes, draw_modal_status_bar, get_unit_scale
+from ..modules.drawing_tools import draw_mesh_wireframe
 
 class BBoxOperatorBase:
     bl_options = {'REGISTER', 'UNDO'}
@@ -16,134 +18,85 @@ class BBoxOperatorBase:
         bbox_tools.create_bbox(context, mode=self.mode)
         return {'FINISHED'}
         
-class ALEC_OT_bbox_offset_modal(bpy.types.Operator):
+class ALEC_OT_bbox_offset_modal(BaseModalOperator, bpy.types.Operator):
     """Create an offset of a mesh object with interactive mouse and keyboard control."""
     bl_idname = "alec.bbox_offset_modal"
     bl_label = "Interactive BBox Offset"
     bl_options = {'REGISTER', 'UNDO', 'GRAB_CURSOR', 'BLOCKING'}
 
-    _active_instance = None
-
-    offset_obj: bpy.types.Object
-    source_obj: bpy.types.Object
-    orig_coords: list
-    orig_normals: list
-
-    unit_scale: float
-    unit_scale_display_inv: float
-    initial_mouse_x: int
-    
-    number_input: ModalNumberInput
-
-    @staticmethod
-    def draw_status_bar(panel_self, context):
-        self = ALEC_OT_bbox_offset_modal._active_instance
-        if not self:
-            return
-
-        items = [
-            ("Confirm", "[LMB]"),
-            ("Cancel", "[RMB]"),
-            ("Reset", "[R]"),
-        ]
-        draw_modal_status_bar(panel_self.layout, items)
-
-    def cleanup(self, context):
-        """Remove modal state and drawings."""
-        ALEC_OT_bbox_offset_modal._active_instance = None
-        try:
-            bpy.types.STATUSBAR_HT_header.remove(ALEC_OT_bbox_offset_modal.draw_status_bar)
-        except:
-            pass  # Fails if not found
-        context.area.tag_redraw()
-        context.area.header_text_set(None)
+    def draw_callback_3d(self, context):
+        draw_mesh_wireframe(self.world_matrix, self.orig_coords, self.orig_normals, self.edges, self.offset)
 
     def invoke(self, context, event):
         """Setup for the modal operator."""
-        self.offset_obj, self.orig_coords, self.orig_normals, self.source_obj = bbox_tools.create_interactive_offset_bbox(context)
-
-        if not self.offset_obj:
-            self.report({'WARNING'}, "No valid mesh object selected or object has no vertices.")
+        self.source_obj = context.active_object
+        if not self.source_obj or self.source_obj.type != 'MESH':
+            self.report({'WARNING'}, "No valid mesh object selected.")
             return {'CANCELLED'}
 
-        # Initial State
-        self.number_input = ModalNumberInput()
-        self.unit_scale = get_unit_scale(context)
-        self.unit_scale_display_inv = 1.0 / self.unit_scale if self.unit_scale != 0 else 1.0
-
-        # Mouse State
-        center_x = context.region.x + context.region.width // 2
-        context.window.cursor_warp(center_x, event.mouse_y)
-        self.initial_mouse_x = center_x
+        # Extract necessary geometry data purely in memory
+        bm = bmesh.new()
+        bm.from_mesh(self.source_obj.data)
+        bm.verts.ensure_lookup_table()
         
-        # Initial update
-        self.update_offset(context, 0.0)
+        self.orig_coords = [v.co.copy() for v in bm.verts]
+        self.orig_normals = [v.normal.copy() for v in bm.verts]
+        self.edges = [(e.verts[0].index, e.verts[1].index) for e in bm.edges]
+        bm.free()
 
-        ALEC_OT_bbox_offset_modal._active_instance = self
-        bpy.types.STATUSBAR_HT_header.prepend(ALEC_OT_bbox_offset_modal.draw_status_bar)
-        context.window_manager.modal_handler_add(self)
-        return {'RUNNING_MODAL'}
-
-    def modal(self, context, event):
-        """Handle events during the modal operation."""
-        offset = 0.0
-
-        # --- Finish or Cancel ---
-        if event.type in {'LEFTMOUSE', 'RET', 'NUMPAD_ENTER'}:
-            self.cleanup(context)
-            # Final selection setup
-            bpy.ops.object.select_all(action='DESELECT')
-            self.offset_obj.select_set(True)
-            context.view_layer.objects.active = self.offset_obj
-            return {'FINISHED'}
-
-        if event.type in {'RIGHTMOUSE', 'ESC'}:
-            # On cancel, remove the newly created offset object
-            if self.offset_obj:
-                bpy.data.objects.remove(self.offset_obj, do_unlink=True)
-            self.cleanup(context)
-            # Restore selection to the original object
-            if self.source_obj:
-                bpy.ops.object.select_all(action='DESELECT')
-                self.source_obj.select_set(True)
-                context.view_layer.objects.active = self.source_obj
+        if not self.orig_coords:
+            self.report({'WARNING'}, "Mesh has no vertices.")
             return {'CANCELLED'}
+
+        self.offset = 0.0
+        self.world_matrix = self.source_obj.matrix_world.copy()
+        
+        # Attach the GPU drawing routine
+        self._draw_handler = bpy.types.SpaceView3D.draw_handler_add(
+            self.draw_callback_3d, (context,), 'WINDOW', 'POST_VIEW')
             
-        # --- Handle Modal Events ---
-        if self.number_input.handle_event(event):
-            # If number input handled the event, we just update the offset
-            pass
+        return self.base_invoke(context, event)
 
-        elif event.type == 'R' and event.value == 'PRESS':
-             self.number_input.reset()
-             self.initial_mouse_x = event.mouse_x
+    def on_cleanup(self, context):
+        if hasattr(self, '_draw_handler') and self._draw_handler:
+            try:
+                bpy.types.SpaceView3D.draw_handler_remove(self._draw_handler, 'WINDOW')
+            except ValueError: pass
+            self._draw_handler = None
 
-        elif event.type == 'MOUSEMOVE':
-            self.number_input.reset()
-            delta_x = event.mouse_x - self.initial_mouse_x
-            sens = 0.005  # Lower sensitivity for smaller offset values
-            offset = delta_x * sens
+    def on_confirm(self, context, event):
+        """Generate the actual mesh object only upon confirmation."""
+        bpy.ops.object.duplicate()
+        offset_obj = context.active_object
+        offset_obj.name = f"{self.source_obj.name}_offset"
 
-        # --- Apply Offset ---
+        if offset_obj.data.users > 1:
+            offset_obj.data = offset_obj.data.copy()
+
+        mesh = offset_obj.data
+        new_coords = [co + normal * self.offset for co, normal in zip(self.orig_coords, self.orig_normals)]
+        flat_coords = [c for co in new_coords for c in co]
+        mesh.vertices.foreach_set("co", flat_coords)
+        mesh.update()
+
+        bbox_tools.setup_bbox_visibility(offset_obj, color=(0.0, 0.5, 1.0, 1.0))
+        bbox_tools.set_shading_to_object(context)
+        
+        from ..modules.utils import move_to_collection, get_or_create_collection
+        move_to_collection(offset_obj, get_or_create_collection(context))
+
+    def get_header_args(self, context):
+        return {"main_label": "Offset", "main_value": self.offset * self.unit_scale_display_inv, 
+                "suffix": unit_suffixes.get(context.scene.unit_settings.length_unit, '')}
+
+    def on_mouse_move(self, context, event, delta_x):
+        self.offset = delta_x * 0.005
+
+    def on_apply_typed_value(self, context, event):
         if self.number_input.has_value():
             try:
-                typed_val = self.number_input.get_value()
-                offset = typed_val * self.unit_scale
-            except ValueError:
-                pass
-        
-        self.update_offset(context, offset)
-        
-        context.area.tag_redraw()
-        return {'RUNNING_MODAL'}
-
-    def update_offset(self, context, offset):
-        """Update the object, header, and viewport."""
-        bbox_tools.update_interactive_offset_bbox(self.offset_obj, offset, self.orig_coords, self.orig_normals)
-        
-        display_dist = offset * self.unit_scale_display_inv
-        suffix = unit_suffixes.get(context.scene.unit_settings.length_unit, '')
-        update_modal_header(context, "Offset", display_dist, self.number_input.value_str, suffix)
+                self.offset = self.number_input.get_value() * self.unit_scale
+            except ValueError: pass
 
 class ALEC_OT_bbox_local(BBoxOperatorBase, bpy.types.Operator):
     """Create a bounding box aligned to the object's local axes"""
