@@ -4,7 +4,7 @@ import bmesh
 import blf
 from bpy_extras.view3d_utils import location_3d_to_region_2d
 import math
-from mathutils import Matrix, Vector, geometry
+from mathutils import Matrix, Vector
 from ..modules.modal_handler import ModalNumberInput, update_modal_header
 from ..modules.utils import find_farthest_vertices, unit_suffixes, draw_modal_status_bar, get_unit_scale
 
@@ -785,6 +785,12 @@ class ALEC_OT_make_collinear(bpy.types.Operator):
                 context.active_object.type == 'MESH' and
                 context.mode == 'EDIT_MESH')
 
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(self, "mode")
+        layout.prop(self, "factor")
+        layout.prop(self, "distribute")
+
     def execute(self, context):
         obj = context.active_object
         me = obj.data
@@ -800,12 +806,16 @@ class ALEC_OT_make_collinear(bpy.types.Operator):
             v_start, v_end = find_farthest_vertices(selected_verts)
 
         elif self.mode == 'HISTORY':
-            history = [elem for elem in bm.select_history if isinstance(elem, bmesh.types.BMVert)]
-            if len(history) < 2:
-                self.report({'WARNING'}, "For 'Last Two Selected' mode, select at least 2 vertices in order")
-                return {'CANCELLED'}
-            v_start = history[-2]
-            v_end = history[-1]
+            active_elem = bm.select_history.active
+            if isinstance(active_elem, bmesh.types.BMEdge):
+                v_start, v_end = active_elem.verts[0], active_elem.verts[1]
+            else:
+                history = [elem for elem in bm.select_history if isinstance(elem, bmesh.types.BMVert)]
+                if len(history) < 2:
+                    self.report({'WARNING'}, "For 'History' mode, select at least 2 vertices in order or an active edge")
+                    return {'CANCELLED'}
+                v_start = history[-2]
+                v_end = history[-1]
 
         if not v_start or not v_end:
             self.report({'WARNING'}, "Could not determine line endpoints")
@@ -826,8 +836,6 @@ class ALEC_OT_make_collinear(bpy.types.Operator):
             
         line_direction = line_vector.normalized()
 
-        # Calculate projections for all selected vertices
-        # List of tuples: (distance_along_line, vertex)
         projections = []
         for v in selected_verts:
             vec = world_mx @ v.co - line_origin
@@ -845,12 +853,12 @@ class ALEC_OT_make_collinear(bpy.types.Operator):
                 target_dist = start_dist + total_len * fraction
                 target_world_co = line_origin + line_direction * target_dist
                 target_local_co = inv_world_mx @ target_world_co
-                v.co = v.co * (1.0 - self.factor) + target_local_co * self.factor
+                v.co = v.co.lerp(target_local_co, self.factor)
         else:
             for dist, v in projections:
                 target_world_co = line_origin + line_direction * dist
                 target_local_co = inv_world_mx @ target_world_co
-                v.co = v.co * (1.0 - self.factor) + target_local_co * self.factor
+                v.co = v.co.lerp(target_local_co, self.factor)
 
         bmesh.update_edit_mesh(me)
         return {'FINISHED'}
@@ -880,11 +888,37 @@ class ALEC_OT_make_coplanar(bpy.types.Operator):
         subtype='FACTOR'
     ) # type: ignore
 
+    flatten_interior: bpy.props.FloatProperty(
+        name="Flatten Interior",
+        description="Flatten interior face vertices to the plane",
+        default=1.0,
+        min=0.0,
+        max=1.0,
+        subtype='FACTOR'
+    ) # type: ignore
+
+    relax_interior: bpy.props.FloatProperty(
+        name="Relax Interior",
+        description="Relax interior vertices within the projection plane",
+        default=0.0,
+        min=0.0,
+        max=1.0,
+        subtype='FACTOR'
+    ) # type: ignore
+
     @classmethod
     def poll(cls, context):
         return (context.active_object is not None and
                 context.active_object.type == 'MESH' and
                 context.mode == 'EDIT_MESH')
+
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(self, "mode")
+        layout.prop(self, "factor")
+        if context.tool_settings.mesh_select_mode[2]:
+            layout.prop(self, "flatten_interior")
+            layout.prop(self, "relax_interior")
 
     def execute(self, context):
         obj = context.active_object
@@ -926,11 +960,15 @@ class ALEC_OT_make_coplanar(bpy.types.Operator):
             plane_def_verts = [v_a, v_b, v_c]
 
         elif self.mode == 'HISTORY':
-            history = [elem for elem in bm.select_history if isinstance(elem, bmesh.types.BMVert)]
-            if len(history) < 3:
-                self.report({'WARNING'}, "For 'History' mode, select at least 3 vertices in order")
-                return {'CANCELLED'}
-            plane_def_verts = history[-3:]
+            active_elem = bm.select_history.active
+            if isinstance(active_elem, bmesh.types.BMFace) and len(active_elem.verts) >= 3:
+                plane_def_verts = list(active_elem.verts)[:3]
+            else:
+                history = [elem for elem in bm.select_history if isinstance(elem, bmesh.types.BMVert)]
+                if len(history) < 3:
+                    self.report({'WARNING'}, "For 'History' mode, select at least 3 vertices in order or an active face")
+                    return {'CANCELLED'}
+                plane_def_verts = history[-3:]
 
         world_mx = obj.matrix_world
         inv_world_mx = world_mx.inverted()
@@ -944,18 +982,92 @@ class ALEC_OT_make_coplanar(bpy.types.Operator):
         plane_normal.normalize()
         plane_point = p1_w
 
-        for v in selected_verts:
+        boundary_verts_set = set()
+        interior_verts = []
+
+        # Determine interior vs boundary vertices if in Face Mode
+        if context.tool_settings.mesh_select_mode[2]:
+            selected_faces = [f for f in bm.faces if f.select]
+            if selected_faces:
+                for f in selected_faces:
+                    for e in f.edges:
+                        if sum(1 for lf in e.link_faces if lf.select) == 1:
+                            boundary_verts_set.add(e.verts[0])
+                            boundary_verts_set.add(e.verts[1])
+
+        if boundary_verts_set:
+            boundary_verts = list(boundary_verts_set)
+            interior_verts = [v for v in selected_verts if v not in boundary_verts_set]
+        else:
+            boundary_verts = selected_verts
+
+        for v in boundary_verts:
             v_world_co = world_mx @ v.co
             dist = (v_world_co - plane_point).dot(plane_normal)
             projected_world_co = v_world_co - dist * plane_normal
             target_local_co = inv_world_mx @ projected_world_co
-            v.co = v.co * (1.0 - self.factor) + target_local_co * self.factor
+            v.co = v.co.lerp(target_local_co, self.factor)
+
+        if interior_verts and self.flatten_interior > 0.0:
+            for v in interior_verts:
+                v_world_co = world_mx @ v.co
+                dist = (v_world_co - plane_point).dot(plane_normal)
+                projected_world_co = v_world_co - dist * plane_normal
+                target_local_co = inv_world_mx @ projected_world_co
+                v.co = v.co.lerp(target_local_co, self.flatten_interior * self.factor)
+
+        if interior_verts and self.relax_interior > 0.0:
+            local_normal = (inv_world_mx.to_3x3() @ plane_normal).normalized()
+            for _ in range(10): # Run multiple iterations for smooth relaxation
+                new_positions = {}
+                for v in interior_verts:
+                    neighbors = [e.other_vert(v) for e in v.link_edges]
+                    if not neighbors:
+                        continue
+                    
+                    avg_co = sum((n.co for n in neighbors), Vector((0, 0, 0))) / len(neighbors)
+                    delta = avg_co - v.co
+                    delta_2d = delta - delta.dot(local_normal) * local_normal
+                    new_positions[v] = v.co + delta_2d * (self.relax_interior * self.factor)
+                    
+                for v, new_co in new_positions.items():
+                    v.co = new_co
 
         bmesh.update_edit_mesh(me)
         return {'FINISHED'}
 
-class _ShapeOpMixin:
-    """Shared logic for make_circle and make_square."""
+def update_circle_rotation(self, context):
+    # Reset rotation when other properties change to avoid calculation conflicts
+    self.rotation = 0.0
+
+class ALEC_OT_make_circle(bpy.types.Operator):
+    """Selected vertices into a perfect circle"""
+    bl_idname = "alec.make_circle"
+    bl_label = "Make Circle"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    radius: bpy.props.FloatProperty(name="Radius", default=1.0, min=0.0, unit='LENGTH', update=update_circle_rotation) # type: ignore
+    influence: bpy.props.FloatProperty(name="Influence", default=1.0, min=0.0, max=1.0, subtype='FACTOR', update=update_circle_rotation) # type: ignore
+    flatten: bpy.props.FloatProperty(name="Flatten", default=1.0, min=0.0, max=1.0, subtype='FACTOR', description="Flatten vertices to the plane", update=update_circle_rotation) # type: ignore
+    flatten_interior: bpy.props.FloatProperty(name="Flatten Interior", default=0.0, min=0.0, max=1.0, subtype='FACTOR', description="Flatten interior face vertices to the plane", update=update_circle_rotation) # type: ignore
+    relax_interior: bpy.props.FloatProperty(name="Relax Interior", default=0.0, min=0.0, max=1.0, subtype='FACTOR', description="Relax interior vertices within the projection plane", update=update_circle_rotation) # type: ignore
+    regular: bpy.props.BoolProperty(name="Regular", default=True, description="Distribute vertices evenly", update=update_circle_rotation) # type: ignore
+    rotation: bpy.props.FloatProperty(name="Rotation", default=0.0, subtype='ANGLE', description="Rotate vertices along the circle") # type: ignore
+
+    @classmethod
+    def poll(cls, context):
+        return context.active_object and context.active_object.type == 'MESH' and context.mode == 'EDIT_MESH'
+
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(self, "radius")
+        layout.prop(self, "influence")
+        layout.prop(self, "flatten")
+        if context.tool_settings.mesh_select_mode[2]:
+            layout.prop(self, "flatten_interior")
+            layout.prop(self, "relax_interior")
+        layout.prop(self, "regular")
+        layout.prop(self, "rotation")
 
     def _get_target_verts(self, bm, context):
         if context.tool_settings.mesh_select_mode[2]:
@@ -984,27 +1096,6 @@ class _ShapeOpMixin:
                 max_dist_sq = max(((v.co - center).length_squared for v in sel_verts), default=1.0)
                 self.radius = math.sqrt(max_dist_sq)
         return self.execute(context)
-
-
-class ALEC_OT_make_circle_v2(_ShapeOpMixin, bpy.types.Operator):
-    """Flatten selected vertices into a perfect circle (claude version)"""
-    bl_idname = "alec.make_circle_v2"
-    bl_label = "Make Circle V2"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    radius: bpy.props.FloatProperty(name="Radius", default=1.0, min=0.0, unit='LENGTH') # type: ignore
-    influence: bpy.props.FloatProperty(name="Influence", default=1.0, min=0.0, max=1.0, subtype='FACTOR') # type: ignore
-    regular: bpy.props.BoolProperty(name="Regular", default=True, description="Distribute vertices evenly") # type: ignore
-
-    @classmethod
-    def poll(cls, context):
-        return context.active_object and context.active_object.type == 'MESH' and context.mode == 'EDIT_MESH'
-
-    def draw(self, context):
-        layout = self.layout
-        layout.prop(self, "radius")
-        layout.prop(self, "influence")
-        layout.prop(self, "regular")
 
     def _get_plane_normal(self, bm, context, verts):
         # Face mode: average of selected face normals — always correct
@@ -1054,10 +1145,11 @@ class ALEC_OT_make_circle_v2(_ShapeOpMixin, bpy.types.Operator):
         # Project each vertex onto the plane and compute its angle
         pairs = []
         for v in verts:
-            d = v.co - center
-            d -= d.dot(normal) * normal  # flatten to plane
+            vec = v.co - center
+            dist_normal = vec.dot(normal)
+            d = vec - dist_normal * normal  # flatten to plane
             angle = math.atan2(d.dot(bitangent), d.dot(tangent))
-            pairs.append((v, angle))
+            pairs.append((v, angle, dist_normal))
 
         pairs.sort(key=lambda x: x[1])
         count = len(pairs)
@@ -1069,136 +1161,48 @@ class ALEC_OT_make_circle_v2(_ShapeOpMixin, bpy.types.Operator):
             # Each vertex i (sorted) will land at (phase + i*step).
             # Optimal phase = mean(original_angle_i - i*step).
             phase = sum(pairs[i][1] - i * step for i in range(count)) / count
-            for i, (v, _) in enumerate(pairs):
-                theta = phase + i * step
+            for i, (v, _, dist_normal) in enumerate(pairs):
+                theta = phase + i * step + self.rotation
                 target = center + tangent * math.cos(theta) * r + bitangent * math.sin(theta) * r
+                target += normal * dist_normal * (1.0 - self.flatten)
                 v.co = v.co.lerp(target, self.influence)
         else:
-            for v, angle in pairs:
-                target = center + tangent * math.cos(angle) * r + bitangent * math.sin(angle) * r
+            for v, angle, dist_normal in pairs:
+                theta = angle + self.rotation
+                target = center + tangent * math.cos(theta) * r + bitangent * math.sin(theta) * r
+                target += normal * dist_normal * (1.0 - self.flatten)
                 v.co = v.co.lerp(target, self.influence)
 
-        bmesh.update_edit_mesh(obj.data)
-        return {'FINISHED'}
-
-
-class ALEC_OT_make_square_v2(_ShapeOpMixin, bpy.types.Operator):
-    """Flatten selected vertices into a perfect square"""
-    bl_idname = "alec.make_square_v2"
-    bl_label = "Make Square V2"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    size: bpy.props.FloatProperty(name="Size", default=1.0, min=0.0, unit='LENGTH',
-        description="Half-size of the square (distance from center to side)") # type: ignore
-    influence: bpy.props.FloatProperty(name="Influence", default=1.0, min=0.0, max=1.0, subtype='FACTOR') # type: ignore
-    regular: bpy.props.BoolProperty(name="Regular", default=True, description="Distribute vertices evenly along each side") # type: ignore
-
-    @classmethod
-    def poll(cls, context):
-        return context.active_object and context.active_object.type == 'MESH' and context.mode == 'EDIT_MESH'
-
-    def draw(self, context):
-        layout = self.layout
-        layout.prop(self, "size")
-        layout.prop(self, "influence")
-        layout.prop(self, "regular")
-
-    def _get_plane_normal(self, bm, context, verts):
-        if context.tool_settings.mesh_select_mode[2]:
-            faces = [f for f in bm.faces if f.select]
-            if faces:
-                n = Vector((0, 0, 0))
-                for f in faces:
-                    n += f.normal
-                if n.length_squared > 1e-10:
-                    return n.normalized()
-        count = len(verts)
-        a = verts[0].co
-        b = verts[count // 3].co
-        c = verts[2 * count // 3].co
-        n = (b - a).cross(c - a) # type: ignore[assignment]
-        if n.length_squared > 1e-10:
-            return n.normalized()
-        return Vector((0, 0, 1))
-
-    @staticmethod
-    def _perimeter_pos(t):
-        """Map perimeter parameter t in [0,1) to (x,y) on a unit square (half_size=1).
-        Starts at bottom-left corner, goes clockwise: bottom → right → top → left."""
-        t = t % 1.0
-        if t < 0.25:
-            return (-1.0 + t * 8.0, -1.0)
-        elif t < 0.5:
-            return (1.0, -1.0 + (t - 0.25) * 8.0)
-        elif t < 0.75:
-            return (1.0 - (t - 0.5) * 8.0, 1.0)
-        else:
-            return (-1.0, 1.0 - (t - 0.75) * 8.0)
-
-    def execute(self, context):
-        obj = context.active_object
-        bm = bmesh.from_edit_mesh(obj.data)
-
-        verts = self._get_target_verts(bm, context)
-        if len(verts) < 4:
-            self.report({'WARNING'}, "Select at least 4 vertices")
-            return {'CANCELLED'}
-
-        center = Vector((0, 0, 0))
-        for v in verts:
-            center += v.co
-        center /= len(verts)
-
-        normal = self._get_plane_normal(bm, context, verts)
-
-        tangent: Vector = normal.orthogonal() # type: ignore[assignment]
-        tangent.normalize()
-        bitangent: Vector = normal.cross(tangent) # type: ignore[assignment]
-        bitangent.normalize()
-
-        # Project each vert onto the plane and sort by angle
-        pairs = []
-        for v in verts:
-            d = v.co - center
-            d -= d.dot(normal) * normal
-            angle = math.atan2(d.dot(bitangent), d.dot(tangent))
-            pairs.append((v, angle))
-
-        pairs.sort(key=lambda x: x[1])
-        count = len(pairs)
-        hs = self.size
-
-        if self.regular:
-            # Vert i maps to perimeter parameter (phase + i/N).
-            # Find the optimal phase in [0, 1/N) by grid search — minimizes total squared distance.
-            best_phase = 0.0
-            best_cost = float('inf')
-            steps = max(count * 4, 64)
-            for s in range(steps):
-                phase = s / (steps * count)  # phase in [0, 1/N)
-                cost = 0.0
-                for i, (v, _) in enumerate(pairs):
-                    sx, sy = self._perimeter_pos(phase + i / count)
-                    target = center + tangent * (sx * hs) + bitangent * (sy * hs)
-                    cost += (v.co - target).length_squared
-                if cost < best_cost:
-                    best_cost = cost
-                    best_phase = phase
-
-            for i, (v, _) in enumerate(pairs):
-                sx, sy = self._perimeter_pos(best_phase + i / count)
-                target = center + tangent * (sx * hs) + bitangent * (sy * hs)
-                v.co = v.co.lerp(target, self.influence)
-        else:
-            # Project each vertex outward along its direction to the square perimeter
-            for v, angle in pairs:
-                x = math.cos(angle)
-                y = math.sin(angle)
-                
-                # Scale so the farthest axis touches the square edge
-                scale = hs / max(abs(x), abs(y)) if max(abs(x), abs(y)) > 1e-10 else hs
-                target = center + tangent * (x * scale) + bitangent * (y * scale)
-                v.co = v.co.lerp(target, self.influence)
+        # Handle interior vertices if in face mode
+        if context.tool_settings.mesh_select_mode[2] and (self.flatten_interior > 0.0 or self.relax_interior > 0.0):
+            selected_faces = [f for f in bm.faces if f.select]
+            all_face_verts = {v for f in selected_faces for v in f.verts}
+            boundary_verts_set = set(verts)
+            interior_verts = [v for v in all_face_verts if v not in boundary_verts_set]
+            
+            if self.flatten_interior > 0.0:
+                for v in interior_verts:
+                    vec = v.co - center
+                    dist_normal = vec.dot(normal)
+                    target = v.co - normal * dist_normal
+                    v.co = v.co.lerp(target, self.flatten_interior * self.influence)
+            
+            if self.relax_interior > 0.0 and interior_verts:
+                for _ in range(10): # Run multiple iterations for smooth relaxation
+                    new_positions = {}
+                    for v in interior_verts:
+                        neighbors = [e.other_vert(v) for e in v.link_edges]
+                        if not neighbors:
+                            continue
+                        
+                        avg_co = sum((n.co for n in neighbors), Vector((0, 0, 0))) / len(neighbors)
+                        delta = avg_co - v.co
+                        # Project out the normal component to slide strictly in 2D
+                        delta_2d = delta - delta.dot(normal) * normal
+                        new_positions[v] = v.co + delta_2d * (self.relax_interior * self.influence)
+                        
+                    for v, new_co in new_positions.items():
+                        v.co = new_co
 
         bmesh.update_edit_mesh(obj.data)
         return {'FINISHED'}
@@ -1269,8 +1273,7 @@ classes = [
     ALEC_OT_distribute_vertices,
     ALEC_OT_make_collinear,
     ALEC_OT_make_coplanar,
-    ALEC_OT_make_circle_v2,
-    ALEC_OT_make_square_v2,
+    ALEC_OT_make_circle,
     ALEC_OT_clean_mesh,
     ALEC_OT_extract_and_solidify,
 ]
