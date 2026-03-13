@@ -6,7 +6,7 @@ from bpy_extras.view3d_utils import location_3d_to_region_2d
 import math
 from mathutils import Matrix, Vector
 from ..modules.modal_handler import ModalNumberInput, update_modal_header
-from ..modules.utils import find_farthest_vertices, unit_suffixes, draw_modal_status_bar, get_unit_scale
+from ..modules.utils import find_farthest_vertices, unit_suffixes, draw_modal_status_bar, get_unit_scale, apply_soft_falloff
 
 _draw_handler = None
 _draw_data = {}
@@ -748,7 +748,56 @@ class ALEC_OT_distribute_vertices(bpy.types.Operator):
         bmesh.update_edit_mesh(me)
         return {'FINISHED'}
 
-class ALEC_OT_make_collinear(bpy.types.Operator):
+class ProportionalFalloffMixin:
+    proportional_falloff: bpy.props.EnumProperty(
+        name="Falloff Type",
+        description="Shape of the proportional falloff",
+        items=[
+            ('SMOOTH', "Smooth", "Smooth falloff"),
+            ('SPHERE', "Sphere", "Spherical falloff"),
+            ('ROOT', "Root", "Root falloff"),
+            ('LINEAR', "Linear", "Linear falloff"),
+            ('SHARP', "Sharp", "Sharp falloff")
+        ],
+        default='SMOOTH'
+    ) # type: ignore
+
+    proportional_radius: bpy.props.FloatProperty(
+        name="Proportional Radius",
+        description="Falloff radius for moving unselected vertices (0 to disable)",
+        default=0.0,
+        min=0.0,
+        unit='LENGTH'
+    ) # type: ignore
+
+    proportional_connected_only: bpy.props.BoolProperty(
+        name="Connected Only",
+        description="Only affect vertices topologically connected to the selection",
+        default=False
+    ) # type: ignore
+
+    proportional_connected_depth: bpy.props.IntProperty(
+        name="Connected Depth",
+        description="Maximum topological distance (number of edges). 0 means infinite",
+        default=1,
+        min=0
+    ) # type: ignore
+
+    def reset_proportional_falloff(self):
+        self.proportional_radius = 0.0
+        self.proportional_falloff = 'SMOOTH'
+        self.proportional_connected_only = False
+        self.proportional_connected_depth = 1
+
+    def draw_falloff(self, layout):
+        layout.prop(self, "proportional_radius")
+        if self.proportional_radius > 0.0:
+            layout.prop(self, "proportional_falloff")
+            layout.prop(self, "proportional_connected_only")
+            if self.proportional_connected_only:
+                layout.prop(self, "proportional_connected_depth")
+
+class ALEC_OT_make_collinear(ProportionalFalloffMixin, bpy.types.Operator):
     """Makes selected vertices collinear"""
     bl_idname = "alec.make_collinear"
     bl_label = "Make Collinear"
@@ -790,6 +839,13 @@ class ALEC_OT_make_collinear(bpy.types.Operator):
         layout.prop(self, "mode")
         layout.prop(self, "factor")
         layout.prop(self, "distribute")
+        self.draw_falloff(layout)
+
+    def invoke(self, context, event):
+        self.reset_proportional_falloff()
+        self.flatten_interior = 1.0
+        self.relax_interior = 0.0
+        return self.execute(context)
 
     def execute(self, context):
         obj = context.active_object
@@ -842,6 +898,9 @@ class ALEC_OT_make_collinear(bpy.types.Operator):
             dist = vec.dot(line_direction)
             projections.append((dist, v))
 
+        old_coords = {v: v.co.copy() for v in bm.verts}
+        moved_coords = {}
+
         if self.distribute and len(projections) > 1:
             projections.sort(key=lambda x: x[0])
             start_dist = projections[0][0]
@@ -853,17 +912,26 @@ class ALEC_OT_make_collinear(bpy.types.Operator):
                 target_dist = start_dist + total_len * fraction
                 target_world_co = line_origin + line_direction * target_dist
                 target_local_co = inv_world_mx @ target_world_co
-                v.co = v.co.lerp(target_local_co, self.factor)
+                moved_coords[v] = v.co.lerp(target_local_co, self.factor)
         else:
             for dist, v in projections:
                 target_world_co = line_origin + line_direction * dist
                 target_local_co = inv_world_mx @ target_world_co
-                v.co = v.co.lerp(target_local_co, self.factor)
+                moved_coords[v] = v.co.lerp(target_local_co, self.factor)
+
+        # Apply for selected
+        for v, new_co in moved_coords.items():
+            v.co = new_co
+
+        # Apply falloff
+        if self.proportional_radius > 0.0:
+            apply_soft_falloff(bm, old_coords, moved_coords, self.proportional_radius, 
+                               self.proportional_falloff, world_mx, self.proportional_connected_only, self.proportional_connected_depth)
 
         bmesh.update_edit_mesh(me)
         return {'FINISHED'}
 
-class ALEC_OT_make_coplanar(bpy.types.Operator):
+class ALEC_OT_make_coplanar(ProportionalFalloffMixin, bpy.types.Operator):
     """Makes selected vertices coplanar"""
     bl_idname = "alec.make_coplanar"
     bl_label = "Make Coplanar"
@@ -919,11 +987,18 @@ class ALEC_OT_make_coplanar(bpy.types.Operator):
         if context.tool_settings.mesh_select_mode[2]:
             layout.prop(self, "flatten_interior")
             layout.prop(self, "relax_interior")
+        self.draw_falloff(layout)
+
+    def invoke(self, context, event):
+        self.reset_proportional_falloff()
+        return self.execute(context)
 
     def execute(self, context):
         obj = context.active_object
         me = obj.data
         bm = bmesh.from_edit_mesh(me)
+
+        old_coords = {v: v.co.copy() for v in bm.verts}
 
         selected_verts = [v for v in bm.verts if v.select]
 
@@ -1033,6 +1108,16 @@ class ALEC_OT_make_coplanar(bpy.types.Operator):
                 for v, new_co in new_positions.items():
                     v.co = new_co
 
+        moved_verts = set(boundary_verts)
+        if interior_verts:
+            moved_verts.update(interior_verts)
+            
+        moved_coords = {v: v.co.copy() for v in moved_verts}
+
+        if self.proportional_radius > 0.0:
+            apply_soft_falloff(bm, old_coords, moved_coords, self.proportional_radius, 
+                               self.proportional_falloff, world_mx, self.proportional_connected_only, self.proportional_connected_depth)
+
         bmesh.update_edit_mesh(me)
         return {'FINISHED'}
 
@@ -1040,7 +1125,7 @@ def update_circle_rotation(self, context):
     # Reset rotation when other properties change to avoid calculation conflicts
     self.rotation = 0.0
 
-class ALEC_OT_make_circle(bpy.types.Operator):
+class ALEC_OT_make_circle(ProportionalFalloffMixin, bpy.types.Operator):
     """Selected vertices into a perfect circle"""
     bl_idname = "alec.make_circle"
     bl_label = "Make Circle"
@@ -1068,6 +1153,7 @@ class ALEC_OT_make_circle(bpy.types.Operator):
             layout.prop(self, "relax_interior")
         layout.prop(self, "regular")
         layout.prop(self, "rotation")
+        self.draw_falloff(layout)
 
     def _get_target_verts(self, bm, context):
         if context.tool_settings.mesh_select_mode[2]:
@@ -1084,6 +1170,9 @@ class ALEC_OT_make_circle(bpy.types.Operator):
         return [v for v in bm.verts if v.select]
 
     def invoke(self, context, event):
+        self.reset_proportional_falloff()
+        self.flatten_interior = 0.0
+        self.relax_interior = 0.0
         obj = context.active_object
         if obj and obj.mode == 'EDIT':
             bm = bmesh.from_edit_mesh(obj.data)
@@ -1123,6 +1212,8 @@ class ALEC_OT_make_circle(bpy.types.Operator):
     def execute(self, context):
         obj = context.active_object
         bm = bmesh.from_edit_mesh(obj.data)
+
+        old_coords = {v: v.co.copy() for v in bm.verts}
 
         verts = self._get_target_verts(bm, context)
         if len(verts) < 3:
@@ -1173,6 +1264,7 @@ class ALEC_OT_make_circle(bpy.types.Operator):
                 target += normal * dist_normal * (1.0 - self.flatten)
                 v.co = v.co.lerp(target, self.influence)
 
+        interior_verts = []
         # Handle interior vertices if in face mode
         if context.tool_settings.mesh_select_mode[2] and (self.flatten_interior > 0.0 or self.relax_interior > 0.0):
             selected_faces = [f for f in bm.faces if f.select]
@@ -1203,6 +1295,16 @@ class ALEC_OT_make_circle(bpy.types.Operator):
                         
                     for v, new_co in new_positions.items():
                         v.co = new_co
+
+        moved_verts = set(verts)
+        if interior_verts:
+            moved_verts.update(interior_verts)
+            
+        moved_coords = {v: v.co.copy() for v in moved_verts}
+        
+        if self.proportional_radius > 0.0:
+            apply_soft_falloff(bm, old_coords, moved_coords, self.proportional_radius, 
+                               self.proportional_falloff, obj.matrix_world, self.proportional_connected_only, self.proportional_connected_depth)
 
         bmesh.update_edit_mesh(obj.data)
         return {'FINISHED'}

@@ -1,4 +1,7 @@
 import bpy
+import math
+import collections
+import mathutils
 import numpy as np
 from mathutils import Vector
 
@@ -176,3 +179,102 @@ def switch_to_modifier_tab(context):
     for area in context.screen.areas:
         if area.type == 'PROPERTIES':
             area.spaces[0].context = 'MODIFIER'
+
+def apply_soft_falloff(bm, old_coords, moved_coords, radius, falloff_type='SMOOTH', world_mx=None, connected_only=False, connected_depth=0):
+    """
+    Applies a smooth proportional falloff to unselected vertices based on the movement of selected ones.
+    Uses KDTree for blazingly fast distance queries.
+    """
+    if radius <= 0.0:
+        return
+
+    unselected_verts = [v for v in bm.verts if v not in moved_coords]
+    if not unselected_verts:
+        return
+
+    if connected_only:
+        visited = set(moved_coords.keys())
+        valid_unselected = set()
+        queue = collections.deque([(v, 0) for v in moved_coords.keys()])
+
+        while queue:
+            curr_v, depth = queue.popleft()
+            
+            if connected_depth > 0 and depth >= connected_depth:
+                continue
+                
+            for edge in curr_v.link_edges:
+                neighbor = edge.other_vert(curr_v)
+                if neighbor not in visited:
+                    visited.add(neighbor)
+                    if neighbor not in moved_coords:
+                        valid_unselected.add(neighbor)
+                    queue.append((neighbor, depth + 1))
+        
+        unselected_verts = [v for v in unselected_verts if v in valid_unselected]
+        if not unselected_verts:
+            return
+
+    # Prepare deltas for vertices that actually moved
+    moved_deltas = {}
+    for v, new_co in moved_coords.items():
+        old_co = old_coords[v]
+        delta = new_co - old_co
+        if delta.length_squared > 1e-8:
+            moved_deltas[v] = delta
+
+    if not moved_deltas:
+        return
+
+    # Build KDTree for moved vertices
+    size = len(moved_deltas)
+    kd = mathutils.kdtree.KDTree(size)
+    
+    delta_list = []
+    for i, (v, delta) in enumerate(moved_deltas.items()):
+        co = old_coords[v]
+        if world_mx:
+            co = world_mx @ co
+        kd.insert(co, i)
+        delta_list.append(delta)
+        
+    kd.balance()
+
+    # Apply falloff to unselected vertices
+    for v_u in unselected_verts:
+        u_old_co = old_coords[v_u]
+        search_co = world_mx @ u_old_co if world_mx else u_old_co
+        
+        # Find all moved verts within radius
+        in_range = kd.find_range(search_co, radius)
+        if not in_range:
+            continue
+            
+        sum_delta = Vector((0, 0, 0))
+        sum_weight = 0.0
+        max_falloff = 0.0
+
+        for (co, index, dist) in in_range:
+            ratio = dist / radius
+            if ratio >= 1.0:
+                falloff = 0.0
+            elif falloff_type == 'SPHERE':
+                falloff = math.sqrt(max(0.0, 1.0 - ratio * ratio))
+            elif falloff_type == 'ROOT':
+                falloff = math.sqrt(max(0.0, 1.0 - ratio))
+            elif falloff_type == 'LINEAR':
+                falloff = 1.0 - ratio
+            elif falloff_type == 'SHARP':
+                falloff = (1.0 - ratio) ** 2
+            else: # SMOOTH
+                falloff = (1.0 - ratio * ratio) ** 2
+            
+            sum_delta += delta_list[index] * falloff
+            sum_weight += falloff
+            if falloff > max_falloff:
+                max_falloff = falloff
+        
+        if sum_weight > 0:
+            # Blend directions proportionally, but clamp the maximum magnitude by the highest falloff factor
+            blended_delta = sum_delta / sum_weight
+            v_u.co = u_old_co + blended_delta * max_falloff
