@@ -68,6 +68,8 @@ class ALEC_MT_quad_menu(bpy.types.Menu):
         col_inner = box.column(align=True)
         col_inner.operator("alec.floating_shader_editor", text="Object Shader", icon='NODE_MATERIAL').mode = 'OBJECT'
         col_inner.operator("alec.floating_shader_editor", text="World Shader", icon='WORLD').mode = 'WORLD'
+        col_inner.separator()
+        col_inner.operator("alec.square_pixels", text="Square Pixels", icon='UV')
 
 class ALEC_MT_uv_menu(bpy.types.Menu):
     bl_idname = "ALEC_MT_uv_menu"
