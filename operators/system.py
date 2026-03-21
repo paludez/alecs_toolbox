@@ -10,6 +10,8 @@ class ALEC_OT_menu_dispatcher(bpy.types.Operator):
             bpy.ops.wm.call_menu_pie(name='ALEC_MT_uv_menu')
         elif context.mode == 'EDIT_MESH':
             bpy.ops.wm.call_menu_pie(name='ALEC_MT_edit_menu')
+        elif context.mode == 'EDIT_CURVE':
+            bpy.ops.wm.call_menu_pie(name='ALEC_MT_edit_curve_menu')
         else:
             bpy.ops.wm.call_menu_pie(name='ALEC_MT_object_menu')
         return {'FINISHED'}

@@ -1,6 +1,8 @@
 """Poll and bmesh helpers for edit-mesh operators."""
 import bmesh
 
+from . import edit_curve_helpers as ech
+
 
 def select_history_edges(bm):
     return [elem for elem in bm.select_history if isinstance(elem, bmesh.types.BMEdge)]
@@ -48,6 +50,10 @@ def poll_active_mesh_edit_mode(context):
         and context.active_object.type == 'MESH'
         and context.mode == 'EDIT_MESH'
     )
+
+
+def poll_mesh_or_curve_collinear_coplanar(context):
+    return poll_active_mesh_edit_mode(context) or ech.poll_active_curve_edit_mode(context)
 
 
 def poll_edit_mesh_mode_only(context):

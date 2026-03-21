@@ -1,5 +1,6 @@
 import bpy
 import math
+import hashlib
 import collections
 import mathutils
 import numpy as np
@@ -156,14 +157,39 @@ def move_to_collection(obj, target_collection):
             coll.objects.unlink(obj)
         target_collection.objects.link(obj)
 
-def get_or_create_collection(context, coll_name="BBox_Helpers", color='COLOR_04', hide_render=True):
-    if coll_name not in bpy.data.collections:
-        coll = bpy.data.collections.new(coll_name)
-        context.scene.collection.children.link(coll)
+def _collection_in_subtree(root, coll):
+    if root == coll:
+        return True
+    for child in root.children:
+        if _collection_in_subtree(child, coll):
+            return True
+    return False
+
+
+def _per_scene_helpers_collection_name(scene, coll_name):
+    safe_scene = bpy.path.clean_name(scene.name) or "Scene"
+    full = f"{coll_name}_{safe_scene}"
+    if len(full) <= 63:
+        return full
+    short_hash = hashlib.sha1(scene.name.encode("utf-8")).hexdigest()[:12]
+    full = f"{coll_name}_{short_hash}"
+    return full[:63]
+
+
+def get_or_create_collection(context, coll_name="bbox_helpers", color='COLOR_04', hide_render=True):
+    scene = context.scene
+    full_name = _per_scene_helpers_collection_name(scene, coll_name)
+
+    if full_name not in bpy.data.collections:
+        coll = bpy.data.collections.new(full_name)
+        scene.collection.children.link(coll)
         coll.color_tag = color
         coll.hide_render = hide_render
     else:
-        coll = bpy.data.collections[coll_name]
+        coll = bpy.data.collections[full_name]
+        if not _collection_in_subtree(scene.collection, coll):
+            scene.collection.children.link(coll)
+
     return coll
 
 def switch_to_modifier_tab(context):

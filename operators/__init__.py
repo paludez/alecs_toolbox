@@ -4,6 +4,7 @@ from . import object_grouping
 from . import object_origin
 from . import align
 from . import edit_mesh
+from . import edit_curve
 from . import materials
 from . import modifiers
 from . import system
@@ -15,6 +16,7 @@ classes = (
     *object_origin.classes,
     *align.classes,
     *edit_mesh.classes,
+    *edit_curve.classes,
     *materials.classes,
     *modifiers.classes,
     *system.classes,

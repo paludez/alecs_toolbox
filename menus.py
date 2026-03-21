@@ -185,6 +185,33 @@ class ALEC_MT_edit_menu(bpy.types.Menu):
         col_inner_dim.operator("alec.set_edge_angle", text="Set to 90°", icon='IPO_CONSTANT').angle = math.pi / 2.0
         col_inner_dim.operator("alec.set_edge_angle", text="Set Angle...", icon='IPO_EASE_IN_OUT').run_modal = True
 
+
+class ALEC_MT_edit_curve_menu(bpy.types.Menu):
+    bl_idname = "ALEC_MT_edit_curve_menu"
+    bl_label = "Curve Edit"
+
+    def draw(self, context):
+        pie = self.layout.menu_pie()
+        col = pie.column()
+
+        box = col.box()
+        box.label(text="Collinear", icon='CURVE_BEZCURVE')
+        col_inner = box.column(align=True)
+        op = col_inner.operator("alec.make_collinear", text="Farthest Points")
+        op.mode = 'FARTHEST'
+        op.distribute = False
+        op = col_inner.operator("alec.make_collinear", text="Align & Distribute")
+        op.mode = 'FARTHEST'
+        op.distribute = True
+
+        box = col.box()
+        box.label(text="Coplanar", icon='GRID')
+        col_inner = box.column(align=True)
+        op = col_inner.operator("alec.make_coplanar", text="Best Fit")
+        op.mode = 'BEST_FIT'
+        col_inner.operator("alec.coplanar_curve_three_point_plane", text="3-Point Plane")
+
+
 class ALEC_MT_object_menu(bpy.types.Menu):
     bl_idname = "ALEC_MT_object_menu"
     bl_label = "Object Menu"
@@ -285,6 +312,7 @@ class ALEC_MT_object_menu(bpy.types.Menu):
 classes = [
     ALEC_MT_object_menu,
     ALEC_MT_edit_menu,
+    ALEC_MT_edit_curve_menu,
     ALEC_MT_uv_menu,
     ALEC_MT_quad_menu,
 ]

@@ -5,6 +5,7 @@ from mathutils import Matrix, Vector
 from ..modules import modal_handler, utils
 from ..modules import edit_mesh_draw_state as draw_state
 from ..modules import edit_mesh_helpers as emh
+from ..modules import edit_curve_helpers as ech
 
 depsgraph_update_handler = draw_state.depsgraph_update_handler
 unregister_draw_handler = draw_state.unregister_draw_handler
@@ -557,6 +558,146 @@ def relax_planar_vertices(interior_verts, normal, influence, iterations=10):
         for v, new_co in new_positions.items():
             v.co = new_co
 
+
+def _curve_farthest_pair_targets(targets):
+    if len(targets) < 2:
+        return None, None
+    max_d = -1.0
+    ia, ib = 0, 1
+    cos = [t.get_co() for t in targets]
+    for i in range(len(targets)):
+        for j in range(i + 1, len(targets)):
+            d = (cos[i] - cos[j]).length_squared
+            if d > max_d:
+                max_d = d
+                ia, ib = i, j
+    return targets[ia], targets[ib]
+
+
+def _curve_best_fit_plane_local_vectors(targets):
+    if len(targets) < 3:
+        return None
+    cos = [t.get_co() for t in targets]
+    max_dist_sq = -1.0
+    ia, ib = 0, 1
+    for i in range(len(cos)):
+        for j in range(i + 1, len(cos)):
+            dist_sq = (cos[i] - cos[j]).length_squared
+            if dist_sq > max_dist_sq:
+                max_dist_sq = dist_sq
+                ia, ib = i, j
+    v_a, v_b = cos[ia], cos[ib]
+    line_vec = v_b - v_a
+    if line_vec.length_squared < 1e-9:
+        return None
+    v_c = None
+    max_line_dist_sq = -1.0
+    for k, co in enumerate(cos):
+        if k == ia or k == ib:
+            continue
+        dist_sq = (co - v_a).cross(line_vec).length_squared
+        if dist_sq > max_line_dist_sq:
+            max_line_dist_sq = dist_sq
+            v_c = co
+    if v_c is None:
+        return None
+    return v_a, v_b, v_c
+
+
+def _execute_make_collinear_curve(op, context):
+    obj = context.active_object
+    curve = obj.data
+    targets = ech.gather_selected_curve_targets(curve)
+    if len(targets) < 2:
+        op.report({'WARNING'}, "Select at least 2 curve points or handles")
+        return {'CANCELLED'}
+    if op.mode == 'HISTORY':
+        op.report({'WARNING'}, "Last Two Selected is only available in mesh edit mode")
+        return {'CANCELLED'}
+
+    ta, tb = _curve_farthest_pair_targets(targets)
+    if not ta or not tb:
+        op.report({'WARNING'}, "Could not determine line endpoints")
+        return {'CANCELLED'}
+
+    world_mx = obj.matrix_world
+    inv_world_mx = world_mx.inverted()
+    line_origin = world_mx @ ta.get_co()
+    line_vector = world_mx @ tb.get_co() - line_origin
+    if line_vector.length_squared < 1e-9:
+        op.report({'WARNING'}, "Line endpoints coincide")
+        return {'CANCELLED'}
+    line_direction = line_vector.normalized()
+
+    projections = []
+    for t in targets:
+        vec = world_mx @ t.get_co() - line_origin
+        projections.append((vec.dot(line_direction), t))
+
+    if op.distribute and len(projections) > 1:
+        projections.sort(key=lambda x: x[0])
+        start_dist = projections[0][0]
+        end_dist = projections[-1][0]
+        total_len = end_dist - start_dist
+        for i, (dist, t) in enumerate(projections):
+            fraction = i / (len(projections) - 1)
+            target_dist = start_dist + total_len * fraction
+            target_world = line_origin + line_direction * target_dist
+            target_local = inv_world_mx @ target_world
+            co = t.get_co()
+            t.set_co(co.lerp(target_local, op.factor))
+    else:
+        for dist, t in projections:
+            target_world = line_origin + line_direction * dist
+            target_local = inv_world_mx @ target_world
+            co = t.get_co()
+            t.set_co(co.lerp(target_local, op.factor))
+
+    curve.update_tag()
+    return {'FINISHED'}
+
+
+def _execute_make_coplanar_curve(op, context):
+    obj = context.active_object
+    curve = obj.data
+    targets = ech.gather_selected_curve_targets(curve)
+    if len(targets) < 3:
+        op.report({'WARNING'}, "Select at least 3 curve points or handles")
+        return {'CANCELLED'}
+    if op.mode != 'BEST_FIT':
+        op.report({'WARNING'}, "For curves only Best Fit is supported")
+        return {'CANCELLED'}
+
+    plane_locals = _curve_best_fit_plane_local_vectors(targets)
+    if plane_locals is None:
+        op.report({'WARNING'}, "Could not define a plane from selection (collinear?)")
+        return {'CANCELLED'}
+    v_a, v_b, v_c = plane_locals
+
+    world_mx = obj.matrix_world
+    inv_world_mx = world_mx.inverted()
+    p1_w = world_mx @ v_a
+    p2_w = world_mx @ v_b
+    p3_w = world_mx @ v_c
+    plane_normal = (p2_w - p1_w).cross(p3_w - p1_w)
+    if plane_normal.length_squared < 1e-9:
+        op.report({'WARNING'}, "Defining points are collinear")
+        return {'CANCELLED'}
+    plane_normal.normalize()
+    plane_point = p1_w
+
+    for t in targets:
+        co = t.get_co()
+        v_world = world_mx @ co
+        dist = (v_world - plane_point).dot(plane_normal)
+        projected_world = v_world - dist * plane_normal
+        target_local = inv_world_mx @ projected_world
+        t.set_co(co.lerp(target_local, op.factor))
+
+    curve.update_tag()
+    return {'FINISHED'}
+
+
 class ProportionalFalloffMixin:
     proportional_falloff: bpy.props.EnumProperty(
         name="Falloff Type",
@@ -661,7 +802,7 @@ class ALEC_OT_make_collinear(ProportionalFalloffMixin, bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return emh.poll_active_mesh_edit_mode(context)
+        return emh.poll_mesh_or_curve_collinear_coplanar(context)
 
     def draw(self, context):
         layout = self.layout
@@ -677,6 +818,8 @@ class ALEC_OT_make_collinear(ProportionalFalloffMixin, bpy.types.Operator):
         return self.execute(context)
 
     def execute(self, context):
+        if context.mode == 'EDIT_CURVE':
+            return _execute_make_collinear_curve(self, context)
         obj = context.active_object
         me = obj.data
         bm = bmesh.from_edit_mesh(me)
@@ -802,13 +945,13 @@ class ALEC_OT_make_coplanar(ProportionalFalloffMixin, bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return emh.poll_active_mesh_edit_mode(context)
+        return emh.poll_mesh_or_curve_collinear_coplanar(context)
 
     def draw(self, context):
         layout = self.layout
         layout.prop(self, "mode")
         layout.prop(self, "factor")
-        if context.tool_settings.mesh_select_mode[2]:
+        if context.mode == 'EDIT_MESH' and context.tool_settings.mesh_select_mode[2]:
             layout.prop(self, "flatten_interior")
             layout.prop(self, "relax_interior")
         self.draw_falloff(layout)
@@ -818,6 +961,8 @@ class ALEC_OT_make_coplanar(ProportionalFalloffMixin, bpy.types.Operator):
         return self.execute(context)
 
     def execute(self, context):
+        if context.mode == 'EDIT_CURVE':
+            return _execute_make_coplanar_curve(self, context)
         obj = context.active_object
         me = obj.data
         bm = bmesh.from_edit_mesh(me)

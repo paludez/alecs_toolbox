@@ -14,7 +14,9 @@ class BBoxOperatorBase:
             self.report({'ERROR'}, "Mode not set in BBox operator subclass") # type: ignore
             return {'CANCELLED'}
         
-        bbox_tools.create_bbox(context, mode=self.mode)
+        if bbox_tools.create_bbox(context, mode=self.mode) is None:
+            self.report({'WARNING'}, "Select at least one mesh object.")  # type: ignore
+            return {'CANCELLED'}
         return {'FINISHED'}
         
 class ALEC_OT_bbox_offset_modal(BaseModalOperator, bpy.types.Operator):
