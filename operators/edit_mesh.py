@@ -1,167 +1,15 @@
-# Operators for mesh editing in Edit Mode
 import bpy
 import bmesh
-import blf
-from bpy_extras.view3d_utils import location_3d_to_region_2d
 import math
-import time
 from mathutils import Matrix, Vector
-from ..modules.modal_handler import BaseModalOperator
-from ..modules.utils import find_farthest_vertices, unit_suffixes, draw_modal_status_bar, get_unit_scale, apply_soft_falloff
+from ..modules import modal_handler, utils
+from ..modules import edit_mesh_draw_state as draw_state
+from ..modules import edit_mesh_helpers as emh
 
-_draw_handler_px = None
-_draw_handler_3d = None
-_falloff_timer = None
-_draw_data = {}
-_last_falloff_update = 0.0
+depsgraph_update_handler = draw_state.depsgraph_update_handler
+unregister_draw_handler = draw_state.unregister_draw_handler
 
-def clear_falloff_preview():
-    """Timer callback to remove the preview sphere after user stops tweaking the slider."""
-    global _falloff_timer, _draw_data, _last_falloff_update
-    if time.time() - _last_falloff_update >= 1.0:
-        if 'falloff_sphere' in _draw_data:
-            del _draw_data['falloff_sphere']
-            for window in bpy.context.window_manager.windows:
-                for area in window.screen.areas:
-                    if area.type == 'VIEW_3D':
-                        area.tag_redraw()
-        _falloff_timer = None
-        return None # Return None stops the timer from repeating
-    return 0.1 # Check again in 100ms
-
-def refresh_falloff_timer():
-    """Resets the fade-out timer every time the user tweaks the radius slider."""
-    global _falloff_timer, _last_falloff_update
-    _last_falloff_update = time.time()
-    if not _falloff_timer:
-        _falloff_timer = bpy.app.timers.register(clear_falloff_preview, first_interval=0.1)
-
-def register_3d_draw_handler():
-    global _draw_handler_3d
-    if not _draw_handler_3d:
-        _draw_handler_3d = bpy.types.SpaceView3D.draw_handler_add(draw_callback_3d, (bpy.context,), 'WINDOW', 'POST_VIEW')
-
-def depsgraph_update_handler(scene):
-    """Clear draw data if Edit Mode is exited or target object is invalid."""
-    global _draw_handler_px, _draw_handler_3d, _draw_data
-    if not _draw_data:
-        return
-
-    should_clear = False
-    
-    # 1. Check Mode: If not in Edit Mode, wipe everything.
-    if bpy.context.mode != 'EDIT_MESH':
-        should_clear = True
-    else:
-        # 2. Check Object Validity
-        obj_name = _draw_data.get('object_name')
-        mesh_name = _draw_data.get('mesh_name')
-        obj = bpy.data.objects.get(obj_name) if obj_name else None
-        
-        if not obj or not mesh_name or obj.data.name != mesh_name:
-            should_clear = True
-
-    if should_clear:
-        if _draw_handler_px:
-            try:
-                bpy.types.SpaceView3D.draw_handler_remove(_draw_handler_px, 'WINDOW')
-            except ValueError:
-                pass # Already removed
-            _draw_handler_px = None
-        if _draw_handler_3d:
-            try:
-                bpy.types.SpaceView3D.draw_handler_remove(_draw_handler_3d, 'WINDOW')
-            except ValueError:
-                pass
-            _draw_handler_3d = None
-        _draw_data.clear()
-        
-        for window in bpy.context.window_manager.windows:
-            for area in window.screen.areas:
-                if area.type == 'VIEW_3D':
-                    area.tag_redraw()
-
-def unregister_draw_handler():
-    """Force remove the draw handler when unregistering the addon."""
-    global _draw_handler_px, _draw_handler_3d, _falloff_timer
-    if _draw_handler_px:
-        try:
-            bpy.types.SpaceView3D.draw_handler_remove(_draw_handler_px, 'WINDOW')
-        except ValueError:
-            pass # Already removed
-        _draw_handler_px = None
-    if _draw_handler_3d:
-        try:
-            bpy.types.SpaceView3D.draw_handler_remove(_draw_handler_3d, 'WINDOW')
-        except ValueError:
-            pass
-        _draw_handler_3d = None
-    if _falloff_timer and bpy.app.timers.is_registered(clear_falloff_preview):
-        bpy.app.timers.unregister(clear_falloff_preview)
-        _falloff_timer = None
-
-def draw_callback_px(context):
-    """Draw handler to display edge lengths in the 3D View."""
-    if context.mode != 'EDIT_MESH' or not context.edit_object:
-        return
-
-    obj = context.edit_object
-    # Ensure we are drawing for the correct object and mesh datablock
-    if not _draw_data or obj.name != _draw_data.get('object_name') or obj.data.name != _draw_data.get('mesh_name'):
-        return
-
-    bm = bmesh.from_edit_mesh(obj.data)
-    bm.edges.ensure_lookup_table()
-    
-    edge_indices = _draw_data.get('edge_indices', [])
-    if not edge_indices:
-        return
-
-    world_mx = obj.matrix_world
-    region = context.region
-    region_3d = context.space_data.region_3d
-    
-    font_id = 0  # Default font
-    font_size = 12
-    blf.size(font_id, font_size)
-    blf.color(font_id, 1.0, 1.0, 1.0, 1.0) # White text
-    blf.shadow(font_id, 3, 0.0, 0.0, 0.0, 0.8) # Black shadow
-
-    for idx in edge_indices:
-        if idx >= len(bm.edges):
-            continue
-        edge = bm.edges[idx]
-        
-        v1_world = world_mx @ edge.verts[0].co
-        v2_world = world_mx @ edge.verts[1].co
-        
-        length = (v1_world - v2_world).length
-        mid_point_world = (v1_world + v2_world) / 2.0
-        
-        pos_2d = location_3d_to_region_2d(region, region_3d, mid_point_world)
-        if pos_2d:
-            display_length = length * _draw_data.get('unit_inv', 1.0)
-            text = f"{display_length:.4f}{_draw_data.get('suffix', '')}"
-            blf.position(font_id, pos_2d.x - blf.dimensions(font_id, text)[0] / 2, pos_2d.y, 0)
-            blf.draw(font_id, text)
-
-def draw_callback_3d(context):
-    """Draw handler to display 3D graphics in the Viewport."""
-    if getattr(context, 'mode', '') != 'EDIT_MESH':
-        return
-    sphere_data = _draw_data.get('falloff_sphere')
-    if sphere_data:
-        from ..modules.drawing_tools import draw_wire_sphere
-        center, radius = sphere_data
-        draw_wire_sphere(center, radius, color=(1.0, 0.6, 0.1, 1.0))
-        
-    pie_data = _draw_data.get('angle_pie')
-    if pie_data:
-        from ..modules.drawing_tools import draw_angle_pie
-        center, dir_base, normal, angle, radius = pie_data
-        draw_angle_pie(center, dir_base, normal, angle, radius, color=(0.1, 0.6, 1.0, 0.3))
-
-class ALEC_OT_set_edge_length(BaseModalOperator, bpy.types.Operator):
+class ALEC_OT_set_edge_length(modal_handler.BaseModalOperator, bpy.types.Operator):
     """Set the length of the selected edge interactively"""
     bl_idname = "alec.set_edge_length"
     bl_label = "Set Edge Length"
@@ -170,17 +18,6 @@ class ALEC_OT_set_edge_length(BaseModalOperator, bpy.types.Operator):
     def get_status_bar_items(self):
         return [("Anchor", "[A] Active", self.anchor_mode == 'ACTIVE'), ("", "[B] Other", self.anchor_mode == 'OTHER'),
                 ("", "[C] Center", self.anchor_mode == 'CENTER'), None, ("Confirm", "[LMB]"), ("Cancel", "[RMB]")]
-
-    def _get_active_edge(self, bm):
-        active_edge = bm.select_history.active
-        if isinstance(active_edge, bmesh.types.BMEdge):
-            return active_edge
-        
-        selected_edges = [e for e in bm.edges if e.select]
-        if selected_edges:
-            return selected_edges[-1]
-            
-        return None
 
     def apply_length(self):
         world_direction = self.world_direction
@@ -191,15 +28,13 @@ class ALEC_OT_set_edge_length(BaseModalOperator, bpy.types.Operator):
             self.v1.co = self.inv_world_mx @ (world_center_point - world_direction * half_length)
             self.v2.co = self.inv_world_mx @ (world_center_point + world_direction * half_length)
         else:
-            # Determine stationary and moved vertices based on mode
             if self.anchor_mode == 'ACTIVE':
                 stationary_vert, moved_vert = self.active_vert, self.other_vert
-            else: # OTHER
+            else:
                 stationary_vert, moved_vert = self.other_vert, self.active_vert
 
             stationary_co = self.world_mx @ stationary_vert.co
-            
-            # Direction is v1 -> v2. If stationary is v1, we add. If stationary is v2, we subtract.
+
             sign = 1.0 if stationary_vert == self.v1 else -1.0
             
             new_moved_co = stationary_co + (world_direction * sign) * self.current_length
@@ -212,8 +47,7 @@ class ALEC_OT_set_edge_length(BaseModalOperator, bpy.types.Operator):
         self.me = self.obj.data
         self.bm = bmesh.from_edit_mesh(self.me)
 
-        # Try to get an edge first, otherwise check for 2 vertices
-        self.edge = self._get_active_edge(self.bm)
+        self.edge = emh.get_active_or_latest_selected_edge(self.bm)
         
         if self.edge:
             self.v1, self.v2 = self.edge.verts
@@ -228,11 +62,9 @@ class ALEC_OT_set_edge_length(BaseModalOperator, bpy.types.Operator):
         self.initial_v1_co = self.v1.co.copy()
         self.initial_v2_co = self.v2.co.copy()
 
-        # Matrices
         self.world_mx = self.obj.matrix_world
         self.inv_world_mx = self.world_mx.inverted()
-        
-        # Determine direction
+
         world_v1_co = self.world_mx @ self.v1.co
         world_v2_co = self.world_mx @ self.v2.co
         direction_vector = world_v2_co - world_v1_co
@@ -240,8 +72,7 @@ class ALEC_OT_set_edge_length(BaseModalOperator, bpy.types.Operator):
             self.report({'WARNING'}, "Distance is zero, cannot determine direction.")
             return {'CANCELLED'}
         self.world_direction = direction_vector.normalized()
-        
-        # Determine active/other verts
+
         active_vert_hist = self.bm.select_history.active
         if isinstance(active_vert_hist, bmesh.types.BMVert) and active_vert_hist in (self.v1, self.v2):
             self.active_vert = active_vert_hist
@@ -249,15 +80,14 @@ class ALEC_OT_set_edge_length(BaseModalOperator, bpy.types.Operator):
             self.active_vert = self.v1
         
         self.other_vert = self.v2 if self.active_vert == self.v1 else self.v1
-        
-        # State
+
         self.initial_length = direction_vector.length
         self.current_length = self.initial_length
         self.anchor_mode = 'ACTIVE'
         return self.base_invoke(context, event)
 
     def get_header_args(self, context):
-        suffix = unit_suffixes.get(context.scene.unit_settings.length_unit, '')
+        suffix = utils.unit_suffixes.get(context.scene.unit_settings.length_unit, '')
         init_len_val = self.initial_length * self.unit_scale_display_inv
         secondary = ""
         if not self.number_input.has_value():
@@ -309,25 +139,15 @@ class ALEC_OT_equalize_edge_lengths(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return (context.active_object is not None and
-                context.active_object.type == 'MESH' and
-                context.mode == 'EDIT_MESH')
+        return emh.poll_active_mesh_edit_mode(context)
 
     def execute(self, context):
         obj = context.active_object
         me = obj.data
         bm = bmesh.from_edit_mesh(me)
 
-        active_elem = bm.select_history.active
-        active_edge = None
-        if isinstance(active_elem, bmesh.types.BMEdge):
-            active_edge = active_elem
-        else:
-            # Try to find the single selected edge if history is ambiguous
-            sel_edges = [e for e in bm.edges if e.select]
-            if len(sel_edges) == 1:
-                active_edge = sel_edges[0]
-        
+        active_edge = emh.get_equalize_reference_edge(bm)
+
         if not active_edge:
             self.report({'WARNING'}, "No active edge found. Select edges, making sure one is active.")
             return {'CANCELLED'}
@@ -375,23 +195,13 @@ class ALEC_OT_dimension_action(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.mode == 'EDIT_MESH'
-
-    def _update_handler(self, context, has_items):
-        global _draw_handler_px
-        if has_items and not _draw_handler_px:
-            _draw_handler_px = bpy.types.SpaceView3D.draw_handler_add(draw_callback_px, (context,), 'WINDOW', 'POST_PIXEL')
-        elif not has_items and _draw_handler_px:
-            bpy.types.SpaceView3D.draw_handler_remove(_draw_handler_px, 'WINDOW')
-            _draw_handler_px = None
+        return emh.poll_edit_mesh_mode_only(context)
 
     def execute(self, context):
-        global _draw_data
-        
-        # Aggressive Clear: Wipe everything and stop handler immediately
+
         if self.action == 'CLEAR':
-            _draw_data.clear()
-            self._update_handler(context, False)
+            draw_state._draw_data.clear()
+            draw_state.update_dimension_px_handler(context, False)
             self.report({'INFO'}, "All dimensions cleared")
             for area in context.screen.areas:
                 if area.type == 'VIEW_3D':
@@ -400,21 +210,19 @@ class ALEC_OT_dimension_action(bpy.types.Operator):
 
         obj = context.edit_object
         bm = bmesh.from_edit_mesh(obj.data)
-        
-        # Reset data if we switched objects
-        if _draw_data.get('object_name') != obj.name or _draw_data.get('mesh_name') != obj.data.name:
-            _draw_data.clear()
-            _draw_data['object_name'] = obj.name
-            _draw_data['mesh_name'] = obj.data.name
-            _draw_data['edge_indices'] = []
 
-        # Update unit settings (in case they changed)
-        unit_scale = get_unit_scale(context)
+        if draw_state._draw_data.get('object_name') != obj.name or draw_state._draw_data.get('mesh_name') != obj.data.name:
+            draw_state._draw_data.clear()
+            draw_state._draw_data['object_name'] = obj.name
+            draw_state._draw_data['mesh_name'] = obj.data.name
+            draw_state._draw_data['edge_indices'] = []
+
+        unit_scale = utils.get_unit_scale(context)
         unit_setting = context.scene.unit_settings.length_unit
-        _draw_data['unit_inv'] = 1.0 / unit_scale if unit_scale != 0 else 1.0
-        _draw_data['suffix'] = unit_suffixes.get(unit_setting, '')
+        draw_state._draw_data['unit_inv'] = 1.0 / unit_scale if unit_scale != 0 else 1.0
+        draw_state._draw_data['suffix'] = utils.unit_suffixes.get(unit_setting, '')
 
-        current_indices = set(_draw_data.get('edge_indices', []))
+        current_indices = set(draw_state._draw_data.get('edge_indices', []))
         selected_indices = set(e.index for e in bm.edges if e.select)
 
         if self.action == 'ADD':
@@ -431,13 +239,10 @@ class ALEC_OT_dimension_action(bpy.types.Operator):
             current_indices.difference_update(selected_indices)
             self.report({'INFO'}, f"Dimensions removed")
 
-        # Save back to global data
-        _draw_data['edge_indices'] = list(current_indices)
-        
-        # Manage the draw handler
-        self._update_handler(context, bool(current_indices))
+        draw_state._draw_data['edge_indices'] = list(current_indices)
 
-        # Redraw all 3D views to show/hide the text immediately
+        draw_state.update_dimension_px_handler(context, bool(current_indices))
+
         for area in context.screen.areas:
             if area.type == 'VIEW_3D':
                 area.tag_redraw()
@@ -451,22 +256,21 @@ class ALEC_OT_select_dimension_edges(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.mode == 'EDIT_MESH'
+        return emh.poll_edit_mesh_mode_only(context)
 
     def execute(self, context):
         obj = context.edit_object
-        if not _draw_data or obj.name != _draw_data.get('object_name') or obj.data.name != _draw_data.get('mesh_name'):
+        if not draw_state._draw_data or obj.name != draw_state._draw_data.get('object_name') or obj.data.name != draw_state._draw_data.get('mesh_name'):
             self.report({'WARNING'}, "No dimensions displayed for this object")
             return {'CANCELLED'}
         
-        indices = _draw_data.get('edge_indices', [])
+        indices = draw_state._draw_data.get('edge_indices', [])
         if not indices:
             return {'CANCELLED'}
 
         bm = bmesh.from_edit_mesh(obj.data)
         bm.edges.ensure_lookup_table()
-        
-        # Deselect all first
+
         for e in bm.edges: e.select = False
         for v in bm.verts: v.select = False
         for f in bm.faces: f.select = False
@@ -474,7 +278,6 @@ class ALEC_OT_select_dimension_edges(bpy.types.Operator):
         for idx in indices:
             if idx < len(bm.edges):
                 bm.edges[idx].select = True
-                # Ensure vertices are selected so the edge selection persists
                 bm.edges[idx].verts[0].select = True
                 bm.edges[idx].verts[1].select = True
         
@@ -482,7 +285,7 @@ class ALEC_OT_select_dimension_edges(bpy.types.Operator):
         bmesh.update_edit_mesh(obj.data)
         return {'FINISHED'}
 
-class ALEC_OT_set_edge_angle(BaseModalOperator, bpy.types.Operator):
+class ALEC_OT_set_edge_angle(modal_handler.BaseModalOperator, bpy.types.Operator):
     """Set the angle between two edges by rotating the selection"""
     bl_idname = "alec.set_edge_angle"
     bl_label = "Set Edge Angle"
@@ -525,21 +328,14 @@ class ALEC_OT_set_edge_angle(BaseModalOperator, bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        if not (context.active_object and context.mode == 'EDIT_MESH'):
-            return False
-        try:
-            bm = bmesh.from_edit_mesh(context.active_object.data)
-            history = [elem for elem in bm.select_history if isinstance(elem, bmesh.types.BMEdge)]
-            return len(history) >= 2
-        except:
-            return False
+        return emh.poll_two_edges_in_select_history(context)
 
     def _get_op_data(self, context):
         self._obj = context.active_object
         self._bm = bmesh.from_edit_mesh(self._obj.data)
         self._bm.select_flush(False)
 
-        history = [elem for elem in self._bm.select_history if isinstance(elem, bmesh.types.BMEdge)]
+        history = emh.select_history_edges(self._bm)
         if len(history) < 2:
             self.report({'WARNING'}, "Select two edges in order (last one is stationary)")
             return False
@@ -588,15 +384,14 @@ class ALEC_OT_set_edge_angle(BaseModalOperator, bpy.types.Operator):
         bmesh.update_edit_mesh(self._obj.data)
 
     def _update_pie_preview(self):
-        global _draw_data
         world_mx = self._obj.matrix_world
         center = world_mx @ self._pivot_vert_co
         dir_base = (world_mx.to_3x3() @ self._stationary_vec).normalized()
         normal = (world_mx.to_3x3() @ self._rot_axis).normalized()
         
-        _draw_data['object_name'] = self._obj.name
-        _draw_data['mesh_name'] = self._obj.data.name
-        _draw_data['angle_pie'] = (center, dir_base, normal, self._current_angle, self._radius)
+        draw_state._draw_data['object_name'] = self._obj.name
+        draw_state._draw_data['mesh_name'] = self._obj.data.name
+        draw_state._draw_data['angle_pie'] = (center, dir_base, normal, self._current_angle, self._radius)
 
     def execute(self, context):
         if not self._get_op_data(context): return {'CANCELLED'}
@@ -607,17 +402,15 @@ class ALEC_OT_set_edge_angle(BaseModalOperator, bpy.types.Operator):
         if not self.run_modal: return self.execute(context)
         if not self._get_op_data(context): return {'CANCELLED'}
         self._update_pie_preview()
-        register_3d_draw_handler()
+        draw_state.register_3d_draw_handler()
         return self.base_invoke(context, event)
 
     def on_confirm(self, context, event):
-        global _draw_data
-        _draw_data.pop('angle_pie', None)
+        draw_state._draw_data.pop('angle_pie', None)
 
     def on_cancel(self, context, event):
         self._apply_rotation(self._initial_angle)
-        global _draw_data
-        _draw_data.pop('angle_pie', None)
+        draw_state._draw_data.pop('angle_pie', None)
 
     def on_mouse_move(self, context, event, delta_x):
         sens = 0.005 * (0.1 if event.shift else 1.0)
@@ -641,9 +434,7 @@ class ALEC_OT_distribute_vertices(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return (context.active_object is not None and
-                context.active_object.type == 'MESH' and
-                context.mode == 'EDIT_MESH')
+        return emh.poll_active_mesh_edit_mode(context)
 
     def execute(self, context):
         obj = context.active_object
@@ -655,28 +446,25 @@ class ALEC_OT_distribute_vertices(bpy.types.Operator):
             self.report({'WARNING'}, "Select at least 3 vertices forming a chain")
             return {'CANCELLED'}
 
-        # Build adjacency list for selected vertices based on selected edges
         adj = {v: [] for v in selected_verts}
         for edge in bm.edges:
             if edge.select and edge.verts[0] in selected_verts and edge.verts[1] in selected_verts:
                 adj[edge.verts[0]].append(edge.verts[1])
                 adj[edge.verts[1]].append(edge.verts[0])
 
-        # Find endpoints (vertices with only one connection in the selection)
         endpoints = [v for v, neighbors in adj.items() if len(neighbors) == 1]
         
         if len(endpoints) != 2:
             self.report({'WARNING'}, "Selection must form a single, unbranched chain of edges.")
             return {'CANCELLED'}
 
-        # Order the vertices from one endpoint to the other
         ordered_chain = []
         current_vert = endpoints[0]
         prev_vert = None
         
         while current_vert:
             ordered_chain.append(current_vert)
-            if len(ordered_chain) > len(selected_verts): # Failsafe for loops
+            if len(ordered_chain) > len(selected_verts):
                  self.report({'WARNING'}, "Selection seems to contain a loop. Operation aborted.")
                  return {'CANCELLED'}
             
@@ -694,10 +482,8 @@ class ALEC_OT_distribute_vertices(bpy.types.Operator):
             self.report({'WARNING'}, "Selection contains disconnected parts. Select a continuous chain.")
             return {'CANCELLED'}
 
-        # Store original coordinates to avoid reading modified values during update
         original_coords = [v.co.copy() for v in ordered_chain]
 
-        # Calculate cumulative distances along the chain
         distances = [0.0]
         total_length = 0.0
         for i in range(len(ordered_chain) - 1):
@@ -711,19 +497,16 @@ class ALEC_OT_distribute_vertices(bpy.types.Operator):
             self.report({'INFO'}, "Chain has zero length, nothing to do.")
             return {'CANCELLED'}
 
-        # Reposition intermediate vertices
         num_segments = len(ordered_chain) - 1
         equal_segment_length = total_length / num_segments
         
-        for i in range(1, num_segments): # Iterate over intermediate vertices
+        for i in range(1, num_segments):
             target_dist = i * equal_segment_length
-            
-            # Find which original segment this target distance falls into
+
             current_segment_idx = next((j for j, d in enumerate(distances) if d >= target_dist), len(distances) - 2)
             if distances[current_segment_idx] > target_dist:
                 current_segment_idx -= 1
 
-            # Interpolate position within that segment
             p_start = original_coords[current_segment_idx]
             p_end = original_coords[current_segment_idx + 1]
             
@@ -825,29 +608,25 @@ class ProportionalFalloffMixin:
 
     def process_falloff(self, bm, old_coords, moved_coords, world_mx):
         if self.proportional_radius > 0.0:
-            apply_soft_falloff(bm, old_coords, moved_coords, self.proportional_radius, 
+            utils.apply_soft_falloff(bm, old_coords, moved_coords, self.proportional_radius, 
                                self.proportional_falloff, world_mx, self.proportional_connected_only, self.proportional_connected_depth)
-            
-            # Setup Preview Sphere
+
             if moved_coords:
-                global _draw_data
                 center_local = sum((old_coords[v] for v in moved_coords.keys()), Vector()) / len(moved_coords)
                 center_world = world_mx @ center_local
-                
-                # The visual sweet spot: calculate the average spread of the selection 
-                # so the sphere visually "hugs" the shape without ballooning too much.
+
                 distances = [((world_mx @ old_coords[v]) - center_world).length for v in moved_coords.keys()]
                 avg_dist = sum(distances) / len(distances) if distances else 0.0
                 visual_radius = self.proportional_radius + avg_dist
                 
                 obj = bpy.context.active_object
                 if obj:
-                    _draw_data['object_name'] = obj.name
-                    _draw_data['mesh_name'] = obj.data.name
+                    draw_state._draw_data['object_name'] = obj.name
+                    draw_state._draw_data['mesh_name'] = obj.data.name
                     
-                _draw_data['falloff_sphere'] = (center_world, visual_radius)
-                register_3d_draw_handler()
-                refresh_falloff_timer()
+                draw_state._draw_data['falloff_sphere'] = (center_world, visual_radius)
+                draw_state.register_3d_draw_handler()
+                draw_state.refresh_falloff_timer()
 
 class ALEC_OT_make_collinear(ProportionalFalloffMixin, bpy.types.Operator):
     """Makes selected vertices collinear"""
@@ -882,9 +661,7 @@ class ALEC_OT_make_collinear(ProportionalFalloffMixin, bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return (context.active_object is not None and
-                context.active_object.type == 'MESH' and
-                context.mode == 'EDIT_MESH')
+        return emh.poll_active_mesh_edit_mode(context)
 
     def draw(self, context):
         layout = self.layout
@@ -911,14 +688,14 @@ class ALEC_OT_make_collinear(ProportionalFalloffMixin, bpy.types.Operator):
             if len(selected_verts) < 2:
                 self.report({'WARNING'}, "Select at least 2 vertices")
                 return {'CANCELLED'}
-            v_start, v_end = find_farthest_vertices(selected_verts)
+            v_start, v_end = utils.find_farthest_vertices(selected_verts)
 
         elif self.mode == 'HISTORY':
             active_elem = bm.select_history.active
             if isinstance(active_elem, bmesh.types.BMEdge):
                 v_start, v_end = active_elem.verts[0], active_elem.verts[1]
             else:
-                history = [elem for elem in bm.select_history if isinstance(elem, bmesh.types.BMVert)]
+                history = emh.select_history_verts(bm)
                 if len(history) < 2:
                     self.report({'WARNING'}, "For 'History' mode, select at least 2 vertices in order or an active edge")
                     return {'CANCELLED'}
@@ -937,11 +714,11 @@ class ALEC_OT_make_collinear(ProportionalFalloffMixin, bpy.types.Operator):
 
         line_origin = world_start_co
         line_vector = world_end_co - line_origin
-        
+
         if line_vector.length_squared < 1e-9:
             self.report({'WARNING'}, "First and last selected vertices are at the same position")
             return {'CANCELLED'}
-            
+
         line_direction = line_vector.normalized()
 
         projections = []
@@ -971,11 +748,9 @@ class ALEC_OT_make_collinear(ProportionalFalloffMixin, bpy.types.Operator):
                 target_local_co = inv_world_mx @ target_world_co
                 moved_coords[v] = v.co.lerp(target_local_co, self.factor)
 
-        # Apply for selected
         for v, new_co in moved_coords.items():
             v.co = new_co
 
-        # Apply falloff
         self.process_falloff(bm, old_coords, moved_coords, world_mx)
 
         bmesh.update_edit_mesh(me)
@@ -1027,9 +802,7 @@ class ALEC_OT_make_coplanar(ProportionalFalloffMixin, bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return (context.active_object is not None and
-                context.active_object.type == 'MESH' and
-                context.mode == 'EDIT_MESH')
+        return emh.poll_active_mesh_edit_mode(context)
 
     def draw(self, context):
         layout = self.layout
@@ -1101,7 +874,7 @@ class ALEC_OT_make_coplanar(ProportionalFalloffMixin, bpy.types.Operator):
                 if isinstance(active_elem, bmesh.types.BMFace) and len(active_elem.verts) >= 3:
                     plane_def_verts = list(active_elem.verts)[:3]
                 else:
-                    history = [elem for elem in bm.select_history if isinstance(elem, bmesh.types.BMVert)]
+                    history = emh.select_history_verts(bm)
                     if len(history) < 3:
                         self.report({'WARNING'}, "For 'History' mode, select at least 3 vertices in order or an active face")
                         return {'CANCELLED'}
@@ -1147,7 +920,6 @@ class ALEC_OT_make_coplanar(ProportionalFalloffMixin, bpy.types.Operator):
         return {'FINISHED'}
 
 def update_circle_rotation(self, context):
-    # Reset rotation when other properties change to avoid calculation conflicts
     self.rotation = 0.0
 
 class ALEC_OT_make_circle(ProportionalFalloffMixin, bpy.types.Operator):
@@ -1166,7 +938,7 @@ class ALEC_OT_make_circle(ProportionalFalloffMixin, bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.active_object and context.active_object.type == 'MESH' and context.mode == 'EDIT_MESH'
+        return emh.poll_make_circle(context)
 
     def draw(self, context):
         layout = self.layout
@@ -1198,7 +970,6 @@ class ALEC_OT_make_circle(ProportionalFalloffMixin, bpy.types.Operator):
         return self.execute(context)
 
     def _get_plane_normal(self, bm, context, verts):
-        # Face mode: average of selected face normals — always correct
         if context.tool_settings.mesh_select_mode[2]:
             faces = [f for f in bm.faces if f.select]
             if faces:
@@ -1208,8 +979,6 @@ class ALEC_OT_make_circle(ProportionalFalloffMixin, bpy.types.Operator):
                 if n.length_squared > 1e-10:
                     return n.normalized()
 
-        # Vertex/edge mode: pick verts at 0, n//3, 2n//3 — roughly spread
-        # across the selection for a stable cross product
         count = len(verts)
         a = verts[0].co
         b = verts[count // 3].co
@@ -1240,18 +1009,16 @@ class ALEC_OT_make_circle(ProportionalFalloffMixin, bpy.types.Operator):
 
         normal = self._get_plane_normal(bm, context, verts)
 
-        # Orthonormal basis on the plane
         tangent: Vector = normal.orthogonal() # type: ignore[assignment]
         tangent.normalize()
         bitangent: Vector = normal.cross(tangent) # type: ignore[assignment]
         bitangent.normalize()
 
-        # Project each vertex onto the plane and compute its angle
         pairs = []
         for v in verts:
             vec = v.co - center
             dist_normal = vec.dot(normal)
-            d = vec - dist_normal * normal  # flatten to plane
+            d = vec - dist_normal * normal
             angle = math.atan2(d.dot(bitangent), d.dot(tangent))
             pairs.append((v, angle, dist_normal))
 
@@ -1261,9 +1028,6 @@ class ALEC_OT_make_circle(ProportionalFalloffMixin, bpy.types.Operator):
 
         if self.regular:
             step = 2 * math.pi / count
-            # Choose the phase that minimizes total angular displacement.
-            # Each vertex i (sorted) will land at (phase + i*step).
-            # Optimal phase = mean(original_angle_i - i*step).
             phase = sum(pairs[i][1] - i * step for i in range(count)) / count
             for i, (v, _, dist_normal) in enumerate(pairs):
                 theta = phase + i * step + self.rotation
@@ -1307,14 +1071,14 @@ class ALEC_OT_clean_mesh(bpy.types.Operator):
 
     angle_limit: bpy.props.FloatProperty(
         name="Angle Limit",
-        default=0.0872665, # 5 degrees in radians
+        default=0.0872665,
         subtype='ANGLE',
         description="Max angle between faces to dissolve"
     ) # type: ignore
 
     @classmethod
     def poll(cls, context):
-        return context.active_object and context.mode == 'EDIT_MESH'
+        return emh.poll_clean_mesh(context)
 
     def execute(self, context):
         bpy.ops.mesh.remove_doubles()
@@ -1329,7 +1093,7 @@ class ALEC_OT_extract_and_solidify(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.mode == 'EDIT_MESH' and context.active_object
+        return emh.poll_extract_and_solidify(context)
 
     def execute(self, context):
         bpy.ops.mesh.duplicate()
@@ -1349,8 +1113,7 @@ class ALEC_OT_extract_and_solidify(bpy.types.Operator):
             bpy.ops.object.select_all(action='DESELECT')
             new_obj.select_set(True)
             context.view_layer.objects.active = new_obj
-            
-            # Trigger the modal solidify operator
+
             bpy.ops.alec.solidify_modal('INVOKE_DEFAULT')
             
         return {'FINISHED'}

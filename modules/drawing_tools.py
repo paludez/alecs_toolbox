@@ -6,22 +6,19 @@ from mathutils import Vector, Matrix
 def draw_wire_sphere(center, radius, color=(1.0, 0.6, 0.1, 0.4), segments=32):
     """Draws a simple 3D wireframe sphere (3 intersecting circles) in the viewport."""
     verts = []
-    
-    # XY circle
+
     for i in range(segments):
         a = i * 2 * math.pi / segments
         verts.append(center + Vector((math.cos(a)*radius, math.sin(a)*radius, 0)))
         a_next = (i + 1) * 2 * math.pi / segments
         verts.append(center + Vector((math.cos(a_next)*radius, math.sin(a_next)*radius, 0)))
-        
-    # XZ circle
+
     for i in range(segments):
         a = i * 2 * math.pi / segments
         verts.append(center + Vector((math.cos(a)*radius, 0, math.sin(a)*radius)))
         a_next = (i + 1) * 2 * math.pi / segments
         verts.append(center + Vector((math.cos(a_next)*radius, 0, math.sin(a_next)*radius)))
-        
-    # YZ circle
+
     for i in range(segments):
         a = i * 2 * math.pi / segments
         verts.append(center + Vector((0, math.cos(a)*radius, math.sin(a)*radius)))
@@ -42,16 +39,14 @@ def draw_wire_sphere(center, radius, color=(1.0, 0.6, 0.1, 0.4), segments=32):
 def draw_angle_pie(center, dir_base, normal, angle, radius, color=(0.1, 0.6, 1.0, 0.4), segments=32):
     """Draws a semi-transparent pie slice to visualize an angle."""
     verts = [center]
-    
-    # Generate arc points
+
     for i in range(segments + 1):
         t = i / segments
         current_angle = angle * t
         rot_mat = Matrix.Rotation(current_angle, 3, normal)
         rotated_dir = rot_mat @ dir_base
         verts.append(center + rotated_dir * radius)
-        
-    # Generate triangle indices for the filled pie
+
     indices = []
     for i in range(1, segments + 1):
         indices.append((0, i, i + 1))
@@ -63,8 +58,7 @@ def draw_angle_pie(center, dir_base, normal, angle, radius, color=(0.1, 0.6, 1.0
     shader.bind()
     shader.uniform_float("color", color)
     batch_tris.draw(shader)
-    
-    # Draw border lines on top
+
     border_verts = [center, verts[1], center, verts[-1]]
     for i in range(1, segments):
         border_verts.append(verts[i])

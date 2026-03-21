@@ -44,19 +44,15 @@ def group_active(context):
     if not active:
         return
 
-    # Calculate world space bounds center
     center_world = get_bounds_data(active, point_type='CENTER', space='WORLD')
 
-    # Create Empty
     bpy.ops.object.empty_add(type='ARROWS', location=center_world)
     empty = context.active_object
     empty.name = f"Group_{active.name}"
     empty.rotation_euler = active.rotation_euler.copy()
-    
-    # Update matrix_world
+
     context.view_layer.update()
 
-    # Parent selected to Empty
     for obj in selected:
         obj.parent = empty
         obj.matrix_parent_inverse = empty.matrix_world.inverted()
@@ -72,24 +68,19 @@ def ungroup_objects(context):
 
     parents_to_delete = set()
 
-    # Find parent Empties
     for obj in selected:
         if obj.parent and obj.parent.type == 'EMPTY':
             parents_to_delete.add(obj.parent)
         elif obj.type == 'EMPTY':
-            # Handle direct Empty selection
             parents_to_delete.add(obj)
 
-    # Process groups
     for empty in parents_to_delete:
         children = empty.children
         for child in children:
-            # Preserve global transform
             matrix_copy = child.matrix_world.copy()
             child.parent = None
             child.matrix_world = matrix_copy
-        
-        # Remove Empty
+
         bpy.data.objects.remove(empty, do_unlink=True)
 
 def manage_grouping(context, action):

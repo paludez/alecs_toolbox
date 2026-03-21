@@ -1,4 +1,3 @@
-# System-level operators like the menu dispatcher
 import bpy
 
 class ALEC_OT_menu_dispatcher(bpy.types.Operator):
@@ -25,13 +24,11 @@ class ALEC_OT_floating_shader_editor(bpy.types.Operator):
     ) # type: ignore
 
     def execute(self, context):
-        # Create a new window (copies the current layout)
         wm = context.window_manager
         existing_windows = {w for w in wm.windows}
 
         bpy.ops.wm.window_new()
 
-        # Identify the new window in a robust way
         new_windows = [w for w in wm.windows if w not in existing_windows]
         win = new_windows[0] if new_windows else bpy.context.window
         if not win:
@@ -41,7 +38,6 @@ class ALEC_OT_floating_shader_editor(bpy.types.Operator):
         if not screen.areas:
             return {'CANCELLED'}
 
-        # Find a suitable area for the node editor or fall back to the first area
         area = next(
             (a for a in screen.areas if a.type in {'NODE_EDITOR', 'VIEW_3D', 'IMAGE_EDITOR'}),
             screen.areas[0],
@@ -53,7 +49,6 @@ class ALEC_OT_floating_shader_editor(bpy.types.Operator):
         if space and space.type == 'NODE_EDITOR':
             space.shader_type = self.mode
 
-        # Auto-focus nodes (View All) - automatic framing, only if there is a node tree
         has_nodes = False
         if self.mode == 'OBJECT':
             obj = context.active_object
@@ -61,7 +56,6 @@ class ALEC_OT_floating_shader_editor(bpy.types.Operator):
             nt = mat.node_tree if mat and mat.use_nodes else None
             has_nodes = bool(nt and nt.nodes)
         elif self.mode == 'WORLD':
-            # Ensure there is a valid World with nodes, so the editor can show something
             world = context.scene.world
             if not world:
                 world = bpy.data.worlds.new("World")
@@ -83,7 +77,7 @@ class ALEC_OT_floating_shader_editor(bpy.types.Operator):
                 ):
                     bpy.ops.node.view_all()
             except RuntimeError:
-                pass  # Context might not be ready, ignore view_all failure
+                pass
         
         return {'FINISHED'}
 

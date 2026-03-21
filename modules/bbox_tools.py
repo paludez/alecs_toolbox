@@ -29,7 +29,6 @@ def create_bbox(context, mode='LOCAL'):
     all_coords_local = []
     all_coords_world = []
 
-    # Collect vertices
     for obj in selected_meshes:
         obj_eval = obj.evaluated_get(depsgraph)
         mesh = obj_eval.to_mesh()
@@ -38,7 +37,6 @@ def create_bbox(context, mode='LOCAL'):
         for v in mesh.vertices:
             world_co = mat @ v.co
             all_coords_world.append(world_co)
-            # To local space
             all_coords_local.append(inv_matrix @ world_co)
             
         obj_eval.to_mesh_clear()

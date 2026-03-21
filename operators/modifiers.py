@@ -1,4 +1,3 @@
-# Operators for adding and managing modifiers
 import bpy
 from ..modules.modal_handler import BaseModalOperator
 from ..modules.utils import unit_suffixes, draw_modal_status_bar, get_unit_scale, move_to_collection, switch_to_modifier_tab
@@ -11,7 +10,7 @@ def get_boolean_collection(context):
     else:
         coll = bpy.data.collections.new(coll_name)
         context.scene.collection.children.link(coll)
-        coll.color_tag = 'COLOR_01' # Red
+        coll.color_tag = 'COLOR_01'
     
     if context.view_layer.active_layer_collection.collection != coll:
             coll.hide_viewport = True
@@ -36,7 +35,6 @@ class ALEC_OT_boolean_op(bpy.types.Operator):
         active = context.active_object
         targets = [o for o in context.selected_objects if o != active]
 
-        # Collection setup
         coll = get_boolean_collection(context)
 
         for target in targets:
@@ -62,40 +60,32 @@ class ALEC_OT_slice_boolean(bpy.types.Operator):
         active = context.active_object
         targets = [o for o in context.selected_objects if o != active]
 
-        # Collection setup (reuse existing logic)
         coll = get_boolean_collection(context)
 
         for target in targets:
-            # Add Solidify to cutter to handle planes/open meshes
-            # Make it thick enough to cover the active object (create a "box" cutter)
             max_dim = max(active.dimensions) if active.dimensions else 1.0
             mod_solid = target.modifiers.new(name="Slice_Solidify", type='SOLIDIFY')
             mod_solid.thickness = max_dim * 1.5
             mod_solid.offset = 1.0
 
-            # 1. Create the Slice Object (The piece being cut out)
             bpy.ops.object.select_all(action='DESELECT')
             active.select_set(True)
             context.view_layer.objects.active = active
-            
-            # Duplicate active object
+
             bpy.ops.object.duplicate(linked=False)
             slice_obj = context.active_object
             slice_obj.name = f"{active.name}_Slice"
             
-            # Add Intersect Modifier to Slice (keeps only the overlapping part)
             mod_int = slice_obj.modifiers.new(name=f"Slice_Intersect", type='BOOLEAN')
             mod_int.operation = 'INTERSECT'
             mod_int.object = target
             
-            # 2. Add Difference Modifier to Original (cuts the hole)
             mod_diff = active.modifiers.new(name=f"Slice_Diff", type='BOOLEAN')
             mod_diff.operation = 'DIFFERENCE'
             mod_diff.object = target
             
             move_to_collection(target, coll)
 
-        # Restore selection to active
         bpy.ops.object.select_all(action='DESELECT')
         active.select_set(True)
         context.view_layer.objects.active = active
@@ -115,14 +105,12 @@ class ALEC_OT_slice_gn(bpy.types.Operator):
     def execute(self, context):
         active = context.active_object
         from ..modules.geometry_nodes import get_or_create_slice_gn_tree
-        
-        # Set up Geometry Nodes
+
         tree = get_or_create_slice_gn_tree()
         mod = active.modifiers.new(name="Slice_Plane", type='NODES')
         mod.node_group = tree
         
-        
-        # Force enable modifier gizmos in the viewport
+
         for area in context.screen.areas:
             if area.type == 'VIEW_3D':
                 for space in area.spaces:
@@ -149,11 +137,9 @@ class ALEC_OT_mirror_control(BaseModalOperator, bpy.types.Operator):
         self.original_selection = context.selected_objects[:]
         self.active_obj_name = context.active_object.name
 
-        # State
         self.axes = ('X', 'Y', 'Z')
         self.axis_idx = 0
 
-        # Start at object center
         start_loc = self.obj.matrix_world.translation
         
         bpy.ops.object.empty_add(type='PLAIN_AXES', location=start_loc)
@@ -312,14 +298,13 @@ class ALEC_OT_modifier_action(bpy.types.Operator):
             self.report({'INFO'}, "Deleted all modifiers")
             return {'FINISHED'}
 
-        # Actions requiring a specific modifier
         if not mods:
             self.report({'WARNING'}, "Object has no modifiers")
             return {'CANCELLED'}
         mod = obj.modifiers.active if obj.modifiers.active else obj.modifiers[-1]
 
         if self.action == 'APPLY_LAST':
-            mod = mods[-1] # Specifically last one
+            mod = mods[-1]
             mod_name = mod.name
             try:
                 bpy.ops.object.modifier_apply(modifier=mod_name)

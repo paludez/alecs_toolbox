@@ -1,9 +1,6 @@
-# modules/modal_handler.py
 import bpy
 import re
 
-# A restricted list of characters allowed in the math expression
-# This is a security measure for using eval()
 ALLOWED_CHARS = re.compile(r"^[0-9\.\+\-\*\/\(\)\sEe]+$")
 
 class ModalNumberInput:
@@ -30,22 +27,17 @@ class ModalNumberInput:
         """
         if not self.value_str:
             raise ValueError("No value to get.")
-        
+
         expr = self.value_str
         if initial_value is not None and expr and expr[0] in {'*', '/', '+', '-'}:
             expr = f"{initial_value}{expr}"
 
-        # Security check: only allow safe characters
         if not ALLOWED_CHARS.match(expr):
             raise ValueError("Invalid characters in expression.")
-            
-        # Use Python's eval to compute the result
+
         try:
-            # The first argument to eval is the source, the others are globals/locals.
-            # By providing empty dicts, we restrict the execution environment.
             return float(eval(expr, {"__builtins__": {}}, {}))
         except (SyntaxError, ZeroDivisionError, TypeError, NameError) as e:
-            # Catch potential errors from eval and raise a ValueError
             raise ValueError(f"Invalid math expression: {e}") from None
 
     def handle_event(self, event):
@@ -57,12 +49,11 @@ class ModalNumberInput:
             return False
 
         key = event.type
-        
+
         if key in {'ZERO', 'ONE', 'TWO', 'THREE', 'FOUR', 'FIVE', 'SIX', 'SEVEN', 'EIGHT', 'NINE'}:
             self.value_str += event.unicode
             return True
-        
-        # Numpad numbers
+
         elif key.startswith('NUMPAD_'):
             if key[7:].isdigit():
                 self.value_str += key[7:]
@@ -71,7 +62,6 @@ class ModalNumberInput:
                 if '.' not in self.value_str:
                     self.value_str += '.'
                 return True
-            # Numpad math operators
             elif key == 'NUMPAD_PLUS':
                 self.value_str += '+'
                 return True
@@ -85,7 +75,6 @@ class ModalNumberInput:
                 self.value_str += '/'
                 return True
 
-        # Keyboard math operators
         elif key == 'MINUS':
             self.value_str += '-'
             return True
@@ -93,9 +82,7 @@ class ModalNumberInput:
              if '.' not in self.value_str:
                 self.value_str += '.'
              return True
-        
-        # Other operators might need shift, which is harder to check reliably across keyboards.
-        # Let's add them by unicode.
+
         elif event.unicode in {'+', '*', '/'}:
             self.value_str += event.unicode
             return True
@@ -104,7 +91,7 @@ class ModalNumberInput:
             if self.value_str:
                 self.value_str = self.value_str[:-1]
             return True
-            
+
         elif key == 'ESC':
             self.reset()
             return True
@@ -124,7 +111,7 @@ def update_modal_header(context, main_label, main_value, typed_str, suffix="", s
         formatted_main = f"{main_value:.{precision}f}".rstrip('0').rstrip('.')
         if formatted_main == '-0': formatted_main = '0'
         header_text = f"{main_label}: {formatted_main}{suffix}"
-    
+
     if secondary_text:
         header_text += f"  |  {secondary_text}"
 
@@ -144,17 +131,16 @@ class BaseModalOperator:
     def base_invoke(self, context, event):
         self.__class__._active_instance = self
         self.number_input = ModalNumberInput()
-        
+
         from .utils import get_unit_scale
         self.unit_scale = get_unit_scale(context)
         self.unit_scale_display_inv = 1.0 / self.unit_scale if self.unit_scale != 0 else 1.0
-        
-        # Mouse state
+
         center_x = context.region.x + context.region.width // 2
         center_y = context.region.y + context.region.height // 2
         context.window.cursor_warp(center_x, center_y)
         self.initial_mouse_x = center_x
-        
+
         bpy.types.STATUSBAR_HT_header.prepend(self.__class__.draw_status_bar)
         context.window_manager.modal_handler_add(self)
         self.base_update_header(context)
@@ -201,7 +187,6 @@ class BaseModalOperator:
         self.base_update_header(context)
         return {'RUNNING_MODAL'}
 
-    # --- Hooks for subclasses ---
     def get_status_bar_items(self): return [("Confirm", "[LMB]"), ("Cancel", "[RMB]"), ("Reset", "[R]")]
     def get_header_args(self, context): return None
     def on_confirm(self, context, event): pass

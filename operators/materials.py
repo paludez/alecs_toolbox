@@ -1,4 +1,3 @@
-# Operators for material management
 import bpy
 
 class ALEC_OT_assign_gray_material(bpy.types.Operator):
@@ -9,7 +8,6 @@ class ALEC_OT_assign_gray_material(bpy.types.Operator):
 
     def execute(self, context):
         mat_name = "Gray"
-        # Check if material exists, otherwise create it
         if mat_name in bpy.data.materials:
             mat = bpy.data.materials[mat_name]
         else:
@@ -54,8 +52,7 @@ class ALEC_OT_select_material_users(bpy.types.Operator):
 
     def execute(self, context):
         mat = context.active_object.active_material
-        
-        # Deselect all first
+
         bpy.ops.object.select_all(action='DESELECT')
 
         if mat:
@@ -233,15 +230,13 @@ class ALEC_OT_material_linker(bpy.types.Operator):
             self.target_index = 0
 
         split = layout.split(factor=0.4)
-        
-        # Source Column
+
         col_s = split.column()
         col_s.label(text=f"SOURCE: {source_obj.name}", icon='CHECKBOX_HLT')
         col_s.template_list("UI_UL_list","source_list",source_obj,"material_slots",self,"source_index",rows=6)
         
         self._draw_slot_buttons(col_s, source_obj, self.source_index)
-        
-        # Actions Column
+
         split2 = split.split(factor=0.33)
         col_m = split2.column(align=True)
         col_m.separator(factor=3.5)
@@ -261,7 +256,6 @@ class ALEC_OT_material_linker(bpy.types.Operator):
         op_swap.target_index = self.target_index
         op_swap.operation = 'SWAP'
 
-        # Target Column
         col_t = split2.column()
         count_suffix = f" (+{len(targets)-1} others)" if len(targets) > 1 else ""
         
@@ -271,8 +265,7 @@ class ALEC_OT_material_linker(bpy.types.Operator):
                             self, "target_index", rows=6)
 
         self._draw_slot_buttons(col_t, target_obj, self.target_index)
-        
-        # Check if any operator is about to be used on multiple targets for SWAP
+
         if len(targets) > 1:
             row = layout.row()
             row.label(text="Note: Swap uses the first target's material.", icon='INFO')

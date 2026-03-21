@@ -166,7 +166,6 @@ def get_or_create_slice_gn_tree():
     try: reroute_006.socket_idname = "NodeSocketGeometry"
     except: pass
 
-    # Set locations
     nodes["Group Input"].location = (-267.7757568359375, 61.90191650390625)
     nodes["Group Output"].location = (314.7242431640625, 70.69218444824219)
     nodes["Transform Gizmo"].location = (-267.7757568359375, -460.7025146484375)
@@ -187,7 +186,6 @@ def get_or_create_slice_gn_tree():
     nodes["Reroute.005"].location = (-267.7757568359375, -148.09808349609375)
     nodes["Reroute.006"].location = (-127.7757568359375, -148.09808349609375)
 
-    # Links
     links.new(grid.outputs[0], transform_geometry.inputs[0])
     links.new(combine_transform.outputs[0], transform_gizmo.inputs[0])
     links.new(transform_geometry.outputs[0], flip_faces.inputs[0])

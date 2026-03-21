@@ -17,17 +17,13 @@ def get_bounds_in_space(obj, space_matrix):
 
     if not mesh_eval.vertices:
         obj_eval.to_mesh_clear()
-        # Return a zero vector if there are no vertices
         return (Vector((0,0,0)), Vector((0,0,0)))
 
-    # Matrix to transform from obj's local space to the target space
     transform_matrix = space_matrix.inverted() @ obj_eval.matrix_world
 
-    # Transform all vertices
     coords = [transform_matrix @ v.co for v in mesh_eval.vertices]
     obj_eval.to_mesh_clear()
 
-    # Find min/max in the target space
     min_bound = Vector((min(v.x for v in coords), min(v.y for v in coords), min(v.z for v in coords)))
     max_bound = Vector((max(v.x for v in coords), max(v.y for v in coords), max(v.z for v in coords)))
     
@@ -43,7 +39,6 @@ def get_bounds_data(obj, point_type='CENTER', space='LOCAL'):
         return obj.matrix_world.to_translation()
 
     if space == 'LOCAL':
-        # Local bounding box (rotates with object)
         local_coords = [Vector(v) for v in obj.bound_box]
         l_min = Vector((min(v.x for v in local_coords), min(v.y for v in local_coords), min(v.z for v in local_coords)))
         l_max = Vector((max(v.x for v in local_coords), max(v.y for v in local_coords), max(v.z for v in local_coords)))
@@ -55,8 +50,6 @@ def get_bounds_data(obj, point_type='CENTER', space='LOCAL'):
         return obj.matrix_world @ target_local
 
     else:
-        # World aligned bounding box (evaluated mesh)
-        
         depsgraph = bpy.context.evaluated_depsgraph_get()
         obj_eval = obj.evaluated_get(depsgraph)
         mesh_eval = obj_eval.to_mesh()
@@ -152,10 +145,8 @@ def draw_modal_status_bar(layout, items):
         sub_row.label(text=value)
 
 def move_to_collection(obj, target_collection):
-    # Make a copy of the collections list as it will be modified during iteration
     source_collections = list(obj.users_collection)
 
-    # If already in target, only remove from others. Otherwise remove all and link.
     if target_collection in source_collections:
         for coll in source_collections:
             if coll != target_collection:
@@ -182,8 +173,7 @@ def switch_to_modifier_tab(context):
 
 def apply_soft_falloff(bm, old_coords, moved_coords, radius, falloff_type='SMOOTH', world_mx=None, connected_only=False, connected_depth=0):
     """
-    Applies a smooth proportional falloff to unselected vertices based on the movement of selected ones.
-    Uses KDTree for blazingly fast distance queries.
+    Proportional falloff for unselected vertices from moved vertices (KDTree distance queries).
     """
     if radius <= 0.0:
         return
@@ -215,7 +205,6 @@ def apply_soft_falloff(bm, old_coords, moved_coords, radius, falloff_type='SMOOT
         if not unselected_verts:
             return
 
-    # Prepare deltas for vertices that actually moved
     moved_deltas = {}
     for v, new_co in moved_coords.items():
         old_co = old_coords[v]
@@ -226,7 +215,6 @@ def apply_soft_falloff(bm, old_coords, moved_coords, radius, falloff_type='SMOOT
     if not moved_deltas:
         return
 
-    # Build KDTree for moved vertices
     size = len(moved_deltas)
     kd = mathutils.kdtree.KDTree(size)
     
@@ -240,12 +228,10 @@ def apply_soft_falloff(bm, old_coords, moved_coords, radius, falloff_type='SMOOT
         
     kd.balance()
 
-    # Apply falloff to unselected vertices
     for v_u in unselected_verts:
         u_old_co = old_coords[v_u]
         search_co = world_mx @ u_old_co if world_mx else u_old_co
-        
-        # Find all moved verts within radius
+
         in_range = kd.find_range(search_co, radius)
         if not in_range:
             continue
@@ -275,6 +261,5 @@ def apply_soft_falloff(bm, old_coords, moved_coords, radius, falloff_type='SMOOT
                 max_falloff = falloff
         
         if sum_weight > 0:
-            # Blend directions proportionally, but clamp the maximum magnitude by the highest falloff factor
             blended_delta = sum_delta / sum_weight
             v_u.co = u_old_co + blended_delta * max_falloff

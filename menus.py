@@ -10,7 +10,6 @@ class ALEC_MT_quad_menu(bpy.types.Menu):
     def draw(self, context):
         pie = self.layout.menu_pie()
 
-        # LEFT: Viewport & Cursor
         col = pie.column()
         box_view = col.box()
         box_view.label(text="Viewport", icon='RESTRICT_VIEW_OFF')
@@ -20,26 +19,23 @@ class ALEC_MT_quad_menu(bpy.types.Menu):
             r = col_inner.row(align=True)
             r.prop(context.space_data, "show_gizmo_object_translate", text="Move")
             r.prop(context.space_data, "show_gizmo_object_rotate", text="Rotate")
-        
+
         box_cursor = col.box()
         box_cursor.label(text="Cursor", icon='PIVOT_CURSOR')
         col_inner = box_cursor.column(align=True)
         col_inner.operator("alec.cursor_to_selected", text="To Selected")
         col_inner.operator("alec.cursor_to_geometry_center", text="To Center")
 
-        # RIGHT: Orientation & Snap
         col_right = pie.column()
 
-        # Pivot
         b_pivot = col_right.box()
         b_pivot.label(text="Pivot Point", icon='PIVOT_MEDIAN')
         grid = b_pivot.grid_flow(columns=3, align=True, even_columns=True)
-        for val, txt in [('BOUNDING_BOX_CENTER', "BBox"), ('CURSOR', "Cursor"), ('INDIVIDUAL_ORIGINS', "Indiv"), 
+        for val, txt in [('BOUNDING_BOX_CENTER', "BBox"), ('CURSOR', "Cursor"), ('INDIVIDUAL_ORIGINS', "Indiv"),
                          ('MEDIAN_POINT', "Median"), ('ACTIVE_ELEMENT', "Active")]:
             grid.prop_enum(context.tool_settings, "transform_pivot_point", value=val, text=txt)
         grid.prop(context.tool_settings, "use_transform_pivot_point_align", text="Only Loc")
 
-        # Orientation
         b_orient = col_right.box()
         b_orient.label(text="Orientation", icon='ORIENTATION_GLOBAL')
         slot = context.scene.transform_orientation_slots[0]
@@ -47,7 +43,6 @@ class ALEC_MT_quad_menu(bpy.types.Menu):
         for val in ['GLOBAL', 'LOCAL', 'NORMAL', 'GIMBAL', 'CURSOR', 'PARENT']:
             grid.prop_enum(slot, "type", value=val, text=val.capitalize())
 
-        # Snap Settings
         b5 = col_right.box()
         r5 = b5.grid_flow(columns=3, align=True)
         for val, txt in [('INCREMENT', "Incr"), ('VERTEX', "Vertex"), ('EDGE', "Edge"), ('FACE', "Face"), ('VOLUME', "Volume")]:
@@ -58,10 +53,8 @@ class ALEC_MT_quad_menu(bpy.types.Menu):
         for val in ['CENTER', 'MEDIAN', 'ACTIVE']:
             r6.prop_enum(context.tool_settings, "snap_target", value=val, text=val.capitalize())
 
-        # DOWN: Empty
         pie.column()
 
-        # UP: Floating Shaders
         col_up = pie.column()
         box = col_up.box()
         box.label(text="Floating Shaders", icon='WINDOW')
@@ -78,7 +71,6 @@ class ALEC_MT_uv_menu(bpy.types.Menu):
     def draw(self, context):
         pie = self.layout.menu_pie()
 
-        # LEFT: Unwrap
         col = pie.column()
         box = col.box()
         box.label(text="Unwrap", icon='UV')
@@ -92,7 +84,6 @@ class ALEC_MT_uv_menu(bpy.types.Menu):
         col_inner = box.column(align=True)
         col_inner.operator("alec.load_material_image", text="Load from Mat")
 
-        # RIGHT: Align
         col = pie.column()
         box = col.box()
         box.label(text="Align", icon='ALIGN_CENTER')
@@ -101,7 +92,6 @@ class ALEC_MT_uv_menu(bpy.types.Menu):
         col_inner.operator("uv.align", text="Align X").axis = 'ALIGN_X'
         col_inner.operator("uv.align", text="Align Y").axis = 'ALIGN_Y'
 
-        # DOWN: Pack & Scale
         col = pie.column()
         box = col.box()
         box.label(text="Pack & Scale", icon='UV_ISLANDSEL')
@@ -109,7 +99,6 @@ class ALEC_MT_uv_menu(bpy.types.Menu):
         col_inner.operator("uv.average_islands_scale", text="Average Scale")
         col_inner.operator("uv.pack_islands", text="Pack Islands")
 
-        # UP: Seams
         col = pie.column()
         box = col.box()
         box.label(text="Seams", icon='MOD_EDGESPLIT')
@@ -122,9 +111,8 @@ class ALEC_MT_edit_menu(bpy.types.Menu):
     def draw(self, context):
         pie = self.layout.menu_pie()
 
-        # LEFT: Align (Collinear + Coplanar)
         col = pie.column()
-        
+
         box = col.box()
         box.label(text="Collinear", icon='PROP_CON')
         col_inner = box.column(align=True)
@@ -149,32 +137,28 @@ class ALEC_MT_edit_menu(bpy.types.Menu):
         op = col_inner.operator("alec.make_coplanar", text="Active Face Normal")
         op.mode = 'ACTIVE_FACE'
 
-        # Extract
         box = col.box()
         box.label(text="Extract", icon='DUPLICATE')
         box.operator("alec.extract_and_solidify", text="Panel (Solidify)")
 
-        # RIGHT: Orientation
         col = pie.column()
-        
+
         box_shapes = col.box()
         box_shapes.label(text="Shapes", icon='MESH_CIRCLE')
         col_inner = box_shapes.column(align=True)
         col_inner.operator("alec.make_circle", text="Perfect Circle")
-        
+
         box = col.box()
         box.label(text="Orientation", icon='ORIENTATION_GLOBAL')
         col_inner = box.column(align=True)
         op = col_inner.operator("transform.create_orientation", text="Create New", icon='ADD')
         op.use = True
         op.overwrite = True
-        
-        # Cleanup
+
         box_clean = col.box()
         box_clean.label(text="Cleanup", icon='BRUSH_DATA')
         box_clean.operator("alec.clean_mesh", text="Clean Planar")
 
-        # DOWN: Origin Tools (Base/Pivot)
         col = pie.column()
         box = col.box()
         box.label(text="Origin", icon='OBJECT_ORIGIN')
@@ -182,19 +166,18 @@ class ALEC_MT_edit_menu(bpy.types.Menu):
         col_inner.operator("alec.origin_to_selected_edit", text="To Selection")
         col_inner.operator("alec.origin_to_selected_edit_aligned", text="To Selection (Aligned)")
 
-        # UP: Dimensions & Spacing (Adjustments)
         col = pie.column()
-        
+
         box_dim = col.box()
         box_dim.label(text="Dimensions", icon='DRIVER_DISTANCE')
         col_inner_dim = box_dim.column(align=True)
         col_inner_dim.operator("alec.equalize_edge_lengths", text="Equalize Lengths", icon='ALIGN_JUSTIFY')
         col_inner_dim.operator("alec.set_edge_length", text="Set Edge Length", icon='SEQ_STRIP_DUPLICATE')
-        
+
         row = col_inner_dim.row(align=True)
         row.operator("alec.dimension_action", text="Add", icon='ADD').action = 'ADD'
         row.operator("alec.dimension_action", text="Rem", icon='REMOVE').action = 'REMOVE'
-        
+
         col_inner_dim.operator("alec.dimension_action", text="Clear All", icon='TRASH').action = 'CLEAR'
         col_inner_dim.operator("alec.select_dimension_edges", text="Select Dim Edges", icon='RESTRICT_SELECT_OFF')
 
@@ -209,11 +192,9 @@ class ALEC_MT_object_menu(bpy.types.Menu):
     def draw(self, context):
         pie = self.layout.menu_pie()
 
-        # LEFT: BBox & Align
         col_left = pie.column()
         row = col_left.row()
 
-        # 1. BBox
         col_b = row.column()
         box_bbox = col_b.box()
         box_bbox.label(text="BBox", icon='MESH_CUBE')
@@ -222,7 +203,6 @@ class ALEC_MT_object_menu(bpy.types.Menu):
         col_inner.operator("alec.bbox_world", text="BBox World")
         col_inner.operator("alec.bbox_offset_modal", text="BBox Offset")
 
-        # 2. Align
         col_a = row.column()
         box_align = col_a.box()
         box_align.label(text="Align", icon='LIGHTPROBE_VOLUME')
@@ -231,31 +211,27 @@ class ALEC_MT_object_menu(bpy.types.Menu):
         col_inner.operator("alec.quick_pivot", text="Align_Origins")
         col_inner.operator("alec.align_dialog", text="Align Dialog")
 
-        # RIGHT: Modifiers
         col_right = pie.column()
         box_mods = col_right.box()
         box_mods.label(text="Modifiers", icon='MODIFIER')
-        
-        # Booleans (2 Columns)
+
         grid_bool = box_mods.grid_flow(columns=2, align=True)
         grid_bool.operator("alec.boolean_op", text="Union", icon='MOD_BOOLEAN').operation = 'UNION'
         grid_bool.operator("alec.boolean_op", text="Diff", icon='MOD_BOOLEAN').operation = 'DIFFERENCE'
         grid_bool.operator("alec.boolean_op", text="Intersect", icon='MOD_BOOLEAN').operation = 'INTERSECT'
         grid_bool.operator("alec.slice_boolean", text="Slice", icon='MOD_BOOLEAN')
         grid_bool.operator("alec.slice_gn", text="Slice Plane", icon='MOD_BOOLEAN')
-        
+
         box_mods.separator()
-        
-        # Generators (1 Column)
+
         col_gen = box_mods.column(align=True)
         col_gen.operator("alec.add_simple_modifier", text="Mirror", icon='MOD_MIRROR').mod_type = 'MIRROR'
         col_gen.operator("alec.mirror_control", text="Mirror (Null)", icon='EMPTY_AXIS')
         col_gen.operator("alec.solidify_modal", text="Solidify", icon='MOD_SOLIDIFY')
         col_gen.operator("alec.add_simple_modifier", text="Subdivision", icon='MOD_SUBSURF').mod_type = 'SUBSURF'
-        
+
         box_mods.separator()
-        
-        # Manage (2 Columns: Apply vs Delete)
+
         grid_man = box_mods.grid_flow(columns=2, align=True, row_major=True)
         grid_man.operator("alec.modifier_action", text="Move Up", icon='TRIA_UP').action = 'MOVE_UP'
         grid_man.operator("alec.modifier_action", text="Move Down", icon='TRIA_DOWN').action = 'MOVE_DOWN'
@@ -264,8 +240,7 @@ class ALEC_MT_object_menu(bpy.types.Menu):
         grid_man.operator("alec.modifier_action", text="Del Last", icon='X').action = 'DELETE_LAST'
         grid_man.operator("alec.modifier_action", text="Del All", icon='TRASH').action = 'DELETE_ALL'
 
-        
-        # DOWN: Grouping & Materials
+
         col_down = pie.column()
         b5 = col_down.box()
         b5.label(text="Grouping", icon='GROUP')
@@ -283,7 +258,6 @@ class ALEC_MT_object_menu(bpy.types.Menu):
         col_inner.operator("alec.remove_orphan_materials", text="Clean Unused", icon='TRASH')
         col_inner.operator("alec.select_material_users", text="Select Users", icon='RESTRICT_SELECT_OFF')
 
-        # UP: Origin & Parenting
         col_up = pie.column()
 
         box_parent = col_up.box()
@@ -318,11 +292,11 @@ classes = [
 def register():
     for cls in classes:
         bpy.utils.register_class(cls)
-    
+
     wm = bpy.context.window_manager
     if wm.keyconfigs.addon:
         km = wm.keyconfigs.addon.keymaps.new(name='3D View', space_type='VIEW_3D')
-        
+
         kmi_main = km.keymap_items.new('alec.menu_dispatcher', 'Q', 'PRESS', alt=True)
         addon_keymaps.append((km, kmi_main))
 
@@ -338,6 +312,6 @@ def unregister():
     for km, kmi in addon_keymaps:
         km.keymap_items.remove(kmi)
     addon_keymaps.clear()
-    
+
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)

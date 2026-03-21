@@ -5,8 +5,8 @@ from . import menus
 bl_info = {
     "name": "Alec's Toolbox",
     "author": "Alec",
-    "version": (1, 0),
-    "blender": (4, 0, 0),
+    "version": (0, 5, 0),
+    "blender": (5, 0, 1),
     "location": "View3D > Sidebar > Alec",
     "description": "Custom tools for hard surface modeling",
     "warning": "",

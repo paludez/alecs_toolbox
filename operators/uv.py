@@ -1,4 +1,3 @@
-# Operators for UV editing
 import bpy
 
 class ALEC_OT_load_material_image(bpy.types.Operator):
@@ -95,7 +94,6 @@ class ALEC_OT_square_pixels(bpy.types.Operator):
                         for loop in face.loops:
                             loop[uv_layer].uv[1] = center_v + (loop[uv_layer].uv[1] - center_v) * aspect
 
-                # Fit to 0..1 bounds
                 min_u, max_u = float('inf'), float('-inf')
                 min_v, max_v = float('inf'), float('-inf')
                 for face in bm.faces:

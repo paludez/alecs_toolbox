@@ -14,7 +14,6 @@ class BBoxOperatorBase:
             self.report({'ERROR'}, "Mode not set in BBox operator subclass") # type: ignore
             return {'CANCELLED'}
         
-        # Delegate to bbox_tools
         bbox_tools.create_bbox(context, mode=self.mode)
         return {'FINISHED'}
         
@@ -34,7 +33,6 @@ class ALEC_OT_bbox_offset_modal(BaseModalOperator, bpy.types.Operator):
             self.report({'WARNING'}, "No valid mesh object selected.")
             return {'CANCELLED'}
 
-        # Extract necessary geometry data purely in memory
         bm = bmesh.new()
         bm.from_mesh(self.source_obj.data)
         bm.verts.ensure_lookup_table()
@@ -51,7 +49,6 @@ class ALEC_OT_bbox_offset_modal(BaseModalOperator, bpy.types.Operator):
         self.offset = 0.0
         self.world_matrix = self.source_obj.matrix_world.copy()
         
-        # Attach the GPU drawing routine
         self._draw_handler = bpy.types.SpaceView3D.draw_handler_add(
             self.draw_callback_3d, (context,), 'WINDOW', 'POST_VIEW')
             

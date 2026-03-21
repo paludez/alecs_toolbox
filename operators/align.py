@@ -136,13 +136,11 @@ class AlignBase:
         self._restore_state()
 
     def execute(self, context):
-        # Restore state if running interactively (to handle unchecking boxes)
         self._restore_state()
 
         target = context.active_object
         sources = [o for o in context.selected_objects if o != target]
         for source in sources:
-            # Apply rotation and scale first, so position alignment respects the new bounds
             align_tools.align_orientation(source, target,
                 x=self.orient_x, y=self.orient_y, z=self.orient_z)
             align_tools.match_scale(source, target,
@@ -167,8 +165,7 @@ class ALEC_OT_align_dialog(AlignBase, bpy.types.Operator):
         self._initial_state = {}
         target = context.active_object
         sources = [o for o in context.selected_objects if o != target]
-        
-        # Save initial state for interactive preview
+
         for obj in sources:
             self._initial_state[obj.name] = {
                 'location': obj.location.copy(),
@@ -176,8 +173,6 @@ class ALEC_OT_align_dialog(AlignBase, bpy.types.Operator):
                 'scale': obj.scale.copy()
             }
 
-        # Move cursor to center-ish of screen so the dialog spawns there
-        # Center X, and slightly lower than center Y (40% height)
         if context.window:
             context.window.cursor_warp(context.window.width // 2, int(context.window.height * 0.4))
 

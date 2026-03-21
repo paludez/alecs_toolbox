@@ -1,4 +1,3 @@
-# Operators for grouping, bbox, and quick alignment
 import bpy
 from ..modules import misc_tools
 
