@@ -12,6 +12,7 @@ from . import uv
 from . import bbox
 from . import auto_linked_mode
 from . import camera_tools
+from . import viewport_shortcuts
 
 classes = (
     *object_grouping.classes,
@@ -26,6 +27,7 @@ classes = (
     *bbox.classes,
     *auto_linked_mode.classes,
     *camera_tools.classes,
+    *viewport_shortcuts.classes,
 )
 
 _app_handlers = []

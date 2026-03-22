@@ -5,6 +5,41 @@ import bpy
 from .operators.camera_tools import _camera_data_from_context
 from .ui.transform import selection_math as sm
 
+_TRANSFORM_UI_DUMMY_PROPS = {
+    "alec_transform_ui_dummy_loc": bpy.props.FloatVectorProperty(
+        name="Location",
+        size=3,
+        subtype="TRANSLATION",
+        default=(0.0, 0.0, 0.0),
+    ),
+    "alec_transform_ui_dummy_scale": bpy.props.FloatVectorProperty(
+        name="Scale",
+        size=3,
+        subtype="XYZ",
+        default=(1.0, 1.0, 1.0),
+    ),
+    "alec_transform_ui_dummy_dims": bpy.props.FloatVectorProperty(
+        name="Dimensions",
+        size=3,
+        subtype="XYZ",
+        default=(0.0, 0.0, 0.0),
+    ),
+}
+
+
+def _register_transform_ui_dummy_props() -> None:
+    """Register Scene props; remove stale RNA left from a failed reload."""
+    for name, prop in _TRANSFORM_UI_DUMMY_PROPS.items():
+        if hasattr(bpy.types.Scene, name):
+            delattr(bpy.types.Scene, name)
+        setattr(bpy.types.Scene, name, prop)
+
+
+def _unregister_transform_ui_dummy_props() -> None:
+    for name in _TRANSFORM_UI_DUMMY_PROPS:
+        if hasattr(bpy.types.Scene, name):
+            delattr(bpy.types.Scene, name)
+
 
 def _draw_reset_btn(row, column_id: str, enabled: bool = True) -> None:
     op = row.operator(
@@ -202,6 +237,27 @@ def _draw_camera_tools(layout, context):
         icon=icon,
         depress=depress,
     )
+    space = context.space_data
+    lock_on = (
+        space is not None
+        and getattr(space, "type", None) == "VIEW_3D"
+        and bool(getattr(space, "lock_camera", False))
+    )
+    row.operator(
+        "alec.toggle_lock_camera",
+        text="",
+        icon="LOCKED" if lock_on else "UNLOCKED",
+        depress=lock_on,
+    )
+    row.operator(
+        "alec.view_center_camera",
+        text="",
+        icon="SHADING_BBOX",
+    )
+    col.separator()
+    row_tgt = col.row(align=True)
+    row_tgt.operator("alec.camera_target_dist", text="Targ.Dist")
+    row_tgt.operator("alec.camera_target_obj", text="Target.Obj")
 
 
 class ALEC_PT_alec_transform(bpy.types.Panel):
@@ -239,29 +295,10 @@ class ALEC_PT_alec_transform(bpy.types.Panel):
 
 
 def register():
-    bpy.types.Scene.alec_transform_ui_dummy_loc = bpy.props.FloatVectorProperty(
-        name="Location",
-        size=3,
-        subtype="TRANSLATION",
-        default=(0.0, 0.0, 0.0),
-    )
-    bpy.types.Scene.alec_transform_ui_dummy_scale = bpy.props.FloatVectorProperty(
-        name="Scale",
-        size=3,
-        subtype="XYZ",
-        default=(1.0, 1.0, 1.0),
-    )
-    bpy.types.Scene.alec_transform_ui_dummy_dims = bpy.props.FloatVectorProperty(
-        name="Dimensions",
-        size=3,
-        subtype="XYZ",
-        default=(0.0, 0.0, 0.0),
-    )
+    _register_transform_ui_dummy_props()
     bpy.utils.register_class(ALEC_PT_alec_transform)
 
 
 def unregister():
     bpy.utils.unregister_class(ALEC_PT_alec_transform)
-    del bpy.types.Scene.alec_transform_ui_dummy_loc
-    del bpy.types.Scene.alec_transform_ui_dummy_scale
-    del bpy.types.Scene.alec_transform_ui_dummy_dims
+    _unregister_transform_ui_dummy_props()
