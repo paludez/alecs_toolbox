@@ -6,7 +6,9 @@ from .operators.mesh_select_expand import classes as _mesh_expand_classes
 _mesh_edit_classes = _mesh_component_classes + _mesh_expand_classes
 
 _addon_keymaps_core: list[tuple] = []
+_addon_keymaps_auto_linked: list[tuple] = []
 _addon_keymaps_mesh: list[tuple] = []
+_km_auto_linked_mesh = None
 _mesh_keys_registered = False
 _km_object_mode = None
 _km_mesh_edit = None
@@ -36,6 +38,35 @@ def _register_core_keymaps():
     kmi_quad = km.keymap_items.new('wm.call_menu_pie', 'RIGHTMOUSE', 'PRESS', alt=True)
     kmi_quad.properties.name = "ALEC_MT_quad_menu"
     _addon_keymaps_core.append((km, kmi_quad))
+
+
+def _register_auto_linked_keymap():
+    """Edit Mesh: 6 toggles auto-linked mode (independent of Max-style mesh keys)."""
+    global _km_auto_linked_mesh
+    wm = bpy.context.window_manager
+    kc = wm.keyconfigs.addon
+    if not kc:
+        return
+    if _km_auto_linked_mesh is None:
+        _km_auto_linked_mesh = kc.keymaps.new(
+            "Mesh", space_type="EMPTY", region_type="WINDOW"
+        )
+    for existing in _km_auto_linked_mesh.keymap_items:
+        if (
+            existing.idname == "alec.auto_linked_select_mode"
+            and existing.type == "SIX"
+        ):
+            return
+    kmi = _km_auto_linked_mesh.keymap_items.new(
+        "alec.auto_linked_select_mode", "SIX", "PRESS"
+    )
+    _addon_keymaps_auto_linked.append((_km_auto_linked_mesh, kmi))
+
+
+def _unregister_auto_linked_keymap():
+    for km, kmi in _addon_keymaps_auto_linked:
+        km.keymap_items.remove(kmi)
+    _addon_keymaps_auto_linked.clear()
 
 
 def _register_mesh_keymaps():
@@ -92,6 +123,7 @@ def set_mesh_max_keys(want: bool):
 
 def register():
     _register_core_keymaps()
+    _register_auto_linked_keymap()
     from . import preferences as prefmod
     add = bpy.context.preferences.addons.get(prefmod._addon_id())
     if add is None:
@@ -102,6 +134,7 @@ def register():
 
 def unregister():
     set_mesh_max_keys(False)
+    _unregister_auto_linked_keymap()
     for km, kmi in _addon_keymaps_core:
         km.keymap_items.remove(kmi)
     _addon_keymaps_core.clear()

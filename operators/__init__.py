@@ -10,6 +10,7 @@ from . import modifiers
 from . import system
 from . import uv
 from . import bbox
+from . import auto_linked_mode
 
 classes = (
     *object_grouping.classes,
@@ -22,6 +23,7 @@ classes = (
     *system.classes,
     *uv.classes,
     *bbox.classes,
+    *auto_linked_mode.classes,
 )
 
 _app_handlers = []
@@ -36,6 +38,7 @@ def register():
 
 def unregister():
     edit_mesh.unregister_draw_handler()
+    auto_linked_mode._exit_auto_linked()
 
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
