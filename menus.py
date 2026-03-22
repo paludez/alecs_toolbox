@@ -1,7 +1,6 @@
 import bpy
 import math
 
-addon_keymaps = []
 
 class ALEC_MT_quad_menu(bpy.types.Menu):
     bl_idname = "ALEC_MT_quad_menu"
@@ -321,25 +320,7 @@ def register():
     for cls in classes:
         bpy.utils.register_class(cls)
 
-    wm = bpy.context.window_manager
-    if wm.keyconfigs.addon:
-        km = wm.keyconfigs.addon.keymaps.new(name='3D View', space_type='VIEW_3D')
-
-        kmi_main = km.keymap_items.new('alec.menu_dispatcher', 'Q', 'PRESS', alt=True)
-        addon_keymaps.append((km, kmi_main))
-
-        km_uv = wm.keyconfigs.addon.keymaps.new(name='Image', space_type='IMAGE_EDITOR')
-        kmi_uv = km_uv.keymap_items.new('alec.menu_dispatcher', 'Q', 'PRESS', alt=True)
-        addon_keymaps.append((km_uv, kmi_uv))
-
-        kmi_quad = km.keymap_items.new('wm.call_menu_pie', 'RIGHTMOUSE', 'PRESS', alt=True)
-        kmi_quad.properties.name = "ALEC_MT_quad_menu"
-        addon_keymaps.append((km, kmi_quad))
 
 def unregister():
-    for km, kmi in addon_keymaps:
-        km.keymap_items.remove(kmi)
-    addon_keymaps.clear()
-
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)

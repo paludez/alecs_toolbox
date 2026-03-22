@@ -1,11 +1,13 @@
 import bpy
+from . import preferences
 from . import operators
 from . import menus
+from . import shortcuts
 
 bl_info = {
     "name": "Alec's Toolbox",
     "author": "Alec",
-    "version": (0, 5, 0),
+    "version": (0, 5, 1),
     "blender": (5, 0, 1),
     "location": "View3D > Sidebar > Alec",
     "description": "Custom tools for hard surface modeling",
@@ -14,8 +16,12 @@ bl_info = {
     "category": "3D View",
 }
 
-modules = [operators,
-           menus]
+modules = [
+    preferences,
+    operators,
+    menus,
+    shortcuts,
+]
 
 def register():
     for m in modules:
