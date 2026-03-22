@@ -23,8 +23,11 @@ class ALECS_TB_AddonPreferences(AddonPreferences):
     bl_idname = _addon_id()
 
     use_max_style_mesh_keys: BoolProperty(
-        name="Max-style mesh keys (1–3)",
-        description="In Object or Edit mesh mode: 1 Vertex, 2 Edge, 3 Face (no Tab first from Object)",
+        name="Max-style mesh keys (1–5)",
+        description=(
+            "In Object or Edit mesh: 1 Vertex, 2 Edge, 3 Face (Tab not required from Object); "
+            "4 expand linked island from current selection; 5 grow along connected open/boundary edges"
+        ),
         default=True,
         update=_on_mesh_keys_toggle,
     )

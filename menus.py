@@ -1,6 +1,8 @@
 import bpy
 import math
 
+from . import menus_browser
+
 
 class ALEC_MT_quad_menu(bpy.types.Menu):
     bl_idname = "ALEC_MT_quad_menu"
@@ -314,6 +316,7 @@ classes = [
     ALEC_MT_edit_curve_menu,
     ALEC_MT_uv_menu,
     ALEC_MT_quad_menu,
+    *menus_browser.classes,
 ]
 
 def register():
