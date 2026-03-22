@@ -2,6 +2,7 @@ import bpy
 from . import preferences
 from . import operators
 from . import ui
+from . import npanel
 from . import menus
 from . import shortcuts
 
@@ -21,6 +22,7 @@ modules = [
     preferences,
     operators,
     ui,
+    npanel,
     menus,
     shortcuts,
 ]

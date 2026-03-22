@@ -1,11 +1,9 @@
-import bpy
-
-from . import transform_panel
+from . import transform
 
 
 def register():
-    transform_panel.register()
+    transform.register()
 
 
 def unregister():
-    transform_panel.unregister()
+    transform.unregister()
