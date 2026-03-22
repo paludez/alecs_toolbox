@@ -11,6 +11,7 @@ from . import system
 from . import uv
 from . import bbox
 from . import auto_linked_mode
+from . import camera_tools
 
 classes = (
     *object_grouping.classes,
@@ -24,6 +25,7 @@ classes = (
     *uv.classes,
     *bbox.classes,
     *auto_linked_mode.classes,
+    *camera_tools.classes,
 )
 
 _app_handlers = []
