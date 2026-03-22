@@ -1,6 +1,7 @@
 import bpy
 from . import preferences
 from . import operators
+from . import ui
 from . import menus
 from . import shortcuts
 
@@ -19,6 +20,7 @@ bl_info = {
 modules = [
     preferences,
     operators,
+    ui,
     menus,
     shortcuts,
 ]
