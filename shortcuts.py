@@ -1,9 +1,9 @@
 import bpy
 
 from .operators.mesh_edit_shortcuts import classes as _mesh_component_classes
-from .operators.mesh_select_expand import classes as _mesh_expand_classes
+from .operators.mesh_selection_helpers import classes as _mesh_selection_helpers_classes
 
-_mesh_edit_classes = _mesh_component_classes + _mesh_expand_classes
+_mesh_edit_classes = _mesh_component_classes + _mesh_selection_helpers_classes
 
 _addon_keymaps_core: list[tuple] = []
 _addon_keymaps_auto_linked: list[tuple] = []
@@ -41,7 +41,7 @@ def _register_core_keymaps():
 
 
 def _register_auto_linked_keymap():
-    """Edit Mesh: 6 toggles auto-linked mode (independent of Max-style mesh keys)."""
+    """Edit Mesh: 4 / Numpad 4 toggle auto-linked mode (replaces Max-slot key 4 one-shot linked expand)."""
     global _km_auto_linked_mesh
     wm = bpy.context.window_manager
     kc = wm.keyconfigs.addon
@@ -51,16 +51,18 @@ def _register_auto_linked_keymap():
         _km_auto_linked_mesh = kc.keymaps.new(
             "Mesh", space_type="EMPTY", region_type="WINDOW"
         )
-    for existing in _km_auto_linked_mesh.keymap_items:
-        if (
-            existing.idname == "alec.auto_linked_select_mode"
-            and existing.type == "SIX"
-        ):
-            return
-    kmi = _km_auto_linked_mesh.keymap_items.new(
-        "alec.auto_linked_select_mode", "SIX", "PRESS"
-    )
-    _addon_keymaps_auto_linked.append((_km_auto_linked_mesh, kmi))
+    for key in ("FOUR", "NUMPAD_4"):
+        for existing in _km_auto_linked_mesh.keymap_items:
+            if (
+                existing.idname == "alec.auto_linked_select_mode"
+                and existing.type == key
+            ):
+                break
+        else:
+            kmi = _km_auto_linked_mesh.keymap_items.new(
+                "alec.auto_linked_select_mode", key, "PRESS"
+            )
+            _addon_keymaps_auto_linked.append((_km_auto_linked_mesh, kmi))
 
 
 def _unregister_auto_linked_keymap():
@@ -91,9 +93,6 @@ def _register_mesh_keymaps():
         _addon_keymaps_mesh.append((_km_mesh_edit, kmi))
 
     for km in (_km_object_mode, _km_mesh_edit):
-        for key in ('FOUR', 'NUMPAD_4'):
-            kmi4 = km.keymap_items.new('alec.mesh_select_linked_expand', key, 'PRESS')
-            _addon_keymaps_mesh.append((km, kmi4))
         for key in ('FIVE', 'NUMPAD_5'):
             kmi5 = km.keymap_items.new('alec.mesh_select_open_edges_connected', key, 'PRESS')
             _addon_keymaps_mesh.append((km, kmi5))

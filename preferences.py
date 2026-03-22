@@ -23,10 +23,11 @@ class ALECS_TB_AddonPreferences(AddonPreferences):
     bl_idname = _addon_id()
 
     use_max_style_mesh_keys: BoolProperty(
-        name="Max-style mesh keys (1–5)",
+        name="Max-style mesh keys (1–3, 5)",
         description=(
             "In Object or Edit mesh: 1 Vertex, 2 Edge, 3 Face (Tab not required from Object); "
-            "4 expand linked island from current selection; 5 grow along connected open/boundary edges"
+            "5: grow along connected open/boundary edges. "
+            "Key 4 (toggle auto-linked island selection) is always in the addon Mesh keymap."
         ),
         default=True,
         update=_on_mesh_keys_toggle,

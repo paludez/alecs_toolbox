@@ -1,3 +1,4 @@
+"""BMesh helpers for auto-linked selection and the open-edge grow operator."""
 import bmesh
 import bpy
 from collections import deque
@@ -45,6 +46,48 @@ def _bmesh_select_linked_island(mesh) -> bool:
             e.select_set(e.verts[0] in visited and e.verts[1] in visited)
         for f in bm.faces:
             f.select_set(all(v in visited for v in f.verts))
+        bm.select_flush_mode()
+        bmesh.update_edit_mesh(mesh)
+        return True
+    finally:
+        bm.free()
+
+
+def _bmesh_subtract_linked_islands(mesh, old_vert_indices: set, new_vert_indices: set) -> bool:
+    """
+    After a subtract (new ⊂ old), remove the full mesh-connected region of verts in (old - new)
+    from the previous selection: final = old - flood_fill(old - new).
+    """
+    removed = old_vert_indices - new_vert_indices
+    if not removed:
+        return False
+    bm = bmesh.from_edit_mesh(mesh)
+    try:
+        bm.verts.ensure_lookup_table()
+        bm.edges.ensure_lookup_table()
+        bm.faces.ensure_lookup_table()
+        seeds = [bm.verts[i] for i in removed if 0 <= i < len(bm.verts)]
+        if not seeds:
+            return False
+        visited: set = set()
+        dq = deque(seeds)
+        while dq:
+            v = dq.popleft()
+            if v in visited:
+                continue
+            visited.add(v)
+            for e in v.link_edges:
+                ov = e.other_vert(v)
+                if ov not in visited:
+                    dq.append(ov)
+        remove_idx = {v.index for v in visited}
+        sel_idx = old_vert_indices - remove_idx
+        for v in bm.verts:
+            v.select_set(v.index in sel_idx)
+        for e in bm.edges:
+            e.select_set(e.verts[0].index in sel_idx and e.verts[1].index in sel_idx)
+        for f in bm.faces:
+            f.select_set(all(v.index in sel_idx for v in f.verts))
         bm.select_flush_mode()
         bmesh.update_edit_mesh(mesh)
         return True
@@ -107,30 +150,6 @@ def _apply_edge_component_selection(bm: bmesh.types.BMesh, component: set) -> No
         e.select_set(e.index in edge_idx)
 
 
-class ALEC_OT_mesh_select_linked_expand(bpy.types.Operator):
-    """Extend current selection with linked geometry (same as Select Linked)."""
-    bl_idname = "alec.mesh_select_linked_expand"
-    bl_label = "Select Linked Expand"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    @classmethod
-    def poll(cls, context):
-        obj = context.active_object
-        return obj is not None and obj.type == 'MESH'
-
-    def execute(self, context):
-        obj = context.active_object
-        if obj is None or obj.type != 'MESH':
-            self.report({'WARNING'}, "Select an active mesh object")
-            return {'CANCELLED'}
-        if context.mode != 'EDIT_MESH':
-            bpy.ops.object.mode_set(mode='EDIT')
-        if not _bmesh_select_linked_island(obj.data):
-            self.report({'WARNING'}, "Nothing selected")
-            return {'CANCELLED'}
-        return {'FINISHED'}
-
-
 class ALEC_OT_mesh_select_open_edges_connected(bpy.types.Operator):
     """Expand selection along connected open (boundary) edges."""
     bl_idname = "alec.mesh_select_open_edges_connected"
@@ -169,7 +188,4 @@ class ALEC_OT_mesh_select_open_edges_connected(bpy.types.Operator):
         return {'FINISHED'}
 
 
-classes = (
-    ALEC_OT_mesh_select_linked_expand,
-    ALEC_OT_mesh_select_open_edges_connected,
-)
+classes = (ALEC_OT_mesh_select_open_edges_connected,)

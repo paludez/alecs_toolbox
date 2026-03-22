@@ -248,7 +248,6 @@ class ALEC_MT_object_menu(bpy.types.Menu):
         grid_bool.operator("alec.boolean_op", text="Diff", icon='MOD_BOOLEAN').operation = 'DIFFERENCE'
         grid_bool.operator("alec.boolean_op", text="Intersect", icon='MOD_BOOLEAN').operation = 'INTERSECT'
         grid_bool.operator("alec.slice_boolean", text="Slice", icon='MOD_BOOLEAN')
-        grid_bool.operator("alec.slice_gn", text="Slice Plane", icon='MOD_BOOLEAN')
 
         box_mods.separator()
 

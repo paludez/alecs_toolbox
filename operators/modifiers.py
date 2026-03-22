@@ -92,36 +92,6 @@ class ALEC_OT_slice_boolean(bpy.types.Operator):
 
         return {'FINISHED'}
 
-class ALEC_OT_slice_gn(bpy.types.Operator):
-    """Add an exact Slice Modifier (3ds Max style, no helper objects)"""
-    bl_idname = "alec.slice_gn"
-    bl_label = "Slice Plane"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    @classmethod
-    def poll(cls, context):
-        return context.active_object and context.active_object.type == 'MESH'
-
-    def execute(self, context):
-        active = context.active_object
-        from ..modules.geometry_nodes import get_or_create_slice_gn_tree
-
-        tree = get_or_create_slice_gn_tree()
-        mod = active.modifiers.new(name="Slice_Plane", type='NODES')
-        mod.node_group = tree
-        
-
-        for area in context.screen.areas:
-            if area.type == 'VIEW_3D':
-                for space in area.spaces:
-                    if space.type == 'VIEW_3D':
-                        space.show_gizmo = True
-                        space.show_gizmo_modifier = True
-        
-        switch_to_modifier_tab(context)
-        
-        return {'FINISHED'}
-
 class ALEC_OT_mirror_control(BaseModalOperator, bpy.types.Operator):
     """Add Mirror Modifier controlled by a new Empty with interactive placement.
     X,Y,Z to change axis.
@@ -332,7 +302,6 @@ class ALEC_OT_modifier_action(bpy.types.Operator):
 classes = [
     ALEC_OT_boolean_op,
     ALEC_OT_slice_boolean,
-    ALEC_OT_slice_gn,
     ALEC_OT_mirror_control,
     ALEC_OT_add_simple_modifier,
     ALEC_OT_solidify_modal,
