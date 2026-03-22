@@ -25,7 +25,17 @@ class ALEC_OT_coplanar_curve_three_point_plane(bpy.types.Operator):
 
         self._colinear_warned = False
         self._timer = None
+        self._overlay_space = None
+        self._saved_display_handle = None
+        space = context.space_data
+        if isinstance(space, bpy.types.SpaceView3D):
+            self._overlay_space = space
+            self._saved_display_handle = space.overlay.display_handle
+
         bpy.ops.curve.select_all(action='DESELECT')
+
+        if self._overlay_space is not None:
+            self._overlay_space.overlay.display_handle = 'ALL'
 
         wm = context.window_manager
         self._timer = wm.event_timer_add(0.05, window=context.window)
@@ -54,33 +64,33 @@ class ALEC_OT_coplanar_curve_three_point_plane(bpy.types.Operator):
 
             if n != 3:
                 self._colinear_warned = False
+                return {'RUNNING_MODAL'}
 
-            if n == 3:
-                co0 = obj.matrix_world @ definers[0].get_co()
-                co1 = obj.matrix_world @ definers[1].get_co()
-                co2 = obj.matrix_world @ definers[2].get_co()
-                normal = (co1 - co0).cross(co2 - co0)
-                if normal.length_squared < 1e-20:
-                    if not self._colinear_warned:
-                        self.report({'WARNING'}, "The 3 points are collinear")
-                        self._colinear_warned = True
-                    return {'RUNNING_MODAL'}
+            co0 = obj.matrix_world @ definers[0].get_co()
+            co1 = obj.matrix_world @ definers[1].get_co()
+            co2 = obj.matrix_world @ definers[2].get_co()
+            normal = (co1 - co0).cross(co2 - co0)
+            if normal.length_squared < 1e-20:
+                if not self._colinear_warned:
+                    self.report({'WARNING'}, "The 3 points are collinear")
+                    self._colinear_warned = True
+                return {'RUNNING_MODAL'}
 
-                targets = ech.keys_to_targets(curve, self._keys)
-                if len(targets) != len(self._keys):
-                    self.report({'WARNING'}, "Curve topology changed; aborting")
-                    self._cleanup(context)
-                    return {'CANCELLED'}
-
-                ech.project_curve_targets_to_plane(
-                    targets, obj, co0, normal, factor=1.0
-                )
-                curve.update_tag()
+            targets = ech.keys_to_targets(curve, self._keys)
+            if len(targets) != len(self._keys):
+                self.report({'WARNING'}, "Curve topology changed; aborting")
                 self._cleanup(context)
-                self.report({'INFO'}, "Projected to plane")
-                return {'FINISHED'}
+                return {'CANCELLED'}
 
-        return {'RUNNING_MODAL'}
+            ech.project_curve_targets_to_plane(
+                targets, obj, co0, normal, factor=1.0
+            )
+            curve.update_tag()
+            self._cleanup(context)
+            self.report({'INFO'}, "Projected to plane")
+            return {'FINISHED'}
+
+        return {'PASS_THROUGH'}
 
     def _cleanup(self, context):
         wm = context.window_manager
@@ -88,6 +98,11 @@ class ALEC_OT_coplanar_curve_three_point_plane(bpy.types.Operator):
             wm.event_timer_remove(self._timer)
             self._timer = None
         context.workspace.status_text_set(None)
+
+        if self._overlay_space is not None and self._saved_display_handle is not None:
+            self._overlay_space.overlay.display_handle = self._saved_display_handle
+            self._overlay_space = None
+            self._saved_display_handle = None
 
 
 classes = (ALEC_OT_coplanar_curve_three_point_plane,)
