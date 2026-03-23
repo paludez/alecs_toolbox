@@ -281,8 +281,6 @@ class ALEC_MT_object_menu(bpy.types.Menu):
         col_inner = box_mat.column(align=True)
         col_inner.operator("alec.material_linker", text="Material Linker")
         col_inner.operator("object.make_links_data", text="Link Materials", icon='LINKED').type = 'MATERIAL'
-        col_inner.operator("alec.make_mat_from_tex", text="Make Mat From Tex", icon='MATERIAL_DATA')
-        col_inner.operator("alec.batch_materials_capture_previews", text="Batch Materials + Previews", icon='RENDER_STILL')
         col_inner.operator("alec.assign_gray_material", text="Gray Material (70%)", icon='SHADING_SOLID')
         col_inner.operator("alec.remove_orphan_materials", text="Clean Unused", icon='TRASH')
         col_inner.operator("alec.select_material_users", text="Select Users", icon='RESTRICT_SELECT_OFF')

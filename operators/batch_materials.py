@@ -1,35 +1,14 @@
 import os
-import json
 import re
 import shutil
 import tempfile
-import uuid
 
 import bpy
-from bpy.props import BoolProperty, IntProperty, StringProperty
-from bpy.app.handlers import persistent
+from bpy.props import BoolProperty, CollectionProperty, EnumProperty, IntProperty, StringProperty
 
 from . import material_builder
 
-_BATCH_PREVIEW_PAYLOAD_KEY = "_alec_batch_preview_payload"
-_BATCH_PREVIEW_PAYLOAD_FILE = os.path.join(tempfile.gettempdir(), "alec_batch_preview_payload.json")
-
-
-def _invoke_batch_continue_prompt():
-    if not os.path.isfile(_BATCH_PREVIEW_PAYLOAD_FILE):
-        return None
-    try:
-        bpy.ops.alec.batch_materials_continue_after_open("INVOKE_DEFAULT")
-        return None
-    except Exception:
-        # UI may not be ready immediately after file load.
-        return 0.5
-
-
-@persistent
-def _on_file_load_post(_dummy):
-    if os.path.isfile(_BATCH_PREVIEW_PAYLOAD_FILE):
-        bpy.app.timers.register(_invoke_batch_continue_prompt, first_interval=0.5)
+_LAST_BROWSE_DIR = ""
 
 
 def _split_keywords(value):
@@ -85,6 +64,23 @@ def _pick_by_keywords(images, keywords):
     return _pick_best_by_ext(matches)
 
 
+def _material_preview_scene_path():
+    addon_root = os.path.dirname(os.path.dirname(__file__))
+    candidates = [
+        os.path.join(addon_root, "assets", "Materials_Assets_Scene.blend"),
+        r"d:\BLENDER_DEV\alecs_toolbox\assets\Materials_Assets_Scene.blend",
+    ]
+    for p in candidates:
+        if os.path.isfile(p):
+            return p
+    return candidates[0]
+
+
+class ALEC_PG_subfolder_item(bpy.types.PropertyGroup):
+    name: StringProperty(name="Subfolder Name")  # type: ignore
+    selected: BoolProperty(name="Selected", default=True)  # type: ignore
+
+
 class ALEC_OT_make_mat_from_tex(bpy.types.Operator):
     """Create one material from textures in a selected folder."""
 
@@ -115,6 +111,8 @@ class ALEC_OT_make_mat_from_tex(bpy.types.Operator):
     use_displacement: BoolProperty(name="Use Displacement", default=False)  # type: ignore
 
     def invoke(self, context, _event):
+        if _LAST_BROWSE_DIR and os.path.isdir(_LAST_BROWSE_DIR):
+            self.directory = _LAST_BROWSE_DIR
         context.window_manager.fileselect_add(self)
         return {"RUNNING_MODAL"}
 
@@ -175,11 +173,13 @@ class ALEC_OT_make_mat_from_tex(bpy.types.Operator):
         return out
 
     def execute(self, context):
+        global _LAST_BROWSE_DIR
         folder = bpy.path.abspath(self.directory)
         folder = os.path.normpath(folder)
         if not os.path.isdir(folder):
             self.report({"ERROR"}, "Texture folder not found.")
             return {"CANCELLED"}
+        _LAST_BROWSE_DIR = folder
 
         images = _scan_images(folder)
         if not images:
@@ -221,9 +221,11 @@ class ALEC_OT_batch_materials(bpy.types.Operator):
 
     bl_idname = "alec.batch_materials"
     bl_label = "Batch Materials"
-    bl_options = {"REGISTER", "UNDO"}
+    bl_options = {"UNDO"}
 
     directory: StringProperty(name="Root Folder", subtype="DIR_PATH")  # type: ignore
+    selected_subfolders_payload: StringProperty(default="", options={"HIDDEN"})  # type: ignore
+    selection_stage: BoolProperty(default=False, options={"HIDDEN"})  # type: ignore
     asset_tags: StringProperty(
         name="Asset Tags",
         description="Semicolon-separated tags (ex: beton;exterior;pbr)",
@@ -247,16 +249,48 @@ class ALEC_OT_batch_materials(bpy.types.Operator):
     use_bump: BoolProperty(name="Use Bump", default=False)  # type: ignore
     use_cavity: BoolProperty(name="Use Cavity", default=False)  # type: ignore
     use_displacement: BoolProperty(name="Use Displacement", default=False)  # type: ignore
-    _catalog_id_cache: str | None = None
-    _catalog_path_cache: str = ""
+    def _base_reinvoke_kwargs(self):
+        # Only pass directory — stage 1 shows no properties to the user,
+        # so all keyword/option settings keep their defaults in stage 2.
+        # Passing many StringProperty values through bpy.ops allocates C blocks
+        # that Blender does not reliably free when the dialog is cancelled.
+        return {"directory": self.directory, "selection_stage": True}
+
+    def _reinvoke_kwargs(self):
+        return self._base_reinvoke_kwargs()
+
+    def _reinvoke_for_selection(self):
+        return bpy.ops.alec.batch_materials("INVOKE_DEFAULT", **self._reinvoke_kwargs())
 
     def invoke(self, context, _event):
+        if self.selection_stage:
+            root = bpy.path.abspath(self.directory)
+            root = os.path.normpath(root)
+            if not os.path.isdir(root):
+                self.report({"ERROR"}, "Root folder not found.")
+                return {"CANCELLED"}
+            self._populate_subfolder_state(root)
+            return context.window_manager.invoke_props_dialog(self, width=560)
+        self.selection_stage = False
+        if _LAST_BROWSE_DIR and os.path.isdir(_LAST_BROWSE_DIR):
+            self.directory = _LAST_BROWSE_DIR
         context.window_manager.fileselect_add(self)
         return {"RUNNING_MODAL"}
 
     def draw(self, _context):
         layout = self.layout
+        if not self.selection_stage:
+            return
         layout.prop(self, "directory")
+        layout.separator()
+        layout.label(text="Subfolder Selection")
+        box = layout.box()
+        wm = bpy.context.window_manager
+        if wm.alec_subfolder_items:
+            for it in wm.alec_subfolder_items:
+                box.prop(it, "selected", text=it.name)
+        else:
+            box.label(text="No direct subfolders found. Root folder will be processed.")
         layout.prop(self, "flip_normal_y")
         row = layout.row(align=True)
         row.prop(self, "mark_as_asset")
@@ -313,70 +347,6 @@ class ALEC_OT_batch_materials(bpy.types.Operator):
             out.pop("displacement", None)
         return out
 
-    def _catalog_file_current_blend(self):
-        if not bpy.data.filepath:
-            return None
-        return os.path.join(os.path.dirname(bpy.data.filepath), "blender_assets.cats.txt")
-
-    def _read_catalogs(self, cats_path):
-        out = {}
-        if not os.path.isfile(cats_path):
-            return out
-        try:
-            with open(cats_path, "r", encoding="utf-8") as f:
-                for raw in f:
-                    line = raw.strip()
-                    if not line or line.startswith("#") or line.startswith("VERSION"):
-                        continue
-                    parts = line.split(":")
-                    if len(parts) >= 3:
-                        out[parts[1]] = parts[0]
-        except OSError:
-            return {}
-        return out
-
-    def _ensure_catalogs_current_file(self, root_name):
-        cats_path = self._catalog_file_current_blend()
-        if not cats_path:
-            self.report({"WARNING"}, "Save the .blend first to assign Current File catalogs.")
-            return None
-
-        wanted = [("Materials", "Materials"), (f"Materials/{root_name}", root_name)]
-        existing = self._read_catalogs(cats_path)
-        missing = [(path, simple) for path, simple in wanted if path not in existing]
-        if not missing:
-            return existing.get(f"Materials/{root_name}")
-
-        lines = []
-        if os.path.isfile(cats_path):
-            try:
-                with open(cats_path, "r", encoding="utf-8") as f:
-                    lines = [ln.rstrip("\n") for ln in f]
-            except OSError:
-                lines = []
-
-        if not lines:
-            lines = [
-                "# This is an Asset Catalog Definition file for Blender.",
-                "VERSION 1",
-                "",
-            ]
-        elif not any(ln.startswith("VERSION") for ln in lines):
-            lines.insert(0, "VERSION 1")
-
-        for path, simple in missing:
-            lines.append(f"{uuid.uuid4()}:{path}:{simple}")
-
-        try:
-            with open(cats_path, "w", encoding="utf-8") as f:
-                f.write("\n".join(lines).rstrip() + "\n")
-        except OSError as e:
-            self.report({"WARNING"}, f"Could not write current-file catalogs: {e}")
-            return None
-
-        updated = self._read_catalogs(cats_path)
-        return updated.get(f"Materials/{root_name}")
-
     def _apply_asset_metadata(self, mat, root_name):
         if not self.mark_as_asset:
             return
@@ -399,71 +369,37 @@ class ALEC_OT_batch_materials(bpy.types.Operator):
                     ad.tags.new(tag)
                 except Exception:
                     pass
-        catalog_id = self._catalog_id_cache
-        if catalog_id is None:
-            catalog_id = self._ensure_catalogs_current_file(root_name)
-            self._catalog_id_cache = catalog_id
-        if catalog_id:
-            ad.catalog_id = catalog_id
 
     def _progress_update(self, wm, value):
         wm.progress_update(value)
-        # Force UI refresh so progress is visible during long loops.
-        for win in wm.windows:
-            if win.screen:
-                for area in win.screen.areas:
-                    area.tag_redraw()
-        try:
-            bpy.ops.wm.redraw_timer(type="DRAW_WIN", iterations=1)
-            bpy.ops.wm.redraw_timer(type="DRAW_WIN_SWAP", iterations=1)
-        except Exception:
-            pass
 
-    def _pick_operator_context(self, context):
+    def _set_asset_browser_current_file(self, context):
         win = context.window
         screen = context.screen
         if win is None or screen is None:
-            return None
-
-        def first_window_region(area):
-            for region in area.regions:
-                if region.type == "WINDOW":
-                    return region
-            return None
-
-        for area in screen.areas:
-            if area.type == "FILE_BROWSER" and getattr(area.spaces.active, "browse_mode", "") == "ASSETS":
-                region = first_window_region(area)
-                if region:
-                    return {"window": win, "screen": screen, "area": area, "region": region}
-
-        for area_type in ("PROPERTIES", "VIEW_3D", "FILE_BROWSER"):
-            for area in screen.areas:
-                if area.type == area_type:
-                    region = first_window_region(area)
-                    if region:
-                        return {"window": win, "screen": screen, "area": area, "region": region}
-        return None
-
-    def _refresh_asset_browser_ui(self, context):
-        area_ctx = self._pick_operator_context(context)
-        if area_ctx is None:
             return
-        try:
-            space = area_ctx["area"].spaces.active
+        for area in screen.areas:
+            if area.type != "FILE_BROWSER":
+                continue
+            space = area.spaces.active
+            if getattr(space, "browse_mode", "") != "ASSETS":
+                continue
             params = getattr(space, "params", None)
             if params and hasattr(params, "asset_library_reference"):
-                params.asset_library_reference = "LOCAL"
-                if self._catalog_id_cache and hasattr(params, "catalog_id"):
-                    params.catalog_id = self._catalog_id_cache
-            with context.temp_override(**area_ctx):
-                bpy.ops.asset.library_refresh()
                 try:
-                    bpy.ops.asset.catalogs_save()
+                    params.asset_library_reference = "LOCAL"
                 except Exception:
                     pass
-        except Exception:
-            pass
+                # Show newly created assets immediately in Current File.
+                if hasattr(params, "catalog_id"):
+                    try:
+                        params.catalog_id = "00000000-0000-0000-0000-000000000000"
+                    except Exception:
+                        try:
+                            params.catalog_id = ""
+                        except Exception:
+                            pass
+            break
 
     def _build_material_for_folder(self, folder):
         images = _scan_images(folder)
@@ -480,43 +416,77 @@ class ALEC_OT_batch_materials(bpy.types.Operator):
         material_builder.build_principled_tree(mat, paths_by_type, 0.1, 0.0, self.flip_normal_y)
         return mat
 
+    def _populate_subfolder_state(self, root):
+        wm = bpy.context.window_manager
+        wm.alec_subfolder_items.clear()
+        selected_from_payload = set(_split_tags_semicolon(self.selected_subfolders_payload))
+        try:
+            all_names = sorted(
+                name for name in os.listdir(root) if os.path.isdir(os.path.join(root, name))
+            )
+        except OSError:
+            all_names = []
+        for name in all_names:
+            item = wm.alec_subfolder_items.add()
+            item.name = name
+            item.selected = (not selected_from_payload) or (name in selected_from_payload)
+        self.selected_subfolders_payload = ""
+
+    def _selected_subfolder_names(self):
+        return [it.name for it in bpy.context.window_manager.alec_subfolder_items if it.selected]
+
+    def _target_subfolders(self, root):
+        try:
+            all_subfolders = sorted(
+                os.path.join(root, name)
+                for name in os.listdir(root)
+                if os.path.isdir(os.path.join(root, name))
+            )
+        except OSError as e:
+            self.report({"ERROR"}, f"Could not list root folder: {e}")
+            return None
+        if not all_subfolders:
+            return [root]
+        wm = bpy.context.window_manager
+        selected = set(self._selected_subfolder_names())
+        if not selected:
+            if wm.alec_subfolder_items:
+                return []
+            return all_subfolders
+        return [p for p in all_subfolders if os.path.basename(p) in selected]
+
+    def cancel(self, context):
+        context.window_manager.alec_subfolder_items.clear()
+
     def execute(self, context):
+        global _LAST_BROWSE_DIR
         root = bpy.path.abspath(self.directory)
         root = os.path.normpath(root)
         if not os.path.isdir(root):
             self.report({"ERROR"}, "Root folder not found.")
             return {"CANCELLED"}
-        if self.mark_as_asset and not bpy.data.filepath:
-            self.report({"ERROR"}, "Save the .blend first (Current File catalogs require a saved file).")
-            return {"CANCELLED"}
+        _LAST_BROWSE_DIR = root
+        if not self.selection_stage:
+            self._populate_subfolder_state(root)
+            self._reinvoke_for_selection()
+            # Return FINISHED so Blender destroys this (stage 1) operator instance
+            # and frees its StringProperty allocations. Stage 2 runs independently.
+            return {"FINISHED"}
 
-        try:
-            subfolders = [
-                os.path.join(root, name)
-                for name in os.listdir(root)
-                if os.path.isdir(os.path.join(root, name))
-            ]
-        except OSError as e:
-            self.report({"ERROR"}, f"Could not list root folder: {e}")
+        subfolders = self._target_subfolders(root)
+        if subfolders is None:
             return {"CANCELLED"}
 
         if not subfolders:
-            self.report({"WARNING"}, "No direct subfolders found.")
+            self.report({"WARNING"}, "No target subfolders found.")
             return {"CANCELLED"}
 
         created = 0
         skipped = 0
         root_name = os.path.basename(root.rstrip("\\/")) or "Materials"
-        self._catalog_path_cache = f"Materials/{root_name}"
-        self._catalog_id_cache = None
         wm = context.window_manager
         wm.progress_begin(0, len(subfolders))
         try:
-            self._catalog_id_cache = self._ensure_catalogs_current_file(root_name)
-            if self.mark_as_asset and self._catalog_id_cache is None:
-                cats_path = self._catalog_file_current_blend()
-                self.report({"WARNING"}, f"Catalog not available. Expected in: {cats_path}")
-            self._refresh_asset_browser_ui(context)
             for folder in sorted(subfolders):
                 mat = self._build_material_for_folder(folder)
                 if mat is None:
@@ -527,6 +497,8 @@ class ALEC_OT_batch_materials(bpy.types.Operator):
                 self._progress_update(wm, created + skipped)
         finally:
             wm.progress_end()
+            wm.alec_subfolder_items.clear()
+        self._set_asset_browser_current_file(context)
 
         self.report({"INFO"}, f"Batch Materials: created {created}, skipped {skipped}.")
         return {"FINISHED"}
@@ -537,15 +509,15 @@ class ALEC_OT_batch_materials_capture_previews(ALEC_OT_batch_materials):
 
     bl_idname = "alec.batch_materials_capture_previews"
     bl_label = "Batch Materials + Capture Previews"
-    bl_options = {"REGISTER", "UNDO"}
+    bl_options = {"UNDO"}
 
-    preview_sphere_name: StringProperty(name="Sphere Object", default="Sphere")  # type: ignore
-    preview_plane_name: StringProperty(name="Plane Object", default="Plane")  # type: ignore
-    open_preview_scene_first: BoolProperty(
-        name="Open Preview Scene First",
-        description="Open assets/Materials_Assets_Scene.blend in current Blender session before running",
+    generate_previews: BoolProperty(
+        name="Generate Previews",
+        description="Generate thumbnails for created materials",
         default=False,
     )  # type: ignore
+    preview_sphere_name: StringProperty(name="Sphere Object", default="Sphere")  # type: ignore
+    preview_plane_name: StringProperty(name="Plane Object", default="Plane")  # type: ignore
     use_active_object_preview: BoolProperty(
         name="Use Active Object Preview",
         description="If off, render from camera and load as custom preview",
@@ -555,12 +527,25 @@ class ALEC_OT_batch_materials_capture_previews(ALEC_OT_batch_materials):
     preview_resolution: IntProperty(name="Preview Resolution", default=512, min=64, max=2048)  # type: ignore
     transparent_bg: BoolProperty(name="Transparent Background", default=True)  # type: ignore
 
+    def _reinvoke_kwargs(self):
+        out = self._base_reinvoke_kwargs()
+        # No extra strings needed — preview options are set by the user in stage 2 dialog.
+        return out
+
+    def _reinvoke_for_selection(self):
+        return bpy.ops.alec.batch_materials_capture_previews("INVOKE_DEFAULT", **self._reinvoke_kwargs())
+
     def draw(self, context):
         super().draw(context)
+        if not self.selection_stage:
+            return
         layout = self.layout
         layout.separator()
+        layout.prop(self, "generate_previews")
+        if not self.generate_previews:
+            return
+        layout.separator()
         layout.label(text="Preview Scene Objects")
-        layout.prop(self, "open_preview_scene_first")
         layout.prop(self, "use_active_object_preview")
         layout.prop(self, "preview_sphere_name")
         layout.prop(self, "preview_plane_name")
@@ -650,29 +635,34 @@ class ALEC_OT_batch_materials_capture_previews(ALEC_OT_batch_materials):
             return False
 
         override = {**area_ctx, "id": mat}
+        abs_target = os.path.normcase(os.path.abspath(filepath))
+        image_names_before = {img.name for img in bpy.data.images}
 
+        ok = False
         try:
             with context.temp_override(**override):
                 result = bpy.ops.ed.lib_id_load_custom_preview(filepath=filepath)
                 if "FINISHED" in result:
-                    return True
+                    ok = True
         except Exception as e:
-            # One retry after redraw helps when UI context is in flux.
-            try:
-                bpy.ops.wm.redraw_timer(type="DRAW_WIN_SWAP", iterations=1)
-            except Exception:
-                pass
-            try:
-                with context.temp_override(**override):
-                    result = bpy.ops.ed.lib_id_load_custom_preview(filepath=filepath)
-                    if "FINISHED" in result:
-                        return True
-            except Exception as e2:
-                self.report(
-                    {"WARNING"},
-                    f"Load custom preview failed for '{mat.name}': {e} / retry: {e2}",
-                )
-        return False
+            self.report({"WARNING"}, f"Load custom preview failed for '{mat.name}': {e}")
+        finally:
+            # Clean any transient image datablocks loaded from this temp preview file.
+            for img in list(bpy.data.images):
+                if img.name in image_names_before:
+                    continue
+                try:
+                    img_path = os.path.normcase(os.path.abspath(bpy.path.abspath(img.filepath)))
+                except Exception:
+                    img_path = ""
+                if img_path != abs_target:
+                    continue
+                if img.users == 0:
+                    try:
+                        bpy.data.images.remove(img)
+                    except Exception:
+                        pass
+        return ok
 
     def _render_preview_to_file(self, context, camera_obj, filepath):
         scene = context.scene
@@ -711,104 +701,48 @@ class ALEC_OT_batch_materials_capture_previews(ALEC_OT_batch_materials):
             image_settings.file_format = old_format
             image_settings.color_mode = old_color_mode
             render.film_transparent = old_transparent
-
-    def _preview_scene_path(self):
-        addon_root = os.path.dirname(os.path.dirname(__file__))
-        candidates = [
-            os.path.join(addon_root, "assets", "Materials_Assets_Scene.blend"),
-            r"d:\BLENDER_DEV\alecs_toolbox\assets\Materials_Assets_Scene.blend",
-        ]
-        for p in candidates:
-            if os.path.isfile(p):
-                return p
-        # Return first candidate so error message shows expected primary path.
-        return candidates[0]
-
-    def _payload_dict(self):
-        return {
-            "directory": self.directory,
-            "asset_tags": self.asset_tags,
-            "mark_as_asset": self.mark_as_asset,
-            "flip_normal_y": self.flip_normal_y,
-            "kw_basecolor": self.kw_basecolor,
-            "kw_normal": self.kw_normal,
-            "kw_roughness": self.kw_roughness,
-            "kw_metallic": self.kw_metallic,
-            "kw_ao": self.kw_ao,
-            "kw_displacement": self.kw_displacement,
-            "kw_specular": self.kw_specular,
-            "kw_bump": self.kw_bump,
-            "kw_gloss": self.kw_gloss,
-            "kw_cavity": self.kw_cavity,
-            "use_ao": self.use_ao,
-            "use_bump": self.use_bump,
-            "use_cavity": self.use_cavity,
-            "use_displacement": self.use_displacement,
-            "preview_sphere_name": self.preview_sphere_name,
-            "preview_plane_name": self.preview_plane_name,
-            "use_active_object_preview": self.use_active_object_preview,
-            "preview_camera_name": self.preview_camera_name,
-            "preview_resolution": self.preview_resolution,
-            "transparent_bg": self.transparent_bg,
-            "open_preview_scene_first": False,
-        }
+            for img in list(bpy.data.images):
+                if img.type == "RENDER_RESULT":
+                    try:
+                        bpy.data.images.remove(img)
+                    except Exception:
+                        pass
 
     def execute(self, context):
-        if self.open_preview_scene_first:
-            preview_scene = self._preview_scene_path()
-            if not os.path.isfile(preview_scene):
-                self.report({"ERROR"}, f"Preview scene not found: {preview_scene}")
-                return {"CANCELLED"}
-            try:
-                with open(_BATCH_PREVIEW_PAYLOAD_FILE, "w", encoding="utf-8") as f:
-                    json.dump(self._payload_dict(), f)
-            except OSError as e:
-                self.report({"ERROR"}, f"Could not store pending batch payload: {e}")
-                return {"CANCELLED"}
-            # Open directly (don't show file browser). Blender handles save prompt if needed.
-            bpy.ops.wm.open_mainfile("EXEC_DEFAULT", filepath=preview_scene)
-            self.report(
-                {"INFO"},
-                "Preview scene opened. Confirm the popup to start batch automatically.",
-            )
-            return {"CANCELLED"}
-
         root = bpy.path.abspath(self.directory)
         root = os.path.normpath(root)
         if not os.path.isdir(root):
             self.report({"ERROR"}, "Root folder not found.")
             return {"CANCELLED"}
-        if self.mark_as_asset and not bpy.data.filepath:
-            self.report({"ERROR"}, "Save the .blend first (Current File catalogs require a saved file).")
-            return {"CANCELLED"}
+        if not self.selection_stage:
+            self._populate_subfolder_state(root)
+            self._reinvoke_for_selection()
+            return {"FINISHED"}
 
-        sphere_obj = bpy.data.objects.get(self.preview_sphere_name)
-        plane_obj = bpy.data.objects.get(self.preview_plane_name)
-        if sphere_obj is None or plane_obj is None:
-            self.report(
-                {"ERROR"},
-                f"Preview objects not found: '{self.preview_sphere_name}' and/or '{self.preview_plane_name}'.",
-            )
-            return {"CANCELLED"}
+        sphere_obj = None
+        plane_obj = None
         camera_obj = None
-        if not self.use_active_object_preview:
-            camera_obj = bpy.data.objects.get(self.preview_camera_name)
-            if camera_obj is None or camera_obj.type != "CAMERA":
-                self.report({"ERROR"}, f"Camera object not found or invalid: '{self.preview_camera_name}'.")
+        if self.generate_previews:
+            sphere_obj = bpy.data.objects.get(self.preview_sphere_name)
+            plane_obj = bpy.data.objects.get(self.preview_plane_name)
+            if sphere_obj is None or plane_obj is None:
+                self.report(
+                    {"ERROR"},
+                    f"Preview objects not found: '{self.preview_sphere_name}' and/or '{self.preview_plane_name}'.",
+                )
                 return {"CANCELLED"}
+            if not self.use_active_object_preview:
+                camera_obj = bpy.data.objects.get(self.preview_camera_name)
+                if camera_obj is None or camera_obj.type != "CAMERA":
+                    self.report({"ERROR"}, f"Camera object not found or invalid: '{self.preview_camera_name}'.")
+                    return {"CANCELLED"}
 
-        try:
-            subfolders = [
-                os.path.join(root, name)
-                for name in os.listdir(root)
-                if os.path.isdir(os.path.join(root, name))
-            ]
-        except OSError as e:
-            self.report({"ERROR"}, f"Could not list root folder: {e}")
+        subfolders = self._target_subfolders(root)
+        if subfolders is None:
             return {"CANCELLED"}
 
         if not subfolders:
-            self.report({"WARNING"}, "No direct subfolders found.")
+            self.report({"WARNING"}, "No target subfolders found.")
             return {"CANCELLED"}
 
         created = 0
@@ -817,16 +751,9 @@ class ALEC_OT_batch_materials_capture_previews(ALEC_OT_batch_materials):
         preview_fail = 0
         temp_dir = tempfile.mkdtemp(prefix="alecs_batch_preview_")
         root_name = os.path.basename(root.rstrip("\\/")) or "Materials"
-        self._catalog_path_cache = f"Materials/{root_name}"
-        self._catalog_id_cache = None
         wm = context.window_manager
         wm.progress_begin(0, len(subfolders))
         try:
-            self._catalog_id_cache = self._ensure_catalogs_current_file(root_name)
-            if self.mark_as_asset and self._catalog_id_cache is None:
-                cats_path = self._catalog_file_current_blend()
-                self.report({"WARNING"}, f"Catalog not available. Expected in: {cats_path}")
-            self._refresh_asset_browser_ui(context)
             for folder in sorted(subfolders):
                 mat = self._build_material_for_folder(folder)
                 if mat is None:
@@ -836,90 +763,117 @@ class ALEC_OT_batch_materials_capture_previews(ALEC_OT_batch_materials):
                 created += 1
 
                 self._apply_asset_metadata(mat, root_name)
-                self._apply_material(sphere_obj, mat)
-                self._apply_material(plane_obj, mat)
-                if sphere_obj.mode != "OBJECT":
-                    try:
-                        bpy.ops.object.mode_set(mode="OBJECT")
-                    except Exception:
-                        pass
-                sphere_obj.select_set(True)
-                plane_obj.select_set(False)
-                context.view_layer.objects.active = sphere_obj
-                context.view_layer.update()
+                if self.generate_previews:
+                    self._apply_material(sphere_obj, mat)
+                    self._apply_material(plane_obj, mat)
+                    if sphere_obj.mode != "OBJECT":
+                        try:
+                            bpy.ops.object.mode_set(mode="OBJECT")
+                        except Exception:
+                            pass
+                    sphere_obj.select_set(True)
+                    plane_obj.select_set(False)
+                    context.view_layer.objects.active = sphere_obj
+                    context.view_layer.update()
 
-                if self.use_active_object_preview:
-                    ok = self._capture_material_preview(context, mat, sphere_obj)
+                    if self.use_active_object_preview:
+                        ok = self._capture_material_preview(context, mat, sphere_obj)
+                    else:
+                        preview_file = os.path.join(temp_dir, f"{mat.name}.png")
+                        ok = self._render_preview_to_file(context, camera_obj, preview_file) and self._load_custom_preview(
+                            context, mat, preview_file
+                        )
                 else:
-                    preview_file = os.path.join(temp_dir, f"{mat.name}.png")
-                    ok = self._render_preview_to_file(context, camera_obj, preview_file) and self._load_custom_preview(
-                        context, mat, preview_file
-                    )
+                    ok = True
 
                 if ok:
                     preview_ok += 1
                 else:
                     preview_fail += 1
-                self._refresh_asset_browser_ui(context)
                 self._progress_update(wm, created + skipped)
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
             wm.progress_end()
+            wm.alec_subfolder_items.clear()
+        self._set_asset_browser_current_file(context)
         self.report(
             {"INFO"},
-            f"Batch+Previews: created {created}, skipped {skipped}, previews ok {preview_ok}, failed {preview_fail}.",
+            f"Batch+Previews: created {created}, skipped {skipped}, previews ok {preview_ok}, failed {preview_fail}, preview generation {'on' if self.generate_previews else 'off'}.",
         )
         return {"FINISHED"}
 
 
-class ALEC_OT_batch_materials_continue_after_open(bpy.types.Operator):
-    """Ask confirmation then run batch after opening preview scene."""
+class ALEC_OT_open_material_preview_scene(bpy.types.Operator):
+    """Open bundled material preview scene."""
 
-    bl_idname = "alec.batch_materials_continue_after_open"
-    bl_label = "Preview Scene Loaded"
+    bl_idname = "alec.open_material_preview_scene"
+    bl_label = "Open Material Preview Scene"
 
-    def invoke(self, context, event):
-        return context.window_manager.invoke_props_dialog(self, width=520)
+    unsaved_action: EnumProperty(  # type: ignore
+        name="Unsaved Changes Action",
+        items=(
+            ("SAVE", "Save Current Scene", "Save current scene, then load preview scene"),
+            ("DONT_SAVE", "Don't Save", "Discard changes and load preview scene"),
+            ("CANCEL", "Cancel", "Cancel loading preview scene"),
+        ),
+        default="DONT_SAVE",
+    )
+
+    def invoke(self, context, _event):
+        if bpy.data.is_dirty:
+            return context.window_manager.invoke_props_dialog(self, width=560)
+        return self.execute(context)
 
     def draw(self, _context):
         layout = self.layout
-        layout.label(text="Preview scene loaded successfully.", icon="INFO")
-        layout.label(text="Run 'Batch Materials + Previews' now with saved options?")
-        layout.separator()
-        layout.label(text="Press OK to start, Cancel to stop.")
+        layout.label(text="Current scene has unsaved changes.", icon="ERROR")
+        layout.label(text="How do you want to continue before loading preview scene?")
+        layout.prop(self, "unsaved_action", text="")
 
     def execute(self, context):
-        if not os.path.isfile(_BATCH_PREVIEW_PAYLOAD_FILE):
-            self.report({"WARNING"}, "No pending batch payload found.")
+        if bpy.data.is_dirty:
+            action = self.unsaved_action or "DONT_SAVE"
+            if action == "CANCEL":
+                return {"CANCELLED"}
+            if action == "SAVE":
+                try:
+                    if bpy.data.filepath:
+                        save_result = bpy.ops.wm.save_mainfile("EXEC_DEFAULT")
+                    else:
+                        save_result = bpy.ops.wm.save_mainfile("INVOKE_DEFAULT")
+                    if "FINISHED" not in save_result:
+                        return {"CANCELLED"}
+                except Exception as e:
+                    self.report({"ERROR"}, f"Could not save current file: {e}")
+                    return {"CANCELLED"}
+
+        preview_scene = _material_preview_scene_path()
+        if not os.path.isfile(preview_scene):
+            self.report({"ERROR"}, f"Preview scene not found: {preview_scene}")
             return {"CANCELLED"}
-        try:
-            with open(_BATCH_PREVIEW_PAYLOAD_FILE, "r", encoding="utf-8") as f:
-                payload = json.load(f)
-        except Exception:
-            self.report({"ERROR"}, "Invalid pending batch payload.")
-            return {"CANCELLED"}
-        try:
-            os.remove(_BATCH_PREVIEW_PAYLOAD_FILE)
-        except Exception:
-            pass
-        bpy.ops.alec.batch_materials_capture_previews("EXEC_DEFAULT", **payload)
+        bpy.ops.wm.open_mainfile("EXEC_DEFAULT", filepath=preview_scene)
         return {"FINISHED"}
 
 
 classes = (
+    ALEC_PG_subfolder_item,
     ALEC_OT_make_mat_from_tex,
+    ALEC_OT_open_material_preview_scene,
     ALEC_OT_batch_materials_capture_previews,
-    ALEC_OT_batch_materials_continue_after_open,
 )
 
 
 def post_register():
-    handlers = bpy.app.handlers.load_post
-    if _on_file_load_post not in handlers:
-        handlers.append(_on_file_load_post)
+    bpy.types.WindowManager.alec_subfolder_items = CollectionProperty(type=ALEC_PG_subfolder_item)
 
 
 def post_unregister():
-    handlers = bpy.app.handlers.load_post
-    if _on_file_load_post in handlers:
-        handlers.remove(_on_file_load_post)
+    for wm in bpy.data.window_managers:
+        try:
+            wm.alec_subfolder_items.clear()
+        except Exception:
+            pass
+    try:
+        del bpy.types.WindowManager.alec_subfolder_items
+    except AttributeError:
+        pass

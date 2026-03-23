@@ -294,11 +294,49 @@ class ALEC_PT_alec_transform(bpy.types.Panel):
         _draw_camera_tools(layout, context)
 
 
+class ALEC_PT_alec_misc(bpy.types.Panel):
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "Alec"
+    bl_label = "Misc"
+
+    @classmethod
+    def poll(cls, context):
+        return context.area and context.area.type == "VIEW_3D"
+
+    def draw(self, _context):
+        # Parent panel for utility sections.
+        pass
+
+
+class ALEC_PT_alec_misc_materials(bpy.types.Panel):
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "Alec"
+    bl_label = "Materials"
+    bl_parent_id = "ALEC_PT_alec_misc"
+
+    @classmethod
+    def poll(cls, context):
+        return context.area and context.area.type == "VIEW_3D"
+
+    def draw(self, _context):
+        layout = self.layout
+        col = layout.column(align=True)
+        col.operator("alec.make_mat_from_tex", text="Make Mat From Tex", icon="MATERIAL_DATA")
+        col.operator("alec.open_material_preview_scene", text="Open Material Preview Scene", icon="FILE_BLEND")
+        col.operator("alec.batch_materials_capture_previews", text="Batch Materials + Previews", icon="RENDER_STILL")
+
+
 def register():
     _register_transform_ui_dummy_props()
     bpy.utils.register_class(ALEC_PT_alec_transform)
+    bpy.utils.register_class(ALEC_PT_alec_misc)
+    bpy.utils.register_class(ALEC_PT_alec_misc_materials)
 
 
 def unregister():
+    bpy.utils.unregister_class(ALEC_PT_alec_misc_materials)
+    bpy.utils.unregister_class(ALEC_PT_alec_misc)
     bpy.utils.unregister_class(ALEC_PT_alec_transform)
     _unregister_transform_ui_dummy_props()
