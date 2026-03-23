@@ -25,7 +25,7 @@ def _object_bbox_center_world(obj) -> Vector:
     return acc * (1.0 / 8.0)
 
 
-def _ensure_empty_and_camera_damped_track(context, cam, empty_name: str, loc: Vector) -> None:
+def _ensure_empty_and_camera_track_to(context, cam, empty_name: str, loc: Vector) -> None:
     empty = bpy.data.objects.get(empty_name)
     if empty is None or empty.type != "EMPTY":
         empty = bpy.data.objects.new(empty_name, None)
@@ -39,10 +39,11 @@ def _ensure_empty_and_camera_damped_track(context, cam, empty_name: str, loc: Ve
     if old is not None:
         cam.constraints.remove(old)
 
-    con = cam.constraints.new(type="DAMPED_TRACK")
+    con = cam.constraints.new(type="TRACK_TO")
     con.name = _ALEC_TARGET_CON_NAME
     con.target = empty
     con.track_axis = "TRACK_NEGATIVE_Z"
+    con.up_axis = "UP_Y"
     context.view_layer.update()
 
 
@@ -191,13 +192,13 @@ class ALEC_OT_toggle_lock_camera(bpy.types.Operator):
 
 
 class ALEC_OT_camera_target_dist(bpy.types.Operator):
-    """Empty on camera view axis through active object center; scene camera Damped Track → empty."""
+    """Empty on camera view axis through active object center; scene camera Track To → empty."""
 
     bl_idname = "alec.camera_target_dist"
     bl_label = "Targ.Dist"
     bl_description = (
         "Empty on the scene camera view axis (closest point to object center); "
-        "Damped Track on the scene camera to that empty"
+        "Track To on the scene camera to that empty"
     )
     bl_options = {"REGISTER", "UNDO"}
 
@@ -223,18 +224,18 @@ class ALEC_OT_camera_target_dist(bpy.types.Operator):
             cam, obj.matrix_world.translation
         )
         empty_name = f"AlecTargetDist_{obj.name}"
-        _ensure_empty_and_camera_damped_track(context, cam, empty_name, loc)
+        _ensure_empty_and_camera_track_to(context, cam, empty_name, loc)
         return {"FINISHED"}
 
 
 class ALEC_OT_camera_target_obj(bpy.types.Operator):
-    """Empty at active object bounding-box center; scene camera Damped Track → empty."""
+    """Empty at active object bounding-box center; scene camera Track To → empty."""
 
     bl_idname = "alec.camera_target_obj"
     bl_label = "Target.Obj"
     bl_description = (
         "Empty at the world-space center of the active object's bounding box; "
-        "Damped Track on the scene camera to that empty"
+        "Track To on the scene camera to that empty"
     )
     bl_options = {"REGISTER", "UNDO"}
 
@@ -258,7 +259,7 @@ class ALEC_OT_camera_target_obj(bpy.types.Operator):
 
         loc = _object_bbox_center_world(obj)
         empty_name = f"AlecTargetObj_{obj.name}"
-        _ensure_empty_and_camera_damped_track(context, cam, empty_name, loc)
+        _ensure_empty_and_camera_track_to(context, cam, empty_name, loc)
         return {"FINISHED"}
 
 
