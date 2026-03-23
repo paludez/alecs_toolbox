@@ -37,6 +37,7 @@ _app_handlers = []
 def register():
     for cls in classes:
         bpy.utils.register_class(cls)
+    batch_materials.post_register()
 
     depsgraph_handler = edit_mesh.depsgraph_update_handler
     bpy.app.handlers.depsgraph_update_post.append(depsgraph_handler)
@@ -45,6 +46,7 @@ def register():
 def unregister():
     edit_mesh.unregister_draw_handler()
     auto_linked_mode._exit_auto_linked()
+    batch_materials.post_unregister()
 
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)

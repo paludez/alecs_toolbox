@@ -1,0 +1,5 @@
+# This is an Asset Catalog Definition file for Blender.
+VERSION 1
+
+2cb5c7de-d1d6-46f6-b3b5-e3cd48de88ca:Materials:Materials
+e07d6a96-e61c-40bc-b3b2-c94d486f4405:Materials/!!:!!
