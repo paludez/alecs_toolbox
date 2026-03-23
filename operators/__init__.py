@@ -6,6 +6,7 @@ from . import align
 from . import edit_mesh
 from . import edit_curve
 from . import materials
+from . import batch_materials
 from . import modifiers
 from . import system
 from . import uv
@@ -21,6 +22,7 @@ classes = (
     *edit_mesh.classes,
     *edit_curve.classes,
     *materials.classes,
+    *batch_materials.classes,
     *modifiers.classes,
     *system.classes,
     *uv.classes,
