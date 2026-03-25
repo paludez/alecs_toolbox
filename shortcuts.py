@@ -98,8 +98,10 @@ def _register_core_keymaps():
         )
         _addon_keymaps_core.append((km, kmi_f5))
 
-    if _pref(prefs, "shortcut_q_alt_menu") or _pref(
-        prefs, "shortcut_q_ctrl_alt_browser"
+    if (
+        _pref(prefs, "shortcut_q_alt_menu")
+        or _pref(prefs, "shortcut_q_ctrl_alt_browser")
+        or _pref(prefs, "shortcut_alt_rmb_quad")
     ):
         km_uv = kc.keymaps.new(name="Image", space_type="IMAGE_EDITOR")
         if _pref(prefs, "shortcut_q_alt_menu"):
@@ -113,6 +115,12 @@ def _register_core_keymaps():
             )
             kmi_uv_browser.properties.name = "ALEC_MT_alec_browser"
             _addon_keymaps_core.append((km_uv, kmi_uv_browser))
+        if _pref(prefs, "shortcut_alt_rmb_quad"):
+            kmi_uv_pie = km_uv.keymap_items.new(
+                "wm.call_menu_pie", "RIGHTMOUSE", "PRESS", alt=True
+            )
+            kmi_uv_pie.properties.name = "ALEC_MT_uv_menu"
+            _addon_keymaps_core.append((km_uv, kmi_uv_pie))
 
 
 def _register_toolbar_tool_keymaps():
@@ -168,7 +176,7 @@ def _unregister_toolbar_tool_keymaps():
 
 
 def _register_auto_linked_keymap():
-    """Edit Mesh: 4 / Numpad 4 toggle auto-linked mode (replaces Max-slot key 4 one-shot linked expand)."""
+    """Edit Mesh: 4 toggles auto-linked mode (replaces Max-slot key 4 one-shot linked expand)."""
     prefs = _addon_prefs()
     if not _pref(prefs, "shortcut_key_4_auto_linked"):
         return
@@ -181,18 +189,17 @@ def _register_auto_linked_keymap():
         _km_auto_linked_mesh = kc.keymaps.new(
             "Mesh", space_type="EMPTY", region_type="WINDOW"
         )
-    for key in ("FOUR", "NUMPAD_4"):
-        for existing in _km_auto_linked_mesh.keymap_items:
-            if (
-                existing.idname == "alec.auto_linked_select_mode"
-                and existing.type == key
-            ):
-                break
-        else:
-            kmi = _km_auto_linked_mesh.keymap_items.new(
-                "alec.auto_linked_select_mode", key, "PRESS"
-            )
-            _addon_keymaps_auto_linked.append((_km_auto_linked_mesh, kmi))
+    for existing in _km_auto_linked_mesh.keymap_items:
+        if (
+            existing.idname == "alec.auto_linked_select_mode"
+            and existing.type == "FOUR"
+        ):
+            break
+    else:
+        kmi = _km_auto_linked_mesh.keymap_items.new(
+            "alec.auto_linked_select_mode", "FOUR", "PRESS"
+        )
+        _addon_keymaps_auto_linked.append((_km_auto_linked_mesh, kmi))
 
 
 def _unregister_auto_linked_keymap():
@@ -223,9 +230,10 @@ def _register_mesh_keymaps():
         _addon_keymaps_mesh.append((_km_mesh_edit, kmi))
 
     for km in (_km_object_mode, _km_mesh_edit):
-        for key in ('FIVE', 'NUMPAD_5'):
-            kmi5 = km.keymap_items.new('alec.mesh_select_open_edges_connected', key, 'PRESS')
-            _addon_keymaps_mesh.append((km, kmi5))
+        kmi5 = km.keymap_items.new(
+            'alec.mesh_select_open_edges_connected', 'FIVE', 'PRESS'
+        )
+        _addon_keymaps_mesh.append((km, kmi5))
 
 
 def _unregister_mesh_keymaps():

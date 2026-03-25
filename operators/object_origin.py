@@ -29,8 +29,149 @@ class ALEC_OT_origin_to_cursor(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
-        cursor_tools.origin_to_cursor(context)
+        saved_mode = context.mode
+        saved_cursor = context.scene.cursor.matrix.copy()
+        selected = list(context.selected_objects)
+        active = context.active_object
+
+        # This operator uses bpy.ops.view3d.snap_selected_to_cursor, which can
+        # fail in Edit Mode due to context.poll. Switch modes internally.
+        if saved_mode != 'OBJECT':
+            try:
+                bpy.ops.object.mode_set(mode='OBJECT')
+            except RuntimeError:
+                self.report({'ERROR'}, "Could not switch to Object Mode.")
+                return {'CANCELLED'}
+
+        try:
+            # Re-apply selection so snap operates on the expected objects.
+            try:
+                bpy.ops.object.select_all(action='DESELECT')
+            except Exception:
+                pass
+            for obj in selected:
+                if obj.type == 'MESH':
+                    obj.select_set(True)
+            if active:
+                context.view_layer.objects.active = active
+
+            cursor_tools.origin_to_cursor(context)
+        finally:
+            context.scene.cursor.matrix = saved_cursor
+            try:
+                bpy.ops.object.select_all(action='DESELECT')
+                for obj in selected:
+                    obj.select_set(True)
+                if active:
+                    context.view_layer.objects.active = active
+            except Exception:
+                pass
+
+            if saved_mode == 'EDIT_MESH':
+                try:
+                    bpy.ops.object.mode_set(mode='EDIT')
+                except Exception:
+                    pass
+
         return {'FINISHED'}
+
+
+class ALEC_OT_origin_set_to_cursor(bpy.types.Operator):
+    """Set object origin to the 3D cursor (non-rotational)"""
+    bl_idname = "alec.origin_set_to_cursor"
+    bl_label = "Origin to Cursor"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        saved_mode = context.mode
+        saved_cursor = context.scene.cursor.matrix.copy()
+        selected = list(context.selected_objects)
+        active = context.active_object
+
+        # object.origin_set / select_all can fail poll() in Edit Mode.
+        if saved_mode != 'OBJECT':
+            try:
+                bpy.ops.object.mode_set(mode='OBJECT')
+            except RuntimeError:
+                self.report({'ERROR'}, "Could not switch to Object Mode.")
+                return {'CANCELLED'}
+
+        try:
+            for obj in selected:
+                if obj.type != 'MESH':
+                    continue
+                bpy.ops.object.select_all(action='DESELECT')
+                obj.select_set(True)
+                context.view_layer.objects.active = obj
+                bpy.ops.object.origin_set(type='ORIGIN_CURSOR')
+        finally:
+            context.scene.cursor.matrix = saved_cursor
+            try:
+                bpy.ops.object.select_all(action='DESELECT')
+                for obj in selected:
+                    obj.select_set(True)
+                if active:
+                    context.view_layer.objects.active = active
+            except Exception:
+                pass
+
+            if saved_mode == 'EDIT_MESH':
+                try:
+                    bpy.ops.object.mode_set(mode='EDIT')
+                except Exception:
+                    pass
+
+        return {'FINISHED'}
+
+
+class ALEC_OT_origin_set_to_bbox(bpy.types.Operator):
+    """Set object origin to the active object's bounding box center"""
+    bl_idname = "alec.origin_set_to_bbox"
+    bl_label = "Origin to BBox"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        saved_mode = context.mode
+        saved_cursor = context.scene.cursor.matrix.copy()
+        selected = list(context.selected_objects)
+        active = context.active_object
+
+        # object.origin_set / select_all can fail poll() in Edit Mode.
+        if saved_mode != 'OBJECT':
+            try:
+                bpy.ops.object.mode_set(mode='OBJECT')
+            except RuntimeError:
+                self.report({'ERROR'}, "Could not switch to Object Mode.")
+                return {'CANCELLED'}
+
+        try:
+            for obj in selected:
+                if obj.type != 'MESH':
+                    continue
+                bpy.ops.object.select_all(action='DESELECT')
+                obj.select_set(True)
+                context.view_layer.objects.active = obj
+                bpy.ops.object.origin_set(type='ORIGIN_GEOMETRY', center='BOUNDS')
+        finally:
+            # Restore cursor + selection
+            context.scene.cursor.matrix = saved_cursor
+            try:
+                bpy.ops.object.select_all(action='DESELECT')
+                for obj in selected:
+                    obj.select_set(True)
+                if active:
+                    context.view_layer.objects.active = active
+            except Exception:
+                pass
+
+            if saved_mode == 'EDIT_MESH':
+                try:
+                    bpy.ops.object.mode_set(mode='EDIT')
+                except Exception:
+                    pass
+
+        return {'FINISHED'}
+
 
 class ALEC_OT_origin_to_active(bpy.types.Operator):
     """Set the origin of selected objects to the active object's origin"""
@@ -61,12 +202,25 @@ class ALEC_OT_origin_to_bottom(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
+        saved_mode = context.mode
         saved_cursor = context.scene.cursor.matrix.copy()
-        selected = context.selected_objects
+        selected = list(context.selected_objects)
         active = context.active_object
-        
-        for obj in selected:
-            if obj.type == 'MESH':
+
+        # In Edit Mode, bpy.ops.object.* operators can fail poll() with
+        # "context is incorrect". Switch to Object Mode internally, then
+        # switch back to what the user had.
+        if saved_mode != 'OBJECT':
+            try:
+                bpy.ops.object.mode_set(mode='OBJECT')
+            except RuntimeError:
+                self.report({'ERROR'}, "Could not switch to Object Mode.")
+                return {'CANCELLED'}
+
+        try:
+            for obj in selected:
+                if obj.type != 'MESH':
+                    continue
                 bpy.ops.object.select_all(action='DESELECT')
                 obj.select_set(True)
                 context.view_layer.objects.active = obj
@@ -75,15 +229,25 @@ class ALEC_OT_origin_to_bottom(bpy.types.Operator):
                 loc = obj.matrix_world.translation
 
                 context.scene.cursor.location = (loc.x, loc.y, bounds_min.z)
-
                 bpy.ops.object.origin_set(type='ORIGIN_CURSOR')
-        
-        context.scene.cursor.matrix = saved_cursor
-        bpy.ops.object.select_all(action='DESELECT')
-        for obj in selected:
-            obj.select_set(True)
-        context.view_layer.objects.active = active
-        
+        finally:
+            # Restore cursor and selection in whatever mode we end up in.
+            context.scene.cursor.matrix = saved_cursor
+            try:
+                bpy.ops.object.select_all(action='DESELECT')
+                for obj in selected:
+                    obj.select_set(True)
+                if active:
+                    context.view_layer.objects.active = active
+            except Exception:
+                pass
+
+            if saved_mode == 'EDIT_MESH':
+                try:
+                    bpy.ops.object.mode_set(mode='EDIT')
+                except Exception:
+                    pass
+
         return {'FINISHED'}
 
 class ALEC_OT_origin_to_selected_edit(bpy.types.Operator):
@@ -157,6 +321,8 @@ classes = [
     ALEC_OT_cursor_to_selected,
     ALEC_OT_cursor_to_geometry_center,
     ALEC_OT_origin_to_cursor,
+    ALEC_OT_origin_set_to_cursor,
+    ALEC_OT_origin_set_to_bbox,
     ALEC_OT_origin_to_active,
     ALEC_OT_origin_to_bottom,
     ALEC_OT_origin_to_selected_edit,

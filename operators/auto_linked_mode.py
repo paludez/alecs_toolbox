@@ -177,7 +177,7 @@ class ALEC_OT_auto_linked_select_mode(bpy.types.Operator):
             self.report({"INFO"}, "Auto linked mode off")
             return {"FINISHED"}
 
-        if event.type in {"FOUR", "NUMPAD_4"} and event.value == "PRESS":
+        if event.type == "FOUR" and event.value == "PRESS":
             _exit_auto_linked(context)
             self.report({"INFO"}, "Auto linked mode off")
             return {"FINISHED"}

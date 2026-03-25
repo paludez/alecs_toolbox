@@ -56,7 +56,10 @@ class ALECS_TB_AddonPreferences(AddonPreferences):
     )
     shortcut_alt_rmb_quad: BoolProperty(
         name="Alt+Right Mouse — Quad pie menu",
-        description="Pie menu on Alt+right-click in the 3D View.",
+        description=(
+            "Pie menu on Alt+right-click in the 3D View; "
+            "UV Alec pie in the UV / Image Editor."
+        ),
         default=True,
         update=_refresh_addon_keymaps,
     )
@@ -104,7 +107,7 @@ class ALECS_TB_AddonPreferences(AddonPreferences):
         update=_refresh_addon_keymaps,
     )
     shortcut_key_4_auto_linked: BoolProperty(
-        name="4 / Numpad 4 — Auto-linked island toggle (Edit Mesh)",
+        name="4 — Auto-linked island toggle (Edit Mesh)",
         description="Toggle auto-linked island selection mode.",
         default=True,
         update=_refresh_addon_keymaps,

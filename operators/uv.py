@@ -1,5 +1,6 @@
 import bpy
 
+
 class ALEC_OT_load_material_image(bpy.types.Operator):
     """Load image from active material's Base Color into the editor"""
     bl_idname = "alec.load_material_image"
@@ -42,7 +43,7 @@ class ALEC_OT_square_pixels(bpy.types.Operator):
     def execute(self, context):
         import bmesh
         obj = context.active_object
-        
+
         img_w, img_h = 1.0, 1.0
         mat = obj.active_material
         if mat and mat.use_nodes:
