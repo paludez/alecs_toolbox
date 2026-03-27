@@ -178,6 +178,11 @@ def build_principled_tree(
         if (t := add_tex("metallic")) and (s := _inp(bsdf, "Metallic")):
             links.new(t.outputs["Color"], s)
 
+    # --- Anisotropy (texture → Principled Anisotropic) ---------------------
+    if "anisotropy" in paths_by_type:
+        if (t := add_tex("anisotropy")) and (s := _inp(bsdf, "Anisotropic")):
+            links.new(t.outputs["Color"], s)
+
     # --- Specular ----------------------------------------------------------
     if "specular" in paths_by_type:
         if t := add_tex("specular"):

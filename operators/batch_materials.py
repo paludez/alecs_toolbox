@@ -16,9 +16,10 @@ _LAST_BROWSE_DIR = ""
 
 _KW_MAP_RULES = (
     "basecolor", "normal", "roughness", "metallic",
+    "anisotropy",
     "specular", "gloss", "ao", "bump", "cavity", "displacement",
 )
-_OPTIONAL_MAP_KEYS = frozenset(("ao", "bump", "cavity", "displacement"))
+_OPTIONAL_MAP_KEYS = frozenset(("ao", "bump", "cavity", "displacement", "anisotropy"))
 
 
 def _split_keywords(value: str) -> list[str]:
@@ -84,10 +85,198 @@ def _draw_keyword_rules(layout, op) -> None:
     row = layout.row(align=True)
     row.prop(op, "use_bump")
     row.prop(op, "use_displacement")
+    row = layout.row(align=True)
+    row.prop(op, "use_anisotropy")
 
 
 def _material_preview_scene_path() -> str:
     return os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets", "Materials_Assets_Scene.blend")
+
+
+def _active_material(context) -> bpy.types.Material | None:
+    mat = getattr(context, "material", None)
+    if isinstance(mat, bpy.types.Material):
+        return mat
+    obj = context.object
+    if obj and getattr(obj, "active_material", None):
+        return obj.active_material
+    return None
+
+
+def _rename_image_texture_nodes_to_map_names(mat: bpy.types.Material) -> int:
+    """Set each Image Texture node's name to img.name. Clears node.label so the header matches (Blender shows label over name if label is set)."""
+    if not mat or not mat.use_nodes or not mat.node_tree:
+        return 0
+    tree = mat.node_tree
+    used = {n.name for n in tree.nodes}
+    renamed = 0
+    for node in tree.nodes:
+        if node.type != "TEX_IMAGE" or node.image is None:
+            continue
+        base = node.image.name[:63]
+        # Skip only when name already matches AND there is no custom label hiding it.
+        if node.name == base and not node.label:
+            continue
+
+        used.discard(node.name)
+        new_name = base
+        n = 0
+        while new_name in used:
+            n += 1
+            suffix = f"_{n}"
+            new_name = (base[: 63 - len(suffix)] + suffix) if len(base) + len(suffix) > 63 else f"{base}{suffix}"
+        node.name = new_name
+        node.label = ""
+        used.add(new_name)
+        renamed += 1
+    return renamed
+
+
+def _preview_pick_operator_context(context) -> dict | None:
+    win, screen = context.window, context.screen
+    if win is None or screen is None:
+        return None
+
+    def window_region(area):
+        return next((r for r in area.regions if r.type == "WINDOW"), None)
+
+    for area in screen.areas:
+        if area.type == "FILE_BROWSER" and getattr(area.spaces.active, "browse_mode", "") == "ASSETS":
+            if (r := window_region(area)):
+                return {"window": win, "screen": screen, "area": area, "region": r}
+
+    for area_type in ("PROPERTIES", "VIEW_3D", "FILE_BROWSER"):
+        for area in screen.areas:
+            if area.type == area_type:
+                if (r := window_region(area)):
+                    return {"window": win, "screen": screen, "area": area, "region": r}
+    return None
+
+
+def _preview_apply_material(obj, mat) -> bool:
+    if obj is None or obj.type != "MESH":
+        return False
+    if not obj.data.materials:
+        obj.data.materials.append(mat)
+    else:
+        obj.material_slots[obj.active_material_index].material = mat
+    return True
+
+
+def _preview_capture_material(
+    context, mat, sphere_obj, use_active_object_preview: bool, report
+) -> bool:
+    area_ctx = _preview_pick_operator_context(context)
+    if area_ctx is None:
+        report({"WARNING"}, "No usable UI area for preview generation.")
+        return False
+
+    if use_active_object_preview:
+        try:
+            with context.temp_override(
+                **area_ctx,
+                id=mat,
+                object=sphere_obj,
+                active_object=sphere_obj,
+                selected_objects=[sphere_obj],
+                selected_editable_objects=[sphere_obj],
+            ):
+                return "FINISHED" in bpy.ops.ed.lib_id_generate_preview_from_object()
+        except Exception as e:
+            report({"WARNING"}, f"Active object preview failed for '{mat.name}': {e}")
+    else:
+        try:
+            with context.temp_override(**area_ctx, id=mat):
+                return "FINISHED" in bpy.ops.ed.lib_id_generate_preview()
+        except Exception as e:
+            report({"WARNING"}, f"Screen capture preview failed for '{mat.name}': {e}")
+    return False
+
+
+def _preview_load_custom(context, mat, filepath: str, report) -> bool:
+    area_ctx = _preview_pick_operator_context(context)
+    if area_ctx is None:
+        report({"WARNING"}, f"Load custom preview skipped for '{mat.name}': no UI area context.")
+        return False
+
+    abs_target = os.path.normcase(os.path.abspath(filepath))
+    names_before = {img.name for img in bpy.data.images}
+    ok = False
+    try:
+        with context.temp_override(**area_ctx, id=mat):
+            ok = "FINISHED" in bpy.ops.ed.lib_id_load_custom_preview(filepath=filepath)
+    except Exception as e:
+        report({"WARNING"}, f"Load custom preview failed for '{mat.name}': {e}")
+    finally:
+        for img in list(bpy.data.images):
+            if img.name in names_before or img.users > 0:
+                continue
+            try:
+                path = os.path.normcase(os.path.abspath(bpy.path.abspath(img.filepath)))
+            except Exception:
+                path = ""
+            if path == abs_target:
+                try:
+                    bpy.data.images.remove(img)
+                except Exception:
+                    pass
+    return ok
+
+
+def _preview_render_to_file(
+    context,
+    camera_obj,
+    filepath: str,
+    preview_resolution: int,
+    report,
+) -> bool:
+    scene = context.scene
+    render = scene.render
+    img_settings = render.image_settings
+
+    saved = {
+        "camera": scene.camera,
+        "filepath": render.filepath,
+        "resolution_x": render.resolution_x,
+        "resolution_y": render.resolution_y,
+        "resolution_percentage": render.resolution_percentage,
+        "file_format": img_settings.file_format,
+        "color_mode": img_settings.color_mode,
+        "film_transparent": render.film_transparent,
+        "quality": getattr(img_settings, "quality", 90),
+    }
+    try:
+        scene.camera = camera_obj
+        render.filepath = filepath
+        render.resolution_x = render.resolution_y = preview_resolution
+        render.resolution_percentage = 100
+        img_settings.file_format = "JPEG"
+        img_settings.color_mode = "RGB"
+        render.film_transparent = False
+        if hasattr(img_settings, "quality"):
+            img_settings.quality = 90
+        bpy.ops.render.render(write_still=True)
+        return os.path.isfile(filepath)
+    except Exception as e:
+        report({"WARNING"}, f"Render preview failed: {e}")
+        return False
+    finally:
+        scene.camera = saved["camera"]
+        render.filepath = saved["filepath"]
+        render.resolution_x = saved["resolution_x"]
+        render.resolution_y = saved["resolution_y"]
+        render.resolution_percentage = saved["resolution_percentage"]
+        img_settings.file_format = saved["file_format"]
+        img_settings.color_mode = saved["color_mode"]
+        render.film_transparent = saved["film_transparent"]
+        if hasattr(img_settings, "quality"):
+            img_settings.quality = saved["quality"]
+        for img in list(bpy.data.images):
+            if img.type == "RENDER_RESULT":
+                try:
+                    bpy.data.images.remove(img)
+                except Exception:
+                    pass
 
 
 # ---------------------------------------------------------------------------
@@ -99,6 +288,7 @@ _KW_PROPS_DEFAULTS = {
     "kw_normal": "normal,nrm,nor,norm",
     "kw_roughness": "roughness,rough",
     "kw_metallic": "metallic,metalness,metal",
+    "kw_anisotropy": "anisotropy,aniso,anisotropic",
     "kw_ao": "ao,ambientocclusion,occlusion",
     "kw_displacement": "displacement,heightmap,height,disp",
     "kw_specular": "specular,spec",
@@ -121,8 +311,12 @@ class ALEC_UL_subfolder_list(bpy.types.UIList):
 
     bl_idname = "ALEC_UL_subfolder_list"
 
-    def draw_item(self, _context, layout, _data, item, _icon, _active_data, _active_propname):
-        layout.prop(item, "selected", text=item.name)
+    def draw_item(
+        self, _context, layout, _data, item, _icon, _active_data, _active_propname, index=0
+    ):
+        split = layout.split(factor=0.1, align=True)
+        split.label(text=f"{index + 1}.")
+        split.prop(item, "selected", text=item.name)
 
     def filter_items(self, context, data, propname):
         items = getattr(data, propname)
@@ -183,6 +377,7 @@ class ALEC_OT_make_mat_from_tex(bpy.types.Operator):
     kw_normal: StringProperty(name="Normal", default=_KW_PROPS_DEFAULTS["kw_normal"])  # type: ignore
     kw_roughness: StringProperty(name="Roughness", default=_KW_PROPS_DEFAULTS["kw_roughness"])  # type: ignore
     kw_metallic: StringProperty(name="Metallic", default=_KW_PROPS_DEFAULTS["kw_metallic"])  # type: ignore
+    kw_anisotropy: StringProperty(name="Anisotropy", default=_KW_PROPS_DEFAULTS["kw_anisotropy"])  # type: ignore
     kw_ao: StringProperty(name="AO", default=_KW_PROPS_DEFAULTS["kw_ao"])  # type: ignore
     kw_displacement: StringProperty(name="Displacement", default=_KW_PROPS_DEFAULTS["kw_displacement"])  # type: ignore
     kw_specular: StringProperty(name="Specular", default=_KW_PROPS_DEFAULTS["kw_specular"])  # type: ignore
@@ -193,6 +388,7 @@ class ALEC_OT_make_mat_from_tex(bpy.types.Operator):
     use_bump: BoolProperty(name="Use Bump", default=False)  # type: ignore
     use_cavity: BoolProperty(name="Use Cavity", default=False)  # type: ignore
     use_displacement: BoolProperty(name="Use Displacement", default=False)  # type: ignore
+    use_anisotropy: BoolProperty(name="Use Anisotropy", default=False)  # type: ignore
 
     def invoke(self, context, _event):
         if _LAST_BROWSE_DIR and os.path.isdir(_LAST_BROWSE_DIR):
@@ -245,6 +441,31 @@ class ALEC_OT_make_mat_from_tex(bpy.types.Operator):
 # Batch Materials base (not registered — subclass only)
 # ---------------------------------------------------------------------------
 
+def _batch_materials_root_dir_update(op, context):
+    """Refresh subfolder list when Root Folder changes (stage-2 dialog only)."""
+    if not op.selection_stage:
+        return
+    d = op.directory
+    wm = context.window_manager
+    if not d:
+        wm.alec_subfolder_items.clear()
+        wm.alec_subfolder_filter = ""
+        wm.alec_subfolder_active_index = 0
+        return
+    root = os.path.normpath(bpy.path.abspath(d))
+    if os.path.isdir(root):
+        op._populate_subfolder_state(context, root)
+    else:
+        wm.alec_subfolder_items.clear()
+        wm.alec_subfolder_filter = ""
+        wm.alec_subfolder_active_index = 0
+        wm.alec_batch_start = 1
+        wm.alec_batch_end = 0
+    win = context.window
+    if win and win.screen:
+        win.screen.tag_redraw()
+
+
 class ALEC_OT_batch_materials(bpy.types.Operator):
     """Base for batch material operators. Not registered directly."""
 
@@ -252,7 +473,11 @@ class ALEC_OT_batch_materials(bpy.types.Operator):
     bl_label = "Batch Materials"
     bl_options = {"UNDO"}
 
-    directory: StringProperty(name="Root Folder", subtype="DIR_PATH")  # type: ignore
+    directory: StringProperty(
+        name="Root Folder",
+        subtype="DIR_PATH",
+        update=_batch_materials_root_dir_update,
+    )  # type: ignore
     selection_stage: BoolProperty(default=False, options={"HIDDEN"})  # type: ignore
     process_all_subfolders: BoolProperty(
         name="Process All Subfolders",
@@ -286,6 +511,7 @@ class ALEC_OT_batch_materials(bpy.types.Operator):
     kw_normal: StringProperty(name="Normal", default=_KW_PROPS_DEFAULTS["kw_normal"])  # type: ignore
     kw_roughness: StringProperty(name="Roughness", default=_KW_PROPS_DEFAULTS["kw_roughness"])  # type: ignore
     kw_metallic: StringProperty(name="Metallic", default=_KW_PROPS_DEFAULTS["kw_metallic"])  # type: ignore
+    kw_anisotropy: StringProperty(name="Anisotropy", default=_KW_PROPS_DEFAULTS["kw_anisotropy"])  # type: ignore
     kw_ao: StringProperty(name="AO", default=_KW_PROPS_DEFAULTS["kw_ao"])  # type: ignore
     kw_displacement: StringProperty(name="Displacement", default=_KW_PROPS_DEFAULTS["kw_displacement"])  # type: ignore
     kw_specular: StringProperty(name="Specular", default=_KW_PROPS_DEFAULTS["kw_specular"])  # type: ignore
@@ -296,6 +522,7 @@ class ALEC_OT_batch_materials(bpy.types.Operator):
     use_bump: BoolProperty(name="Use Bump", default=False)  # type: ignore
     use_cavity: BoolProperty(name="Use Cavity", default=False)  # type: ignore
     use_displacement: BoolProperty(name="Use Displacement", default=False)  # type: ignore
+    use_anisotropy: BoolProperty(name="Use Anisotropy", default=False)  # type: ignore
 
     def _reinvoke_kwargs(self) -> dict:
         # Only pass directory — stage 1 shows no properties to the user, so all
@@ -598,7 +825,6 @@ class ALEC_OT_batch_materials_capture_previews(ALEC_OT_batch_materials):
     )  # type: ignore
     preview_camera_name: StringProperty(name="Camera Object", default="Camera")  # type: ignore
     preview_resolution: IntProperty(name="Preview Resolution", default=256, min=64, max=2048)  # type: ignore
-    transparent_bg: BoolProperty(name="Transparent Background", default=True)  # type: ignore
 
     def _reinvoke_for_selection(self):
         bpy.ops.alec.batch_materials_capture_previews("INVOKE_DEFAULT", **self._reinvoke_kwargs())
@@ -619,136 +845,34 @@ class ALEC_OT_batch_materials_capture_previews(ALEC_OT_batch_materials):
         layout.prop(self, "preview_plane_name")
         if not self.use_active_object_preview:
             layout.prop(self, "preview_camera_name")
-            row = layout.row(align=True)
-            row.prop(self, "preview_resolution")
-            row.prop(self, "transparent_bg")
+            layout.prop(self, "preview_resolution")
 
     # --- Preview helpers ---
 
     def _apply_material(self, obj, mat) -> bool:
-        if obj is None or obj.type != "MESH":
-            return False
-        if not obj.data.materials:
-            obj.data.materials.append(mat)
-        else:
-            obj.material_slots[obj.active_material_index].material = mat
-        return True
+        return _preview_apply_material(obj, mat)
 
     def _pick_operator_context(self, context) -> dict | None:
-        win, screen = context.window, context.screen
-        if win is None or screen is None:
-            return None
-
-        def window_region(area):
-            return next((r for r in area.regions if r.type == "WINDOW"), None)
-
-        for area in screen.areas:
-            if area.type == "FILE_BROWSER" and getattr(area.spaces.active, "browse_mode", "") == "ASSETS":
-                if (r := window_region(area)):
-                    return {"window": win, "screen": screen, "area": area, "region": r}
-
-        for area_type in ("PROPERTIES", "VIEW_3D", "FILE_BROWSER"):
-            for area in screen.areas:
-                if area.type == area_type:
-                    if (r := window_region(area)):
-                        return {"window": win, "screen": screen, "area": area, "region": r}
-        return None
+        return _preview_pick_operator_context(context)
 
     def _capture_material_preview(self, context, mat, sphere_obj) -> bool:
-        area_ctx = self._pick_operator_context(context)
-        if area_ctx is None:
-            self.report({"WARNING"}, "No usable UI area for preview generation.")
-            return False
-
-        if self.use_active_object_preview:
-            try:
-                with context.temp_override(**area_ctx, id=mat, object=sphere_obj,
-                                           active_object=sphere_obj,
-                                           selected_objects=[sphere_obj],
-                                           selected_editable_objects=[sphere_obj]):
-                    return "FINISHED" in bpy.ops.ed.lib_id_generate_preview_from_object()
-            except Exception as e:
-                self.report({"WARNING"}, f"Active object preview failed for '{mat.name}': {e}")
-        else:
-            try:
-                with context.temp_override(**area_ctx, id=mat):
-                    return "FINISHED" in bpy.ops.ed.lib_id_generate_preview()
-            except Exception as e:
-                self.report({"WARNING"}, f"Screen capture preview failed for '{mat.name}': {e}")
-        return False
+        return _preview_capture_material(
+            context, mat, sphere_obj, self.use_active_object_preview, self.report
+        )
 
     def _load_custom_preview(self, context, mat, filepath: str) -> bool:
-        area_ctx = self._pick_operator_context(context)
-        if area_ctx is None:
-            self.report({"WARNING"}, f"Load custom preview skipped for '{mat.name}': no UI area context.")
-            return False
-
-        abs_target = os.path.normcase(os.path.abspath(filepath))
-        names_before = {img.name for img in bpy.data.images}
-        ok = False
-        try:
-            with context.temp_override(**area_ctx, id=mat):
-                ok = "FINISHED" in bpy.ops.ed.lib_id_load_custom_preview(filepath=filepath)
-        except Exception as e:
-            self.report({"WARNING"}, f"Load custom preview failed for '{mat.name}': {e}")
-        finally:
-            for img in list(bpy.data.images):
-                if img.name in names_before or img.users > 0:
-                    continue
-                try:
-                    path = os.path.normcase(os.path.abspath(bpy.path.abspath(img.filepath)))
-                except Exception:
-                    path = ""
-                if path == abs_target:
-                    try:
-                        bpy.data.images.remove(img)
-                    except Exception:
-                        pass
-        return ok
+        return _preview_load_custom(context, mat, filepath, self.report)
 
     def _render_preview_to_file(self, context, camera_obj, filepath: str) -> bool:
-        scene = context.scene
-        render = scene.render
-        img_settings = render.image_settings
-
-        saved = {
-            "camera": scene.camera,
-            "filepath": render.filepath,
-            "resolution_x": render.resolution_x,
-            "resolution_y": render.resolution_y,
-            "resolution_percentage": render.resolution_percentage,
-            "file_format": img_settings.file_format,
-            "color_mode": img_settings.color_mode,
-            "film_transparent": render.film_transparent,
-        }
-        try:
-            scene.camera = camera_obj
-            render.filepath = filepath
-            render.resolution_x = render.resolution_y = self.preview_resolution
-            render.resolution_percentage = 100
-            img_settings.file_format = "PNG"
-            img_settings.color_mode = "RGBA"
-            render.film_transparent = self.transparent_bg
-            bpy.ops.render.render(write_still=True)
-            return os.path.isfile(filepath)
-        except Exception as e:
-            self.report({"WARNING"}, f"Render preview failed: {e}")
-            return False
-        finally:
-            scene.camera = saved["camera"]
-            render.filepath = saved["filepath"]
-            render.resolution_x = saved["resolution_x"]
-            render.resolution_y = saved["resolution_y"]
-            render.resolution_percentage = saved["resolution_percentage"]
-            img_settings.file_format = saved["file_format"]
-            img_settings.color_mode = saved["color_mode"]
-            render.film_transparent = saved["film_transparent"]
-            for img in list(bpy.data.images):
-                if img.type == "RENDER_RESULT":
-                    try:
-                        bpy.data.images.remove(img)
-                    except Exception:
-                        pass
+        return bool(
+            _preview_render_to_file(
+                context,
+                camera_obj,
+                filepath,
+                self.preview_resolution,
+                self.report,
+            )
+        )
 
     # --- Modal overrides ---
 
@@ -798,7 +922,7 @@ class ALEC_OT_batch_materials_capture_previews(ALEC_OT_batch_materials):
             if self.use_active_object_preview:
                 ok = self._capture_material_preview(context, mat, self._sphere_obj)
             else:
-                preview_file = os.path.join(self._temp_dir, f"{mat.name}.png")
+                preview_file = os.path.join(self._temp_dir, f"{mat.name}.jpg")
                 ok = (
                     self._render_preview_to_file(context, self._camera_obj, preview_file)
                     and self._load_custom_preview(context, mat, preview_file)
@@ -810,8 +934,9 @@ class ALEC_OT_batch_materials_capture_previews(ALEC_OT_batch_materials):
         return True
 
     def _finish(self, context) -> None:
-        if self._temp_dir:
-            shutil.rmtree(self._temp_dir, ignore_errors=True)
+        td = getattr(self, "_temp_dir", None)
+        if td:
+            shutil.rmtree(td, ignore_errors=True)
         wm = context.window_manager
         wm.event_timer_remove(self._timer)
         wm.progress_end()
@@ -823,9 +948,99 @@ class ALEC_OT_batch_materials_capture_previews(ALEC_OT_batch_materials):
         self.report({"INFO"}, msg)
 
     def cancel(self, context):
-        if self._temp_dir:
-            shutil.rmtree(self._temp_dir, ignore_errors=True)
+        td = getattr(self, "_temp_dir", None)
+        if td:
+            shutil.rmtree(td, ignore_errors=True)
         super().cancel(context)
+
+
+class ALEC_OT_material_preview_rename_tex_nodes(bpy.types.Operator):
+    """Rename Image Texture nodes to map file names, then capture material preview."""
+
+    bl_idname = "alec.material_preview_rename_tex_nodes"
+    bl_label = "Preview + Rename Tex Nodes"
+    bl_options = {"REGISTER", "UNDO"}
+
+    use_active_object_preview: BoolProperty(
+        name="Use Active Object Preview",
+        description="If off, render from camera and load as custom preview",
+        default=False,
+    )  # type: ignore
+    preview_sphere_name: StringProperty(name="Sphere Object", default="Sphere")  # type: ignore
+    preview_plane_name: StringProperty(name="Plane Object", default="Plane")  # type: ignore
+    preview_camera_name: StringProperty(name="Camera Object", default="Camera")  # type: ignore
+    preview_resolution: IntProperty(name="Preview Resolution", default=256, min=64, max=2048)  # type: ignore
+
+    @classmethod
+    def poll(cls, context):
+        return _active_material(context) is not None
+
+    def execute(self, context):
+        mat = _active_material(context)
+        if not mat or not mat.use_nodes:
+            self.report({"WARNING"}, "Need an active material with nodes.")
+            return {"CANCELLED"}
+
+        renamed = _rename_image_texture_nodes_to_map_names(mat)
+
+        sphere_obj = bpy.data.objects.get(self.preview_sphere_name)
+        plane_obj = bpy.data.objects.get(self.preview_plane_name)
+        if sphere_obj is None or plane_obj is None:
+            self.report(
+                {"ERROR"},
+                f"Preview objects not found: '{self.preview_sphere_name}' / '{self.preview_plane_name}'. "
+                "Open the Material Preview Scene.",
+            )
+            return {"CANCELLED"}
+
+        camera_obj = None
+        temp_dir = None
+        if not self.use_active_object_preview:
+            camera_obj = bpy.data.objects.get(self.preview_camera_name)
+            if camera_obj is None or camera_obj.type != "CAMERA":
+                self.report({"ERROR"}, f"Camera not found: '{self.preview_camera_name}'.")
+                return {"CANCELLED"}
+            temp_dir = tempfile.mkdtemp(prefix="alecs_preview_")
+
+        _preview_apply_material(sphere_obj, mat)
+        _preview_apply_material(plane_obj, mat)
+        if sphere_obj.mode != "OBJECT":
+            try:
+                bpy.ops.object.mode_set(mode="OBJECT")
+            except Exception:
+                pass
+        sphere_obj.select_set(True)
+        plane_obj.select_set(False)
+        context.view_layer.objects.active = sphere_obj
+        context.view_layer.update()
+
+        ok = False
+        try:
+            if self.use_active_object_preview:
+                ok = _preview_capture_material(
+                    context, mat, sphere_obj, self.use_active_object_preview, self.report
+                )
+            else:
+                assert temp_dir is not None and camera_obj is not None
+                preview_file = os.path.join(temp_dir, f"{mat.name}.jpg")
+                ok = bool(
+                    _preview_render_to_file(
+                        context,
+                        camera_obj,
+                        preview_file,
+                        self.preview_resolution,
+                        self.report,
+                    )
+                ) and _preview_load_custom(context, mat, preview_file, self.report)
+        finally:
+            if temp_dir:
+                shutil.rmtree(temp_dir, ignore_errors=True)
+
+        if ok:
+            self.report({"INFO"}, f"Preview OK. Renamed {renamed} Image Texture node(s).")
+        else:
+            self.report({"WARNING"}, f"Preview failed. Renamed {renamed} Image Texture node(s).")
+        return {"FINISHED"}
 
 
 # ---------------------------------------------------------------------------
@@ -893,6 +1108,7 @@ classes = (
     ALEC_OT_make_mat_from_tex,
     ALEC_OT_open_material_preview_scene,
     ALEC_OT_batch_materials_capture_previews,
+    ALEC_OT_material_preview_rename_tex_nodes,
 )
 
 

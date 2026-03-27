@@ -57,7 +57,7 @@ class ALEC_OT_select_material_users(bpy.types.Operator):
 
         if mat:
             for obj in context.scene.objects:
-                if obj.type == 'MESH' and any(s.material == mat for s in obj.material_slots):
+                if any(s.material == mat for s in obj.material_slots):
                     obj.select_set(True)
         return {'FINISHED'}
 

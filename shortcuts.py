@@ -122,6 +122,14 @@ def _register_core_keymaps():
             kmi_uv_pie.properties.name = "ALEC_MT_uv_menu"
             _addon_keymaps_core.append((km_uv, kmi_uv_pie))
 
+    if _pref(prefs, "shortcut_alt_rmb_quad"):
+        km_node = kc.keymaps.new(name="Node Editor", space_type="NODE_EDITOR")
+        kmi_shader_pie = km_node.keymap_items.new(
+            "wm.call_menu_pie", "RIGHTMOUSE", "PRESS", alt=True
+        )
+        kmi_shader_pie.properties.name = "ALEC_MT_shader_editor_triplanar_pie"
+        _addon_keymaps_core.append((km_node, kmi_shader_pie))
+
 
 def _register_toolbar_tool_keymaps():
     """W → Move, E → Rotate (left toolbar); Mesh: Alt+E → extrude (was E)."""

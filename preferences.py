@@ -58,7 +58,8 @@ class ALECS_TB_AddonPreferences(AddonPreferences):
         name="Alt+Right Mouse — Quad pie menu",
         description=(
             "Pie menu on Alt+right-click in the 3D View; "
-            "UV Alec pie in the UV / Image Editor."
+            "UV Alec pie in the UV / Image Editor; "
+            "Triplanar + NA Arrange in the Shader Editor (Object / World)."
         ),
         default=True,
         update=_refresh_addon_keymaps,

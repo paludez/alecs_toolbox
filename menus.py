@@ -86,6 +86,34 @@ class ALEC_MT_quad_menu(bpy.types.Menu):
         col_inner.separator()
         col_inner.operator("alec.square_pixels", text="Square Pixels", icon='UV')
 
+
+class ALEC_MT_shader_editor_triplanar_pie(bpy.types.Menu):
+    bl_idname = "ALEC_MT_shader_editor_triplanar_pie"
+    bl_label = "Alec — Shader Editor"
+
+    def draw(self, context):
+        pie = self.layout.menu_pie()
+        # Slice: Nodes — add more node.add_node operators here later
+        col_nodes = pie.column()
+        box_nodes = col_nodes.box()
+        box_nodes.label(text="Nodes", icon="NODETREE")
+        nodes_inner = box_nodes.column(align=True)
+        add_tex = nodes_inner.operator("node.add_node", text="Image Texture", icon="IMAGE_DATA")
+        add_tex.type = "ShaderNodeTexImage"
+        add_tex.use_transform = True
+
+        # Slice: Triplanar / arrange
+        col_tools = pie.column()
+        box_tools = col_tools.box()
+        box_tools.label(text="Triplanar", icon="TEXTURE")
+        tools_inner = box_tools.column(align=True)
+        tools_inner.operator("alec.triplanar_color_maps", icon="TEXTURE")
+        tools_inner.operator("alec.triplanar_node_arrange", icon="NODE_SEL")
+
+        pie.column()
+        pie.column()
+
+
 class ALEC_MT_uv_menu(bpy.types.Menu):
     bl_idname = "ALEC_MT_uv_menu"
     bl_label = "Alec UV"
@@ -303,6 +331,7 @@ classes = [
     ALEC_MT_edit_curve_menu,
     ALEC_MT_uv_menu,
     ALEC_MT_quad_menu,
+    ALEC_MT_shader_editor_triplanar_pie,
     *menus_browser.classes,
 ]
 

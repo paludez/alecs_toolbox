@@ -14,6 +14,7 @@ from . import bbox
 from . import auto_linked_mode
 from . import camera_tools
 from . import viewport_shortcuts
+from . import triplanar_mapping
 
 classes = (
     *object_grouping.classes,
@@ -30,6 +31,7 @@ classes = (
     *auto_linked_mode.classes,
     *camera_tools.classes,
     *viewport_shortcuts.classes,
+    *triplanar_mapping.classes,
 )
 
 _app_handlers = []
@@ -38,6 +40,7 @@ def register():
     for cls in classes:
         bpy.utils.register_class(cls)
     batch_materials.post_register()
+    triplanar_mapping.post_register()
 
     depsgraph_handler = edit_mesh.depsgraph_update_handler
     bpy.app.handlers.depsgraph_update_post.append(depsgraph_handler)

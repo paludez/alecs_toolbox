@@ -325,7 +325,13 @@ class ALEC_PT_alec_misc_materials(bpy.types.Panel):
         col = layout.column(align=True)
         col.operator("alec.make_mat_from_tex", text="Make Mat From Tex", icon="MATERIAL_DATA")
         col.operator("alec.open_material_preview_scene", text="Open Material Preview Scene", icon="FILE_BLEND")
-        col.operator("alec.batch_materials_capture_previews", text="Batch Materials + Previews", icon="RENDER_STILL")
+        row = col.row(align=True)
+        row.operator("alec.batch_materials_capture_previews", text="Batch + Previews", icon="RENDER_STILL")
+        row.operator(
+            "alec.material_preview_rename_tex_nodes",
+            text="",
+            icon="TEXTURE",
+        )
 
 
 def register():
