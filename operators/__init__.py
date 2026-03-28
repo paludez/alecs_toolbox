@@ -14,6 +14,7 @@ from . import bbox
 from . import auto_linked_mode
 from . import camera_tools
 from . import viewport_shortcuts
+from . import object_hide_viewport_render
 from . import triplanar_mapping
 
 classes = (
@@ -31,6 +32,7 @@ classes = (
     *auto_linked_mode.classes,
     *camera_tools.classes,
     *viewport_shortcuts.classes,
+    *object_hide_viewport_render.classes,
     *triplanar_mapping.classes,
 )
 

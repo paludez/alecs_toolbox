@@ -4,6 +4,91 @@ import math
 from . import menus_browser
 
 
+def _shader_add_node(layout, text, icon, node_type: str):
+    """node.add_node: type/use_transform are not valid UILayout.operator() kwargs in Blender 5."""
+    op = layout.operator("node.add_node", text=text, icon=icon)
+    op.type = node_type
+    op.use_transform = True
+
+
+# Insert between tuples in _SHADER_EDIT_PIE_NODES_* for a horizontal rule in the pie slice.
+_SHADER_PIE_SEP = object()
+
+
+def _shader_add_node_pairs(parent, entries):
+    col = parent.column(align=True)
+    n = len(entries)
+    i = 0
+    while i < n:
+        entry = entries[i]
+        if entry is _SHADER_PIE_SEP:
+            col.separator()
+            i += 1
+            continue
+        if i + 1 < n and entries[i + 1] is not _SHADER_PIE_SEP:
+            split = col.split(factor=0.5, align=True)
+            c0 = split.column(align=True)
+            c1 = split.column(align=True)
+            label, icon, node_id = entries[i]
+            label2, icon2, node_id2 = entries[i + 1]
+            _shader_add_node(c0, label, icon, node_id)
+            _shader_add_node(c1, label2, icon2, node_id2)
+            i += 2
+        else:
+            label, icon, node_id = entries[i]
+            _shader_add_node(col, label, icon, node_id)
+            i += 1
+
+
+# Shader Editor pie: four slices (Left/Right/Bottom/Top) — direct buttons, no submenus.
+_SHADER_EDIT_PIE_NODES_NORMAL = (
+    ("Image", "IMAGE_DATA", "ShaderNodeTexImage"),
+    ("Environment", "WORLD", "ShaderNodeTexEnvironment"),
+    _SHADER_PIE_SEP,
+    ("Principled", "SHADING_RENDERED", "ShaderNodeBsdfPrincipled"),
+    ("Emission", "LIGHT", "ShaderNodeEmission"),
+    ("Glass", "SHADING_RENDERED", "ShaderNodeBsdfGlass"),
+    ("Gloassy", "SHADING_RENDERED", "ShaderNodeBsdfGlossy"),
+    _SHADER_PIE_SEP,
+    ("RGB", "COLOR", "ShaderNodeRGB"),
+    ("Value", "LINENUMBERS_OFF", "ShaderNodeValue"),
+    ("Ramp", "COLOR", "ShaderNodeValToRGB"),
+    _SHADER_PIE_SEP,
+    ("AO", "COLOR", "ShaderNodeAmbientOcclusion"),
+    ("Bevel", "LINENUMBERS_OFF", "ShaderNodeBevel"),
+    ("Attrib.", "LINENUMBERS_OFF", "ShaderNodeAttribute"),
+    ("Geo", "MOD_NOISE", "ShaderNodeNewGeometry"),
+    ("Light Path", "SHADING_RENDERED", "ShaderNodeLightPath"),
+
+)
+_SHADER_EDIT_PIE_NODES_SHADERS = (
+    ("Tex Coord", "EMPTY_AXIS", "ShaderNodeTexCoord"),
+    ("Mapping", "EMPTY_DATA", "ShaderNodeMapping"),
+    ("UV Map", "GROUP_UVS", "ShaderNodeUVMap"),
+    _SHADER_PIE_SEP,
+    ("Normal Map", "ORIENTATION_NORMAL", "ShaderNodeNormalMap"),
+    ("Bump", "MOD_NOISE", "ShaderNodeBump"),
+    ("Fresnel", "SHADING_RENDERED", "ShaderNodeFresnel"),
+    ("Layer Weight", "MOD_VERTEX_WEIGHT", "ShaderNodeLayerWeight"),
+    ("Light Falloff", "LIGHT", "ShaderNodeLightFalloff"),
+)
+_SHADER_EDIT_PIE_NODES_UTILS = (
+    ("fMath", "LINENUMBERS_OFF", "ShaderNodeMath"),
+    ("vMath", "LINENUMBERS_OFF", "ShaderNodeVectorMath"),
+    ("Mix", "IMAGE_ALPHA", "ShaderNodeMix"),
+    ("Curves", "TEXTURE", "ShaderNodeRGBCurve"),
+    ("Invert", "ARROW_LEFTRIGHT", "ShaderNodeInvert"),
+    ("Hue/Sat", "COLOR", "ShaderNodeHueSaturation"),
+    ("Gamma", "IMAGE", "ShaderNodeGamma"),
+    ("Clamp", "MOD_LENGTH", "ShaderNodeClamp"),
+    ("Map Range", "ARROW_LEFTRIGHT", "ShaderNodeMapRange"),
+    _SHADER_PIE_SEP,
+    ("Sep Color", "COLOR", "ShaderNodeSeparateColor"),
+    ("Comb Color", "COLOR", "ShaderNodeCombineColor"),
+
+)
+
+
 class ALEC_MT_quad_menu(bpy.types.Menu):
     bl_idname = "ALEC_MT_quad_menu"
     bl_label = "Quad Menu"
@@ -87,31 +172,34 @@ class ALEC_MT_quad_menu(bpy.types.Menu):
         col_inner.operator("alec.square_pixels", text="Square Pixels", icon='UV')
 
 
-class ALEC_MT_shader_editor_triplanar_pie(bpy.types.Menu):
-    bl_idname = "ALEC_MT_shader_editor_triplanar_pie"
+class ALEC_MT_shader_edit_pie(bpy.types.Menu):
+    bl_idname = "ALEC_MT_shader_edit_pie"
     bl_label = "Alec — Shader Editor"
 
     def draw(self, context):
         pie = self.layout.menu_pie()
-        # Slice: Nodes — add more node.add_node operators here later
-        col_nodes = pie.column()
-        box_nodes = col_nodes.box()
-        box_nodes.label(text="Nodes", icon="NODETREE")
-        nodes_inner = box_nodes.column(align=True)
-        add_tex = nodes_inner.operator("node.add_node", text="Image Texture", icon="IMAGE_DATA")
-        add_tex.type = "ShaderNodeTexImage"
-        add_tex.use_transform = True
+        # Same order as quad pie: 1 Left, 2 Right, 3 Bottom, 4 Top
+        col_left = pie.column()
+        b = col_left.box()
+        b.label(text="Normal", icon="NODE_COMPOSITING")
+        _shader_add_node_pairs(b, _SHADER_EDIT_PIE_NODES_NORMAL)
 
-        # Slice: Triplanar / arrange
-        col_tools = pie.column()
-        box_tools = col_tools.box()
-        box_tools.label(text="Triplanar", icon="TEXTURE")
-        tools_inner = box_tools.column(align=True)
-        tools_inner.operator("alec.triplanar_color_maps", icon="TEXTURE")
-        tools_inner.operator("alec.triplanar_node_arrange", icon="NODE_SEL")
+        col_right = pie.column()
+        b = col_right.box()
+        b.label(text="Shaders", icon="SHADING_RENDERED")
+        _shader_add_node_pairs(b, _SHADER_EDIT_PIE_NODES_SHADERS)
 
-        pie.column()
-        pie.column()
+        col_bottom = pie.column()
+        b = col_bottom.box()
+        b.label(text="Utilities", icon="MODIFIER")
+        _shader_add_node_pairs(b, _SHADER_EDIT_PIE_NODES_UTILS)
+
+        col_top = pie.column()
+        b = col_top.box()
+        b.label(text="Triplanar", icon="TEXTURE")
+        inner = b.column(align=True)
+        inner.operator("alec.triplanar_color_maps", icon="TEXTURE")
+        inner.operator("alec.triplanar_node_arrange", icon="NODE_SEL")
 
 
 class ALEC_MT_uv_menu(bpy.types.Menu):
@@ -331,7 +419,7 @@ classes = [
     ALEC_MT_edit_curve_menu,
     ALEC_MT_uv_menu,
     ALEC_MT_quad_menu,
-    ALEC_MT_shader_editor_triplanar_pie,
+    ALEC_MT_shader_edit_pie,
     *menus_browser.classes,
 ]
 

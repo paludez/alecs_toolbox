@@ -32,7 +32,20 @@ def _draw_section_object(l):
     col.operator("alec.quick_pivot", text="Align Origins")
     col.operator("alec.align_dialog", text="Align Dialog")
     l.separator()
-    l.label(text="Modifiers")
+    l.label(text="Grouping")
+    col = l.column(align=True)
+    col.operator("alec.group", text="Group")
+    col.operator("alec.group_active", text="Group Active")
+    col.operator("alec.ungroup", text="Ungroup")
+    l.separator()
+    l.label(text="Origin (Alec)")
+    col = l.column(align=True)
+    col.operator("alec.origin_to_cursor", text="Origin to Cursor (Rot)")
+    col.operator("alec.origin_to_active", text="Origin to Active")
+    col.operator("alec.origin_to_bottom", text="Origin to Bottom")
+
+
+def _draw_section_modifiers(l):
     col = l.column(align=True)
     col.operator("alec.boolean_op", text="Boolean Union").operation = "UNION"
     col.operator("alec.boolean_op", text="Boolean Difference").operation = "DIFFERENCE"
@@ -48,27 +61,9 @@ def _draw_section_object(l):
     col.operator("alec.modifier_action", text="Apply All Modifiers").action = "APPLY_ALL"
     col.operator("alec.modifier_action", text="Delete Last Modifier").action = "DELETE_LAST"
     col.operator("alec.modifier_action", text="Delete All Modifiers").action = "DELETE_ALL"
-    l.separator()
-    l.label(text="Grouping")
-    col = l.column(align=True)
-    col.operator("alec.group", text="Group")
-    col.operator("alec.group_active", text="Group Active")
-    col.operator("alec.ungroup", text="Ungroup")
-    l.separator()
-    l.label(text="Origin (Alec)")
-    col = l.column(align=True)
-    col.operator("alec.origin_to_cursor", text="Origin to Cursor (Rot)")
-    col.operator("alec.origin_to_active", text="Origin to Active")
-    col.operator("alec.origin_to_bottom", text="Origin to Bottom")
 
 
 def _draw_section_mesh(l):
-    if _has_alec_op("alec.auto_linked_select_mode"):
-        l.operator(
-            "alec.auto_linked_select_mode",
-            text="Auto-linked select (key 4 — toggle island mode)",
-        )
-        l.separator()
     l.label(text="Collinear")
     col = l.column(align=True)
     op = col.operator("alec.make_collinear", text="Farthest Points")
@@ -154,6 +149,12 @@ def _draw_section_materials(l):
 
 
 def _draw_section_mesh_keys(l):
+    if _has_alec_op("alec.auto_linked_select_mode"):
+        l.operator(
+            "alec.auto_linked_select_mode",
+            text="Auto-linked select (key 4 — toggle island mode)",
+        )
+        l.separator()
     if _has_alec_op("alec.mesh_edit_component"):
         col = l.column(align=True)
         col.operator("alec.mesh_edit_component", text="Component: Vertex").component = "VERT"
@@ -174,22 +175,30 @@ class ALEC_MT_alec_browser(bpy.types.Menu):
     def draw(self, context):
         l = self.layout
         l.menu("ALEC_MT_alec_browser_object", icon="OBJECT_DATA")
+        l.menu("ALEC_MT_alec_browser_modifiers", icon="MODIFIER")
         l.menu("ALEC_MT_alec_browser_mesh", icon="MESH_DATA")
         l.menu("ALEC_MT_alec_browser_curve", icon="CURVE_DATA")
         l.menu("ALEC_MT_alec_browser_uv", icon="UV")
         l.menu("ALEC_MT_alec_browser_viewport", icon="VIEW3D")
         l.menu("ALEC_MT_alec_browser_materials", icon="MATERIAL")
         l.menu("ALEC_MT_alec_browser_mesh_keys", icon="KEYINGSET")
-        l.separator()
-        l.operator("alec.menu_dispatcher", text="Context pie (Alt+Q)", icon="MENU_PANEL")
+
 
 
 class ALEC_MT_alec_browser_object(bpy.types.Menu):
     bl_idname = "ALEC_MT_alec_browser_object"
-    bl_label = "Object / Modifiers / Group"
+    bl_label = "Object"
 
     def draw(self, context):
         _draw_section_object(self.layout)
+
+
+class ALEC_MT_alec_browser_modifiers(bpy.types.Menu):
+    bl_idname = "ALEC_MT_alec_browser_modifiers"
+    bl_label = "Modifiers"
+
+    def draw(self, context):
+        _draw_section_modifiers(self.layout)
 
 
 class ALEC_MT_alec_browser_mesh(bpy.types.Menu):
@@ -243,6 +252,7 @@ class ALEC_MT_alec_browser_mesh_keys(bpy.types.Menu):
 classes = (
     ALEC_MT_alec_browser,
     ALEC_MT_alec_browser_object,
+    ALEC_MT_alec_browser_modifiers,
     ALEC_MT_alec_browser_mesh,
     ALEC_MT_alec_browser_curve,
     ALEC_MT_alec_browser_uv,

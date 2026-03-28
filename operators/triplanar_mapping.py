@@ -35,46 +35,8 @@ def triplanar_target_shader_tree(context):
     return None
 
 
-def _deselect_all(nodes):
-    for n in nodes:
-        n.select = False
-
-
-def selected_tex_image_nodes(tree):
-    """All selected Image Texture nodes; if none selected, active if it is TEX_IMAGE."""
-    imgs = [n for n in tree.nodes if n.type == "TEX_IMAGE" and n.select]
-    if not imgs:
-        act = tree.nodes.active
-        if act is not None and act.type == "TEX_IMAGE":
-            imgs = [act]
-    return imgs
-
-
-def triplanar_has_selected_tex_images(context):
-    tree = triplanar_target_shader_tree(context)
-    if tree is None:
-        return False
-    return len(selected_tex_image_nodes(tree)) > 0
-
-
-def _disconnect_vector_input(tree, img_node):
-    sock = img_node.inputs.get("Vector")
-    if sock is None:
-        return
-    for l in list(tree.links):
-        if l.to_socket == sock:
-            tree.links.remove(l)
-
-
-def _clear_projection_blend_driver(tex_node):
-    try:
-        tex_node.driver_remove("projection_blend")
-    except Exception:
-        pass
-
-
 def apply_shared_box_triplanar(tree, img_nodes) -> str | None:
-    """TexCoord → Mapping → images (Box). Scară = Value → Mapping Scale (float→vector). Blend = 0.15 pe fiecare tex."""
+    """TexCoord → Mapping → images (Box). Scale: Value → Mapping Scale (float→vector). Blend 0.15 on each texture."""
     if not img_nodes:
         return None
 
@@ -83,8 +45,11 @@ def apply_shared_box_triplanar(tree, img_nodes) -> str | None:
     blend_val = 0.15
 
     for img in img_nodes:
-        _clear_projection_blend_driver(img)
-        _disconnect_vector_input(tree, img)
+        sock = img.inputs.get("Vector")
+        if sock is not None:
+            for l in list(tree.links):
+                if l.to_socket == sock:
+                    tree.links.remove(l)
 
     xs = [n.location.x for n in img_nodes]
     ys = [n.location.y for n in img_nodes]
@@ -132,42 +97,55 @@ def apply_shared_box_triplanar(tree, img_nodes) -> str | None:
             img.label = "Triplanar (Box)"
 
     return (
-        f"{len(img_nodes)}× Image Texture — UV comun. "
-        "Scară: nodul Value → Mapping Scale. Blend: 0.15 pe fiecare (editezi manual pe nod)."
+        f"{len(img_nodes)}× Image Texture — shared UV. "
+        "Scale: Value node → Mapping Scale. Blend: 0.15 each (edit on the node if needed)."
     )
 
 
 class ALEC_OT_triplanar_color_maps(Operator):
-    """Object → Mapping → Image Texture selectate (Box); scară prin nod Value → Scale, fără drivere."""
+    """Object → Mapping → selected Image Textures (Box); scale via Value → Scale, no drivers."""
 
     bl_idname = "alec.triplanar_color_maps"
-    bl_label = "Triplanar: selectate (UV comun, fără drivere)"
+    bl_label = "Triplanar Selected"
     bl_options = {"REGISTER", "UNDO"}
 
     @classmethod
     def poll(cls, context):
-        return triplanar_has_selected_tex_images(context)
+        tree = triplanar_target_shader_tree(context)
+        if tree is None:
+            return False
+        imgs = [n for n in tree.nodes if n.type == "TEX_IMAGE" and n.select]
+        if not imgs:
+            act = tree.nodes.active
+            if act is not None and act.type == "TEX_IMAGE":
+                imgs = [act]
+        return len(imgs) > 0
 
     def execute(self, context):
         tree = triplanar_target_shader_tree(context)
         if tree is None:
-            self.report({"ERROR"}, "Nu s-a găsit un arbore de noduri shader.")
+            self.report({"ERROR"}, "No shader node tree found.")
             return {"CANCELLED"}
-        imgs = selected_tex_image_nodes(tree)
+        imgs = [n for n in tree.nodes if n.type == "TEX_IMAGE" and n.select]
         if not imgs:
-            self.report({"ERROR"}, "Selectează unul sau mai multe noduri Image Texture.")
+            act = tree.nodes.active
+            if act is not None and act.type == "TEX_IMAGE":
+                imgs = [act]
+        if not imgs:
+            self.report({"ERROR"}, "Select one or more Image Texture nodes.")
             return {"CANCELLED"}
-        _deselect_all(tree.nodes)
+        for n in tree.nodes:
+            n.select = False
         msg = apply_shared_box_triplanar(tree, imgs)
         for img in imgs:
             img.select = True
         tree.nodes.active = imgs[-1]
-        self.report({"INFO"}, msg or "Triplanar aplicat.")
+        self.report({"INFO"}, msg or "Triplanar applied.")
         return {"FINISHED"}
 
 
 class ALEC_OT_triplanar_node_arrange(Operator):
-    """Apel la Node Arrange: NA Arrange Selected."""
+    """Calls Node Arrange: NA Arrange Selected."""
 
     bl_idname = "alec.triplanar_node_arrange"
     bl_label = "NA Arrange Selected"

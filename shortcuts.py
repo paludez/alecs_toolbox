@@ -9,7 +9,9 @@ _addon_keymaps_core: list[tuple] = []
 _addon_keymaps_auto_linked: list[tuple] = []
 _addon_keymaps_mesh: list[tuple] = []
 _addon_keymaps_toolbar_tools: list[tuple] = []
+_addon_keymaps_object_hide: list[tuple] = []
 _km_auto_linked_mesh = None
+_km_object_hide = None
 _mesh_keys_registered = False
 _km_object_mode = None
 _km_mesh_edit = None
@@ -127,7 +129,7 @@ def _register_core_keymaps():
         kmi_shader_pie = km_node.keymap_items.new(
             "wm.call_menu_pie", "RIGHTMOUSE", "PRESS", alt=True
         )
-        kmi_shader_pie.properties.name = "ALEC_MT_shader_editor_triplanar_pie"
+        kmi_shader_pie.properties.name = "ALEC_MT_shader_edit_pie"
         _addon_keymaps_core.append((km_node, kmi_shader_pie))
 
 
@@ -216,6 +218,47 @@ def _unregister_auto_linked_keymap():
     _addon_keymaps_auto_linked.clear()
 
 
+def _unregister_object_hide_keymaps():
+    for km, kmi in _addon_keymaps_object_hide:
+        km.keymap_items.remove(kmi)
+    _addon_keymaps_object_hide.clear()
+
+
+def _register_object_hide_keymaps():
+    prefs = _addon_prefs()
+    if not _pref(prefs, "use_object_hide_sync_render_shortcuts", True):
+        return
+    want_h = _pref(prefs, "shortcut_hide_h_sync_render", True)
+    want_sh = _pref(prefs, "shortcut_hide_shift_h_sync_render", True)
+    want_ah = _pref(prefs, "shortcut_hide_alt_h_sync_render", True)
+    if not (want_h or want_sh or want_ah):
+        return
+    wm = bpy.context.window_manager
+    kc = wm.keyconfigs.addon
+    if not kc:
+        return
+    global _km_object_hide
+    if _km_object_hide is None:
+        _km_object_hide = kc.keymaps.new(
+            "Object Mode", space_type="EMPTY", region_type="WINDOW"
+        )
+    if want_h:
+        kmi = _km_object_hide.keymap_items.new(
+            "alec.hide_selected_viewport_render", "H", "PRESS"
+        )
+        _addon_keymaps_object_hide.append((_km_object_hide, kmi))
+    if want_sh:
+        kmi = _km_object_hide.keymap_items.new(
+            "alec.hide_unselected_viewport_render", "H", "PRESS", shift=True
+        )
+        _addon_keymaps_object_hide.append((_km_object_hide, kmi))
+    if want_ah:
+        kmi = _km_object_hide.keymap_items.new(
+            "alec.hide_view_clear_viewport_render", "H", "PRESS", alt=True
+        )
+        _addon_keymaps_object_hide.append((_km_object_hide, kmi))
+
+
 def _register_mesh_keymaps():
     global _km_object_mode, _km_mesh_edit
     wm = bpy.context.window_manager
@@ -255,11 +298,13 @@ def refresh_keymaps_from_prefs():
     _unregister_core_keymaps()
     _unregister_toolbar_tool_keymaps()
     _unregister_auto_linked_keymap()
+    _unregister_object_hide_keymaps()
     _register_core_keymaps()
     _register_toolbar_tool_keymaps()
     prefs = _addon_prefs()
     if _pref(prefs, "shortcut_key_4_auto_linked"):
         _register_auto_linked_keymap()
+    _register_object_hide_keymaps()
 
 
 def set_mesh_max_keys(want: bool):
@@ -291,5 +336,6 @@ def register():
 def unregister():
     set_mesh_max_keys(False)
     _unregister_auto_linked_keymap()
+    _unregister_object_hide_keymaps()
     _unregister_toolbar_tool_keymaps()
     _unregister_core_keymaps()

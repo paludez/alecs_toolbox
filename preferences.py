@@ -114,6 +114,32 @@ class ALECS_TB_AddonPreferences(AddonPreferences):
         update=_refresh_addon_keymaps,
     )
 
+    use_object_hide_sync_render_shortcuts: BoolProperty(
+        name="Object Mode: H / Shift+H / Alt+H also affect render",
+        description=(
+            "When enabled, addon keymap (Object Mode) overrides default hide keys: "
+            "Hide Selected / Unselected also sets hide_render; Reveal clears hide_render "
+            "for objects that become visible in the viewport. Does not apply in Edit Mesh."
+        ),
+        default=True,
+        update=_refresh_addon_keymaps,
+    )
+    shortcut_hide_h_sync_render: BoolProperty(
+        name="H — Hide Selected (viewport + render)",
+        default=True,
+        update=_refresh_addon_keymaps,
+    )
+    shortcut_hide_shift_h_sync_render: BoolProperty(
+        name="Shift+H — Hide Unselected (viewport + render)",
+        default=True,
+        update=_refresh_addon_keymaps,
+    )
+    shortcut_hide_alt_h_sync_render: BoolProperty(
+        name="Alt+H — Reveal hidden (viewport + render)",
+        default=True,
+        update=_refresh_addon_keymaps,
+    )
+
     def draw(self, context):
         layout = self.layout
         layout.prop(self, "use_max_style_mesh_keys")
@@ -139,6 +165,15 @@ class ALECS_TB_AddonPreferences(AddonPreferences):
         box3 = layout.box()
         box3.label(text="Mesh")
         box3.prop(self, "shortcut_key_4_auto_linked")
+
+        box4 = layout.box()
+        box4.label(text="Object hide (viewport + render)")
+        box4.prop(self, "use_object_hide_sync_render_shortcuts")
+        col4 = box4.column(align=True)
+        col4.enabled = self.use_object_hide_sync_render_shortcuts
+        col4.prop(self, "shortcut_hide_h_sync_render")
+        col4.prop(self, "shortcut_hide_shift_h_sync_render")
+        col4.prop(self, "shortcut_hide_alt_h_sync_render")
 
 
 classes = (ALECS_TB_AddonPreferences,)

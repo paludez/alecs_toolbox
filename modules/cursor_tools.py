@@ -16,3 +16,9 @@ def origin_to_cursor(context):
     context.scene.tool_settings.use_transform_data_origin = True
     bpy.ops.view3d.snap_selected_to_cursor(use_offset=False, use_rotation=True)
     context.scene.tool_settings.use_transform_data_origin = False
+
+def origin_set_to_cursor(context):
+    obj = context.active_object
+    context.scene.tool_settings.use_transform_data_origin = True
+    bpy.ops.view3d.snap_selected_to_cursor(use_offset=False, use_rotation=False)
+    context.scene.tool_settings.use_transform_data_origin = False

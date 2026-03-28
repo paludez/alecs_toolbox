@@ -50,8 +50,10 @@ class ALEC_OT_origin_to_cursor(bpy.types.Operator):
             except Exception:
                 pass
             for obj in selected:
-                if obj.type == 'MESH':
-                    obj.select_set(True)
+                # Keep selection for non-mesh object types too (e.g. CURVES).
+                # The underlying snap operator works on objects; filtering to
+                # MESH breaks "To Cur (Rot)" for CURVES.
+                obj.select_set(True)
             if active:
                 context.view_layer.objects.active = active
 
@@ -98,12 +100,12 @@ class ALEC_OT_origin_set_to_cursor(bpy.types.Operator):
 
         try:
             for obj in selected:
-                if obj.type != 'MESH':
-                    continue
                 bpy.ops.object.select_all(action='DESELECT')
                 obj.select_set(True)
                 context.view_layer.objects.active = obj
-                bpy.ops.object.origin_set(type='ORIGIN_CURSOR')
+                # Same approach as "To Cur (Rot)" but without rotation, so it
+                # works consistently for EMPTY / CURVES / etc.
+                cursor_tools.origin_set_to_cursor(context)
         finally:
             context.scene.cursor.matrix = saved_cursor
             try:
