@@ -1,31 +1,81 @@
 import bpy
-from ..modules import cursor_tools
 from ..modules.utils import get_bounds_data
+
+
+def _cursor_to_origin_rot(context):
+    obj = context.active_object
+    context.scene.cursor.location = obj.location.copy()
+    context.scene.cursor.rotation_euler = obj.rotation_euler.copy()
+
+
+def _cursor_to_bbox_rot(context):
+    obj = context.active_object
+    context.scene.cursor.location = get_bounds_data(obj, 'CENTER', 'LOCAL')
+    context.scene.cursor.rotation_euler = obj.rotation_euler.copy()
+
+
+def _origin_to_cursor_rot(context):
+    context.scene.tool_settings.use_transform_data_origin = True
+    bpy.ops.view3d.snap_selected_to_cursor(use_offset=False, use_rotation=True)
+    context.scene.tool_settings.use_transform_data_origin = False
+
+
+def _origin_to_cursor(context):
+    context.scene.tool_settings.use_transform_data_origin = True
+    bpy.ops.view3d.snap_selected_to_cursor(use_offset=False, use_rotation=False)
+    context.scene.tool_settings.use_transform_data_origin = False
+
+
+def _selection_orientation_matrix(context):
+    """Return selection orientation matrix without leaving temp orientations behind."""
+    slot = context.scene.transform_orientation_slots[0]
+    prev_type = slot.type
+    temp_name = "Temp_Alec_Align"
+
+    try:
+        bpy.ops.transform.create_orientation(
+            name=temp_name, use=True, overwrite=True
+        )
+        custom_orient = slot.custom_orientation
+        if not custom_orient:
+            return None
+        rot_mat = custom_orient.matrix.to_4x4()
+        try:
+            bpy.ops.transform.delete_orientation()
+        except Exception:
+            pass
+        return rot_mat
+    finally:
+        try:
+            slot.type = prev_type
+        except Exception:
+            pass
+
 
 class ALEC_OT_cursor_to_selected(bpy.types.Operator):
     """Move&Rotate 3D cursor to selected object's origin"""
-    bl_idname = "alec.cursor_to_selected"
+    bl_idname = "alec.cursor_to_origin_rot"
     bl_label = "Cursor to Selected"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
-        cursor_tools.cursor_to_selected(context)
+        _cursor_to_origin_rot(context)
         return {'FINISHED'}
 
 class ALEC_OT_cursor_to_geometry_center(bpy.types.Operator):
     """Move&Rotate 3D cursor to selected object's BBox center"""
-    bl_idname = "alec.cursor_to_geometry_center"
+    bl_idname = "alec.cursor_to_bbox_rot"
     bl_label = "Cursor to Geometry Center"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
-        cursor_tools.cursor_to_geometry_center(context)
+        _cursor_to_bbox_rot(context)
         return {'FINISHED'}
 
-class ALEC_OT_origin_to_cursor(bpy.types.Operator):
+class ALEC_OT_origin_to_cursor_rot(bpy.types.Operator):
     """Move object origin to 3D cursor position and orientation"""
-    bl_idname = "alec.origin_to_cursor"
-    bl_label = "Origin to Cursor"
+    bl_idname = "alec.origin_to_cursor_rot"
+    bl_label = "Origin to Cursor (Rot)"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
@@ -57,7 +107,7 @@ class ALEC_OT_origin_to_cursor(bpy.types.Operator):
             if active:
                 context.view_layer.objects.active = active
 
-            cursor_tools.origin_to_cursor(context)
+            _origin_to_cursor_rot(context)
         finally:
             context.scene.cursor.matrix = saved_cursor
             try:
@@ -78,9 +128,9 @@ class ALEC_OT_origin_to_cursor(bpy.types.Operator):
         return {'FINISHED'}
 
 
-class ALEC_OT_origin_set_to_cursor(bpy.types.Operator):
+class ALEC_OT_origin_to_cursor(bpy.types.Operator):
     """Set object origin to the 3D cursor (non-rotational)"""
-    bl_idname = "alec.origin_set_to_cursor"
+    bl_idname = "alec.origin_to_cursor"
     bl_label = "Origin to Cursor"
     bl_options = {'REGISTER', 'UNDO'}
 
@@ -105,7 +155,7 @@ class ALEC_OT_origin_set_to_cursor(bpy.types.Operator):
                 context.view_layer.objects.active = obj
                 # Same approach as "To Cur (Rot)" but without rotation, so it
                 # works consistently for EMPTY / CURVES / etc.
-                cursor_tools.origin_set_to_cursor(context)
+                _origin_to_cursor(context)
         finally:
             context.scene.cursor.matrix = saved_cursor
             try:
@@ -197,6 +247,30 @@ class ALEC_OT_origin_to_active(bpy.types.Operator):
         context.scene.cursor.matrix = saved_cursor_matrix
         return {'FINISHED'}
 
+class ALEC_OT_origin_to_active_rot(bpy.types.Operator):
+    """Set selected origins to active object's origin and orientation"""
+    bl_idname = "alec.origin_to_active_rot"
+    bl_label = "Origin to Active (Rot)"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return context.active_object and len(context.selected_objects) > 1
+
+    def execute(self, context):
+        active_obj = context.active_object
+        saved_cursor_matrix = context.scene.cursor.matrix.copy()
+
+        try:
+            context.scene.cursor.matrix = active_obj.matrix_world.copy()
+            active_obj.select_set(False)
+            _origin_to_cursor_rot(context)
+        finally:
+            active_obj.select_set(True)
+            context.scene.cursor.matrix = saved_cursor_matrix
+
+        return {'FINISHED'}
+
 class ALEC_OT_origin_to_bottom(bpy.types.Operator):
     """Move object origin to the bottom center of its bounding box"""
     bl_idname = "alec.origin_to_bottom"
@@ -252,15 +326,15 @@ class ALEC_OT_origin_to_bottom(bpy.types.Operator):
 
         return {'FINISHED'}
 
-class ALEC_OT_origin_to_selected_edit(bpy.types.Operator):
+class ALEC_OT_origin_to_selection(bpy.types.Operator):
     """Set origin to the average position of selected elements"""
-    bl_idname = "alec.origin_to_selected_edit"
+    bl_idname = "alec.origin_to_selection"
     bl_label = "Origin to Selection"
     bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
     def poll(cls, context):
-        return context.mode == 'EDIT_MESH'
+        return context.mode in {'EDIT_MESH', 'EDIT_CURVE', 'EDIT_CURVES'}
 
     def execute(self, context):
         saved_cursor = context.scene.cursor.matrix.copy()
@@ -271,15 +345,15 @@ class ALEC_OT_origin_to_selected_edit(bpy.types.Operator):
         context.scene.cursor.matrix = saved_cursor
         return {'FINISHED'}
 
-class ALEC_OT_origin_to_selected_edit_aligned(bpy.types.Operator):
+class ALEC_OT_origin_to_selection_rot(bpy.types.Operator):
     """Set origin to selection center and align orientation to normal"""
-    bl_idname = "alec.origin_to_selected_edit_aligned"
+    bl_idname = "alec.origin_to_selection_rot"
     bl_label = "Origin to Selection (Aligned)"
     bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
     def poll(cls, context):
-        return context.mode == 'EDIT_MESH'
+        return context.mode in {'EDIT_MESH', 'EDIT_CURVE', 'EDIT_CURVES'}
 
     def execute(self, context):
         obj = context.active_object
@@ -291,16 +365,11 @@ class ALEC_OT_origin_to_selected_edit_aligned(bpy.types.Operator):
             self.report({'WARNING'}, "No selection found")
             return {'CANCELLED'}
             
-        bpy.ops.transform.create_orientation(name="Temp_Alec_Align", use=True, overwrite=True)
-        
-        slot = context.scene.transform_orientation_slots[0]
-        custom_orient = slot.custom_orientation
-        
-        if not custom_orient:
+        rot_mat = _selection_orientation_matrix(context)
+        if not rot_mat:
             self.report({'WARNING'}, "Could not create orientation")
             return {'CANCELLED'}
-            
-        rot_mat = custom_orient.matrix.to_4x4()
+
         target_matrix = rot_mat
         target_matrix.translation = context.scene.cursor.location
         
@@ -319,14 +388,62 @@ class ALEC_OT_origin_to_selected_edit_aligned(bpy.types.Operator):
         
         return {'FINISHED'}
 
+class ALEC_OT_cursor_to_selection_rot(bpy.types.Operator):
+    """Move cursor to selected elements and align it to selection orientation"""
+    bl_idname = "alec.cursor_to_selection_rot"
+    bl_label = "Cursor to Selection (Rot)"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return context.mode in {'EDIT_MESH', 'EDIT_CURVE', 'EDIT_CURVES'}
+
+    def execute(self, context):
+        try:
+            bpy.ops.view3d.snap_cursor_to_selected()
+        except Exception:
+            self.report({'WARNING'}, "No selection found")
+            return {'CANCELLED'}
+
+        rot_mat = _selection_orientation_matrix(context)
+        if not rot_mat:
+            self.report({'WARNING'}, "Could not create orientation")
+            return {'CANCELLED'}
+
+        target_matrix = rot_mat
+        target_matrix.translation = context.scene.cursor.location
+        context.scene.cursor.matrix = target_matrix
+        return {'FINISHED'}
+
+class ALEC_OT_cursor_to_selection(bpy.types.Operator):
+    """Move cursor to selected elements (position only)"""
+    bl_idname = "alec.cursor_to_selection"
+    bl_label = "Cursor to Selection"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return context.mode in {'EDIT_MESH', 'EDIT_CURVE', 'EDIT_CURVES'}
+
+    def execute(self, context):
+        try:
+            bpy.ops.view3d.snap_cursor_to_selected()
+        except Exception:
+            self.report({'WARNING'}, "No selection found")
+            return {'CANCELLED'}
+        return {'FINISHED'}
+
 classes = [
     ALEC_OT_cursor_to_selected,
     ALEC_OT_cursor_to_geometry_center,
     ALEC_OT_origin_to_cursor,
-    ALEC_OT_origin_set_to_cursor,
+    ALEC_OT_origin_to_cursor_rot,
     ALEC_OT_origin_set_to_bbox,
     ALEC_OT_origin_to_active,
+    ALEC_OT_origin_to_active_rot,
     ALEC_OT_origin_to_bottom,
-    ALEC_OT_origin_to_selected_edit,
-    ALEC_OT_origin_to_selected_edit_aligned,
+    ALEC_OT_origin_to_selection,
+    ALEC_OT_origin_to_selection_rot,
+    ALEC_OT_cursor_to_selection,
+    ALEC_OT_cursor_to_selection_rot,
 ]

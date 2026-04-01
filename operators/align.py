@@ -190,19 +190,37 @@ class ALEC_OT_quick_center(AlignBase, bpy.types.Operator):
         self.target_point = 'CENTER'
         return self.execute(context)
 
-class ALEC_OT_quick_pivot(AlignBase, bpy.types.Operator):
-    """Align selected objects to active object's pivot point"""
-    bl_idname = "alec.quick_pivot"
-    bl_label = "Quick Pivot"
+class ALEC_OT_quick_center_rot(AlignBase, bpy.types.Operator):
+    """Align selected objects to active bbox center and match rotation"""
+    bl_idname = "alec.quick_center_rot"
+    bl_label = "Quick Center (Rot)"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def invoke(self, context, event):
+        self.source_point = 'CENTER'
+        self.target_point = 'CENTER'
+        self.orient_x = True
+        self.orient_y = True
+        self.orient_z = True
+        return self.execute(context)
+
+class ALEC_OT_quick_pivot_rot(AlignBase, bpy.types.Operator):
+    """Align selected objects to active pivot and match rotation"""
+    bl_idname = "alec.quick_pivot_rot"
+    bl_label = "Quick Pivot (Rot)"
     bl_options = {'REGISTER', 'UNDO'}
 
     def invoke(self, context, event):
         self.source_point = 'PIVOT'
         self.target_point = 'PIVOT'
+        self.orient_x = True
+        self.orient_y = True
+        self.orient_z = True
         return self.execute(context)
 
 classes = [
     ALEC_OT_align_dialog,
     ALEC_OT_quick_center,
-    ALEC_OT_quick_pivot,
+    ALEC_OT_quick_center_rot,
+    ALEC_OT_quick_pivot_rot,
 ]

@@ -132,6 +132,26 @@ def _register_core_keymaps():
         kmi_shader_pie.properties.name = "ALEC_MT_shader_edit_pie"
         _addon_keymaps_core.append((km_node, kmi_shader_pie))
 
+    km_window = kc.keymaps.new(name="Window", space_type="EMPTY")
+    kmi_alt_1 = km_window.keymap_items.new(
+        "alec.set_area_view3d_under_mouse", "ONE", "PRESS", alt=True
+    )
+    _addon_keymaps_core.append((km_window, kmi_alt_1))
+    kmi_alt_2 = km_window.keymap_items.new(
+        "alec.set_area_shader_under_mouse", "TWO", "PRESS", alt=True
+    )
+    kmi_alt_2.properties.mode = "OBJECT"
+    _addon_keymaps_core.append((km_window, kmi_alt_2))
+    kmi_alt_3 = km_window.keymap_items.new(
+        "alec.set_area_shader_under_mouse", "THREE", "PRESS", alt=True
+    )
+    kmi_alt_3.properties.mode = "WORLD"
+    _addon_keymaps_core.append((km_window, kmi_alt_3))
+    kmi_alt_4 = km_window.keymap_items.new(
+        "alec.set_area_uv_under_mouse", "FOUR", "PRESS", alt=True
+    )
+    _addon_keymaps_core.append((km_window, kmi_alt_4))
+
 
 def _register_toolbar_tool_keymaps():
     """W → Move, E → Rotate (left toolbar); Mesh: Alt+E → extrude (was E)."""

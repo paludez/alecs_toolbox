@@ -29,7 +29,9 @@ def _draw_section_object(l):
     l.label(text="Align")
     col = l.column(align=True)
     col.operator("alec.quick_center", text="Align Centers")
-    col.operator("alec.quick_pivot", text="Align Origins")
+    col.operator("view3d.snap_selected_to_active", text="Align Origins")
+    col.operator("alec.quick_center_rot", text="Align Centers (Rot)")
+    col.operator("alec.quick_pivot_rot", text="Align Origins (Rot)")
     col.operator("alec.align_dialog", text="Align Dialog")
     l.separator()
     l.label(text="Grouping")
@@ -40,8 +42,10 @@ def _draw_section_object(l):
     l.separator()
     l.label(text="Origin (Alec)")
     col = l.column(align=True)
-    col.operator("alec.origin_to_cursor", text="Origin to Cursor (Rot)")
+    col.operator("alec.origin_to_cursor", text="Origin to Cursor")
+    col.operator("alec.origin_to_cursor_rot", text="Origin to Cursor (Rot)")
     col.operator("alec.origin_to_active", text="Origin to Active")
+    col.operator("alec.origin_to_active_rot", text="Origin to Active (Rot)")
     col.operator("alec.origin_to_bottom", text="Origin to Bottom")
 
 
@@ -95,8 +99,8 @@ def _draw_section_mesh(l):
     l.separator()
     l.label(text="Origin (Edit)")
     col = l.column(align=True)
-    col.operator("alec.origin_to_selected_edit", text="To Selection")
-    col.operator("alec.origin_to_selected_edit_aligned", text="To Selection (Aligned)")
+    col.operator("alec.origin_to_selection", text="To Selection")
+    col.operator("alec.origin_to_selection_rot", text="To Selection (Aligned)")
     l.separator()
     l.label(text="Dimensions / Edges")
     col = l.column(align=True)
@@ -121,6 +125,8 @@ def _draw_section_curve(l):
     op = col.operator("alec.make_coplanar", text="Best Fit")
     op.mode = "BEST_FIT"
     col.operator("alec.coplanar_curve_three_point_plane", text="3-Point Plane")
+    col.separator()
+    col.operator("alec.curve_split_at_point", text="Split At Point")
 
 
 def _draw_section_uv(l):
@@ -131,8 +137,8 @@ def _draw_section_uv(l):
 
 def _draw_section_viewport(l):
     col = l.column(align=True)
-    col.operator("alec.cursor_to_selected", text="Cursor to Selected")
-    col.operator("alec.cursor_to_geometry_center", text="Cursor to Geometry Center")
+    col.operator("alec.cursor_to_origin_rot", text="Cursor to Origin (Rot)")
+    col.operator("alec.cursor_to_bbox_rot", text="Cursor to BBox (Rot)")
     col.separator()
     col.operator("alec.floating_shader_editor", text="Floating Object Shader").mode = "OBJECT"
     col.operator("alec.floating_shader_editor", text="Floating World Shader").mode = "WORLD"

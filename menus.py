@@ -89,6 +89,26 @@ _SHADER_EDIT_PIE_NODES_UTILS = (
 )
 
 
+class ALEC_OT_viewport_show_common_types(bpy.types.Operator):
+    """Enable common viewport object-type visibility filters"""
+    bl_idname = "alec.viewport_show_common_types"
+    bl_label = "Show Common Types"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return bool(context.space_data and context.space_data.type == 'VIEW_3D')
+
+    def execute(self, context):
+        space = context.space_data
+        space.show_object_viewport_mesh = True
+        space.show_object_viewport_curves = True
+        space.show_object_viewport_empty = True
+        space.show_object_viewport_light = True
+        space.show_object_viewport_camera = True
+        return {'FINISHED'}
+
+
 class ALEC_MT_quad_menu(bpy.types.Menu):
     bl_idname = "ALEC_MT_quad_menu"
     bl_label = "Quad Menu"
@@ -97,7 +117,7 @@ class ALEC_MT_quad_menu(bpy.types.Menu):
         pie = self.layout.menu_pie()
         # Pie slice ordering for Alt+RightClick:
         # 1) Left  : Viewport
-        # 2) Right : Pivot Point
+        # 2) Right : Pivot + Orientation + Snap
         # 3) Bottom: Cursor + Origin
         # 4) Top   : Floating Shaders
 
@@ -106,70 +126,68 @@ class ALEC_MT_quad_menu(bpy.types.Menu):
         box_view = col_left.box()
         box_view.label(text="Viewport", icon='RESTRICT_VIEW_OFF')
         col_inner = box_view.column(align=True)
-        if context.space_data and context.space_data.type == 'VIEW_3D':
-            col_inner.prop(context.space_data.overlay, "show_wireframes", text="Wireframe")
-            r = col_inner.row(align=True)
-            r.prop(context.space_data, "show_gizmo_object_translate", text="Move")
-            r.prop(context.space_data, "show_gizmo_object_rotate", text="Rotate")
+        grid_vis = col_inner.grid_flow(columns=3, align=True, even_columns=True)
+        grid_vis.prop(context.space_data, "show_object_viewport_mesh", text="Mesh", icon='MESH_DATA', toggle=True)
+        grid_vis.prop(context.space_data, "show_object_viewport_curves", text="Curves", icon='OUTLINER_OB_CURVE', toggle=True)
+        grid_vis.prop(context.space_data, "show_object_viewport_empty", text="Empty", icon='EMPTY_DATA', toggle=True)
+        grid_vis.prop(context.space_data, "show_object_viewport_light", text="Light", icon='LIGHT_DATA', toggle=True)
+        grid_vis.prop(context.space_data, "show_object_viewport_camera", text="Camera", icon='CAMERA_DATA', toggle=True)
+        col_inner.operator("alec.viewport_show_common_types", text="Show All", icon='CHECKMARK')
+
+
         # --- Slice 2 (Right): Pivot Point ---
         col_right = pie.column()
-        b_pivot = col_right.box()
-        b_pivot.label(text="Pivot Point", icon='PIVOT_MEDIAN')
-        grid = b_pivot.grid_flow(columns=3, align=True, even_columns=True)
+        box_pivot = col_right.box()
+        box_pivot.label(text="Pivot Point", icon='PIVOT_MEDIAN')
+        grid = box_pivot.grid_flow(columns=3, align=True, even_columns=True)
         for val, txt in [('BOUNDING_BOX_CENTER', "BBox"), ('CURSOR', "Cursor"), ('INDIVIDUAL_ORIGINS', "Indiv"),
                          ('MEDIAN_POINT', "Median"), ('ACTIVE_ELEMENT', "Active")]:
             grid.prop_enum(context.tool_settings, "transform_pivot_point", value=val, text=txt)
         grid.prop(context.tool_settings, "use_transform_pivot_point_align", text="Only Loc")
 
-        b_orient = col_right.box()
-        b_orient.label(text="Orientation", icon='ORIENTATION_GLOBAL')
+        box_orient = col_right.box()
+        box_orient.label(text="Orientation", icon='ORIENTATION_GLOBAL')
         slot = context.scene.transform_orientation_slots[0]
-        grid = b_orient.grid_flow(columns=3, align=True, even_columns=True)
+        grid = box_orient.grid_flow(columns=3, align=True, even_columns=True)
         for val in ['GLOBAL', 'LOCAL', 'NORMAL', 'GIMBAL', 'CURSOR', 'PARENT']:
             grid.prop_enum(slot, "type", value=val, text=val.capitalize())
 
-        b5 = col_right.box()
-        r5 = b5.grid_flow(columns=3, align=True)
+        box_snap = col_right.box()
+        grid_snap_elements = box_snap.grid_flow(columns=3, align=True)
         for val, txt in [('INCREMENT', "Incr"), ('VERTEX', "Vertex"), ('EDGE', "Edge"), ('FACE', "Face"), ('VOLUME', "Volume")]:
-            r5.prop_enum(context.tool_settings, "snap_elements", value=val, text=txt)
+            grid_snap_elements.prop_enum(context.tool_settings, "snap_elements", value=val, text=txt)
 
-        b5.separator()
-        r6 = b5.grid_flow(columns=3, align=True)
+        box_snap.separator()
+        grid_snap_target = box_snap.grid_flow(columns=3, align=True)
         for val in ['CENTER', 'MEDIAN', 'ACTIVE']:
-            r6.prop_enum(context.tool_settings, "snap_target", value=val, text=val.capitalize())
+            grid_snap_target.prop_enum(context.tool_settings, "snap_target", value=val, text=val.capitalize())
 
         # --- Slice 3 (Bottom): Cursor + Origin ---
         col_bottom = pie.column()
         box_cursor = col_bottom.box()
         box_cursor.label(text="Cursor", icon='PIVOT_CURSOR')
-        col_inner = box_cursor.column(align=True)
-        row = col_inner.row(align=True)
-        row.operator("alec.cursor_to_selected", text="To Selected")
-        row.operator("alec.cursor_to_geometry_center", text="To Center")
+        grid_cursor = box_cursor.grid_flow(columns=2, align=True)
+        grid_cursor.operator("alec.cursor_to_origin_rot", text="Origin(R)", icon='TRACKING_FORWARDS')
+        grid_cursor.operator("alec.cursor_to_bbox_rot", text="BBox(R)", icon='TRACKING_FORWARDS')
+        grid_cursor.operator("alec.cursor_to_selection", text="Selection", icon='TRACKING_FORWARDS_SINGLE')
+        grid_cursor.operator("alec.cursor_to_selection_rot", text="Selection(R)", icon='TRACKING_FORWARDS_SINGLE')
 
         box_origin = col_bottom.box()
         box_origin.label(text="Origin", icon='OBJECT_ORIGIN')
         grid_origin = box_origin.grid_flow(columns=2, align=True)
         grid_origin.operator("alec.origin_set_to_bbox", text="BBox", icon='PIVOT_BOUNDBOX')
-        # Use wrapper so "Origin to Cursor" works even in Edit Mode.
-        grid_origin.operator(
-            "alec.origin_set_to_cursor", text="To Cursor", icon='PIVOT_CURSOR'
-        )
-        grid_origin.operator("alec.origin_to_cursor", text="To Cur (Rot)", icon='ORIENTATION_GIMBAL')
-        grid_origin.operator("alec.origin_to_active", text="To Active", icon='PIVOT_ACTIVE')
-        grid_origin.operator("alec.origin_to_bottom", text="To Bott.", icon='TRIA_DOWN')
-        grid_origin.operator("alec.origin_to_selected_edit", text="To Selection", icon='PIVOT_CURSOR')
-        grid_origin.operator("alec.origin_to_selected_edit_aligned", text="To Sel (Aligned)", icon='ORIENTATION_NORMAL')
+        grid_origin.operator("alec.origin_to_cursor", text="Cursor", icon='PIVOT_CURSOR')
+        grid_origin.operator("alec.origin_to_cursor_rot", text="Cursor(R)", icon='ORIENTATION_GIMBAL')
+        grid_origin.operator("alec.origin_to_bottom", text="Bottom", icon='TRIA_DOWN')
+        grid_origin.operator("alec.origin_to_active", text="Active", icon='PIVOT_ACTIVE')
+        grid_origin.operator("alec.origin_to_active_rot", text="Active(R)", icon='ORIENTATION_GIMBAL')
+        grid_origin.operator("alec.origin_to_selection", text="Selection", icon='PIVOT_CURSOR')
+        grid_origin.operator("alec.origin_to_selection_rot", text="Selection(R)", icon='ORIENTATION_NORMAL')
 
         # --- Slice 4 (Top): Floating Shaders ---
         col_top = pie.column()
         box = col_top.box()
         box.label(text="Floating Shaders", icon='WINDOW')
-        col_inner = box.column(align=True)
-        col_inner.operator("alec.floating_shader_editor", text="Object Shader", icon='NODE_MATERIAL').mode = 'OBJECT'
-        col_inner.operator("alec.floating_shader_editor", text="World Shader", icon='WORLD').mode = 'WORLD'
-        col_inner.separator()
-        col_inner.operator("alec.square_pixels", text="Square Pixels", icon='UV')
 
 
 class ALEC_MT_shader_edit_pie(bpy.types.Menu):
@@ -231,7 +249,7 @@ class ALEC_MT_edit_menu(bpy.types.Menu):
         # - Left  : Collinear / Coplanar / Extract
         # - Top   : Dimensions
         # - Right : Shapes / Orientation / Cleanup
-        # - Bottom: empty
+        # - Bottom: Cursor + Origin (Edit)
 
         # --- Slice 1 (Left): Collinear / Coplanar / Extract ---
         col = pie.column()
@@ -329,6 +347,11 @@ class ALEC_MT_edit_curve_menu(bpy.types.Menu):
         op.mode = 'BEST_FIT'
         col_inner.operator("alec.coplanar_curve_three_point_plane", text="3-Point Plane")
 
+        box = col.box()
+        box.label(text="Segments", icon='CURVE_DATA')
+        col_inner = box.column(align=True)
+        col_inner.operator("alec.curve_split_at_point", text="Split At Point", icon='SCULPTMODE_HLT')
+
 
 class ALEC_MT_object_menu(bpy.types.Menu):
     bl_idname = "ALEC_MT_object_menu"
@@ -336,7 +359,13 @@ class ALEC_MT_object_menu(bpy.types.Menu):
 
     def draw(self, context):
         pie = self.layout.menu_pie()
+        # Pie slice ordering:
+        # 1) Left  : BBox + Align
+        # 2) Right : Modifiers
+        # 3) Bottom: Grouping + Materials
+        # 4) Top   : Parenting
 
+        # --- Slice 1 (Left): BBox + Align ---
         col_left = pie.column()
         row = col_left.row()
 
@@ -353,9 +382,12 @@ class ALEC_MT_object_menu(bpy.types.Menu):
         box_align.label(text="Align", icon='LIGHTPROBE_VOLUME')
         col_inner = box_align.column(align=True)
         col_inner.operator("alec.quick_center", text="Align_Centers")
-        col_inner.operator("alec.quick_pivot", text="Align_Origins")
+        col_inner.operator("alec.quick_center_rot", text="Align_Centers(Rot)")
+        col_inner.operator("view3d.snap_selected_to_active", text="Align_Origins")
+        col_inner.operator("alec.quick_pivot_rot", text="Align_Origins(Rot)")
         col_inner.operator("alec.align_dialog", text="Align Dialog")
 
+        # --- Slice 2 (Right): Modifiers ---
         col_right = pie.column()
         box_mods = col_right.box()
         box_mods.label(text="Modifiers", icon='MODIFIER')
@@ -384,7 +416,7 @@ class ALEC_MT_object_menu(bpy.types.Menu):
         grid_man.operator("alec.modifier_action", text="Del Last", icon='X').action = 'DELETE_LAST'
         grid_man.operator("alec.modifier_action", text="Del All", icon='TRASH').action = 'DELETE_ALL'
 
-
+        # --- Slice 3 (Bottom): Grouping + Materials ---
         col_down = pie.column()
         b5 = col_down.box()
         b5.label(text="Grouping", icon='GROUP')
@@ -402,6 +434,7 @@ class ALEC_MT_object_menu(bpy.types.Menu):
         col_inner.operator("alec.remove_orphan_materials", text="Clean Unused", icon='TRASH')
         col_inner.operator("alec.select_material_users", text="Select Users", icon='RESTRICT_SELECT_OFF')
 
+        # --- Slice 4 (Top): Parenting ---
         col_up = pie.column()
 
         box_parent = col_up.box()
@@ -414,6 +447,7 @@ class ALEC_MT_object_menu(bpy.types.Menu):
         col_inner.operator("object.parent_clear", text="Keep Tran.", icon='UNLINKED').type = 'CLEAR_KEEP_TRANSFORM'
 
 classes = [
+    ALEC_OT_viewport_show_common_types,
     ALEC_MT_object_menu,
     ALEC_MT_edit_menu,
     ALEC_MT_edit_curve_menu,
