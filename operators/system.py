@@ -85,7 +85,6 @@ class ALEC_OT_set_area_shader_under_mouse(bpy.types.Operator):
                 context.scene.world = world
             if not world.use_nodes:
                 world.use_nodes = True
-
         return {'FINISHED'}
 
 class ALEC_OT_set_area_uv_under_mouse(bpy.types.Operator):
@@ -182,10 +181,72 @@ class ALEC_OT_floating_shader_editor(bpy.types.Operator):
         
         return {'FINISHED'}
 
+
+class ALEC_OT_toggle_global_local_orientation(bpy.types.Operator):
+    """Toggle transform orientation between Global and Local"""
+    bl_idname = "alec.toggle_global_local_orientation"
+    bl_label = "Toggle Global/Local Orientation"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        slot = context.scene.transform_orientation_slots[0]
+        slot.type = 'LOCAL' if slot.type == 'GLOBAL' else 'GLOBAL'
+        return {'FINISHED'}
+
+
+class ALEC_OT_view_selected_safe(bpy.types.Operator):
+    """Toggle frame selected / frame all in a safe VIEW_3D context"""
+    bl_idname = "alec.view_selected_safe"
+    bl_label = "Frame Selected/All (Safe Toggle)"
+    _next_is_selected = True
+
+    def execute(self, context):
+        win = context.window
+        screen = context.screen
+        area = context.area
+
+        if not win or not screen:
+            self.report({'WARNING'}, "No active window/screen")
+            return {'CANCELLED'}
+
+        if not area or area.type != 'VIEW_3D':
+            area = next((a for a in screen.areas if a.type == 'VIEW_3D'), None)
+            if area is None:
+                self.report({'WARNING'}, "No 3D View available")
+                return {'CANCELLED'}
+
+        region = next((r for r in area.regions if r.type == 'WINDOW'), None)
+        space = area.spaces.active
+        if region is None or space is None:
+            self.report({'WARNING'}, "No 3D View window region")
+            return {'CANCELLED'}
+
+        try:
+            with bpy.context.temp_override(
+                window=win,
+                screen=screen,
+                area=area,
+                region=region,
+                space_data=space,
+            ):
+                if self.__class__._next_is_selected:
+                    bpy.ops.view3d.view_selected('EXEC_DEFAULT')
+                else:
+                    bpy.ops.view3d.view_all('EXEC_DEFAULT', center=False)
+        except RuntimeError as exc:
+            self.report({'WARNING'}, f"Frame toggle failed: {exc}")
+            return {'CANCELLED'}
+
+        self.__class__._next_is_selected = not self.__class__._next_is_selected
+        return {'FINISHED'}
+
+
 classes = [
     ALEC_OT_menu_dispatcher,
     ALEC_OT_set_area_view3d_under_mouse,
     ALEC_OT_set_area_shader_under_mouse,
     ALEC_OT_set_area_uv_under_mouse,
     ALEC_OT_floating_shader_editor,
+    ALEC_OT_toggle_global_local_orientation,
+    ALEC_OT_view_selected_safe,
 ]

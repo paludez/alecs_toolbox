@@ -88,6 +88,62 @@ class ALECS_TB_AddonPreferences(AddonPreferences):
         default=True,
         update=_refresh_addon_keymaps,
     )
+    shortcut_c_camera: BoolProperty(
+        name="C — Camera view",
+        description="Switch 3D View to active camera view.",
+        default=True,
+        update=_refresh_addon_keymaps,
+    )
+    shortcut_grave_isolate: BoolProperty(
+        name="` — Isolate (Local View)",
+        description="Toggle Local View isolate in 3D View.",
+        default=True,
+        update=_refresh_addon_keymaps,
+    )
+    shortcut_alt_grave_orientation: BoolProperty(
+        name="Alt+` — Toggle Global/Local orientation",
+        description="Toggle transform orientation between Global and Local.",
+        default=True,
+        update=_refresh_addon_keymaps,
+    )
+    shortcut_ctrl_grave_frame_selected: BoolProperty(
+        name="Ctrl+` — Toggle Frame Selected / Frame All",
+        description="Alternate between period (.) frame selected and Home frame all.",
+        default=True,
+        update=_refresh_addon_keymaps,
+    )
+    shortcut_grave_outliner_show_active: BoolProperty(
+        name="` — Outliner Show Active (same as . in Outliner)",
+        description="In Outliner, run Show Active (equivalent to period key there).",
+        default=True,
+        update=_refresh_addon_keymaps,
+    )
+    shortcut_alt_1_view3d_under_mouse: BoolProperty(
+        name="Alt+1 — Set area under mouse to 3D View",
+        default=True,
+        update=_refresh_addon_keymaps,
+    )
+    shortcut_alt_2_shader_object_under_mouse: BoolProperty(
+        name="Alt+2 — Set area under mouse to Shader (Object)",
+        default=True,
+        update=_refresh_addon_keymaps,
+    )
+    shortcut_alt_3_shader_world_under_mouse: BoolProperty(
+        name="Alt+3 — Set area under mouse to Shader (World)",
+        default=True,
+        update=_refresh_addon_keymaps,
+    )
+    shortcut_alt_4_uv_under_mouse: BoolProperty(
+        name="Alt+4 — Set area under mouse to UV Editor",
+        default=True,
+        update=_refresh_addon_keymaps,
+    )
+    shortcut_alt_w_light_energy_modal: BoolProperty(
+        name="Alt+W — Light/Empty value drag (modal)",
+        description="If active is Light: energy; Empty: display size; Camera: focal length. Drag left/right or type value.",
+        default=True,
+        update=_refresh_addon_keymaps,
+    )
     shortcut_w_move_tool: BoolProperty(
         name="W — Move tool (toolbar)",
         default=True,
@@ -154,6 +210,16 @@ class ALECS_TB_AddonPreferences(AddonPreferences):
         col.prop(self, "shortcut_f3_wireframe_xray")
         col.prop(self, "shortcut_f4_overlay_wireframes")
         col.prop(self, "shortcut_f5_solid_rendered")
+        col.prop(self, "shortcut_c_camera")
+        col.prop(self, "shortcut_grave_isolate")
+        col.prop(self, "shortcut_alt_grave_orientation")
+        col.prop(self, "shortcut_ctrl_grave_frame_selected")
+        col.prop(self, "shortcut_grave_outliner_show_active")
+        col.prop(self, "shortcut_alt_1_view3d_under_mouse")
+        col.prop(self, "shortcut_alt_2_shader_object_under_mouse")
+        col.prop(self, "shortcut_alt_3_shader_world_under_mouse")
+        col.prop(self, "shortcut_alt_4_uv_under_mouse")
+        col.prop(self, "shortcut_alt_w_light_energy_modal")
 
         box2 = layout.box()
         box2.label(text="Toolbar & extrude (W / E / Alt+E / Shift+Alt+E)")

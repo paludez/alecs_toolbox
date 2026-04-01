@@ -54,11 +54,16 @@ def _register_core_keymaps():
             _pref(prefs, "shortcut_f3_wireframe_xray"),
             _pref(prefs, "shortcut_f4_overlay_wireframes"),
             _pref(prefs, "shortcut_f5_solid_rendered"),
+            _pref(prefs, "shortcut_c_camera"),
+            _pref(prefs, "shortcut_grave_isolate"),
+            _pref(prefs, "shortcut_alt_grave_orientation"),
+            _pref(prefs, "shortcut_ctrl_grave_frame_selected"),
+            _pref(prefs, "shortcut_alt_w_light_energy_modal"),
         )
     )
     km = None
     if need_3d:
-        km = kc.keymaps.new(name="3D View", space_type="VIEW_3D")
+        km = kc.keymaps.new(name="3D View", space_type="VIEW_3D", region_type="WINDOW")
 
     if km is not None and _pref(prefs, "shortcut_q_alt_menu"):
         kmi_main = km.keymap_items.new("alec.menu_dispatcher", "Q", "PRESS", alt=True)
@@ -100,12 +105,42 @@ def _register_core_keymaps():
         )
         _addon_keymaps_core.append((km, kmi_f5))
 
+    if km is not None and _pref(prefs, "shortcut_c_camera"):
+        kmi_camera_view = km.keymap_items.new(
+            "view3d.view_camera", "C", "PRESS"
+        )
+        _addon_keymaps_core.append((km, kmi_camera_view))
+
+    if km is not None and _pref(prefs, "shortcut_grave_isolate"):
+        kmi_isolate_toggle = km.keymap_items.new(
+            "view3d.localview", "ACCENT_GRAVE", "PRESS"
+        )
+        _addon_keymaps_core.append((km, kmi_isolate_toggle))
+
+    if km is not None and _pref(prefs, "shortcut_alt_grave_orientation"):
+        kmi_toggle_orient = km.keymap_items.new(
+            "alec.toggle_global_local_orientation", "ACCENT_GRAVE", "PRESS", alt=True
+        )
+        _addon_keymaps_core.append((km, kmi_toggle_orient))
+
+    if km is not None and _pref(prefs, "shortcut_ctrl_grave_frame_selected"):
+        kmi_frame_selected = km.keymap_items.new(
+            "alec.view_selected_safe", "ACCENT_GRAVE", "PRESS", ctrl=True
+        )
+        _addon_keymaps_core.append((km, kmi_frame_selected))
+
+    if km is not None and _pref(prefs, "shortcut_alt_w_light_energy_modal"):
+        kmi_light_modal = km.keymap_items.new(
+            "alec.light_energy_modal", "W", "PRESS", alt=True
+        )
+        _addon_keymaps_core.append((km, kmi_light_modal))
+
     if (
         _pref(prefs, "shortcut_q_alt_menu")
         or _pref(prefs, "shortcut_q_ctrl_alt_browser")
         or _pref(prefs, "shortcut_alt_rmb_quad")
     ):
-        km_uv = kc.keymaps.new(name="Image", space_type="IMAGE_EDITOR")
+        km_uv = kc.keymaps.new(name="Image", space_type="IMAGE_EDITOR", region_type="WINDOW")
         if _pref(prefs, "shortcut_q_alt_menu"):
             kmi_uv = km_uv.keymap_items.new(
                 "alec.menu_dispatcher", "Q", "PRESS", alt=True
@@ -125,32 +160,52 @@ def _register_core_keymaps():
             _addon_keymaps_core.append((km_uv, kmi_uv_pie))
 
     if _pref(prefs, "shortcut_alt_rmb_quad"):
-        km_node = kc.keymaps.new(name="Node Editor", space_type="NODE_EDITOR")
+        km_node = kc.keymaps.new(name="Node Editor", space_type="NODE_EDITOR", region_type="WINDOW")
         kmi_shader_pie = km_node.keymap_items.new(
             "wm.call_menu_pie", "RIGHTMOUSE", "PRESS", alt=True
         )
         kmi_shader_pie.properties.name = "ALEC_MT_shader_edit_pie"
         _addon_keymaps_core.append((km_node, kmi_shader_pie))
 
-    km_window = kc.keymaps.new(name="Window", space_type="EMPTY")
-    kmi_alt_1 = km_window.keymap_items.new(
-        "alec.set_area_view3d_under_mouse", "ONE", "PRESS", alt=True
+    if _pref(prefs, "shortcut_grave_outliner_show_active"):
+        km_outliner = kc.keymaps.new(name="Outliner", space_type="OUTLINER", region_type="WINDOW")
+        kmi_outliner_show_active = km_outliner.keymap_items.new(
+            "outliner.show_active", "ACCENT_GRAVE", "PRESS"
+        )
+        _addon_keymaps_core.append((km_outliner, kmi_outliner_show_active))
+
+    need_window = any(
+        (
+            _pref(prefs, "shortcut_alt_1_view3d_under_mouse"),
+            _pref(prefs, "shortcut_alt_2_shader_object_under_mouse"),
+            _pref(prefs, "shortcut_alt_3_shader_world_under_mouse"),
+            _pref(prefs, "shortcut_alt_4_uv_under_mouse"),
+        )
     )
-    _addon_keymaps_core.append((km_window, kmi_alt_1))
-    kmi_alt_2 = km_window.keymap_items.new(
-        "alec.set_area_shader_under_mouse", "TWO", "PRESS", alt=True
-    )
-    kmi_alt_2.properties.mode = "OBJECT"
-    _addon_keymaps_core.append((km_window, kmi_alt_2))
-    kmi_alt_3 = km_window.keymap_items.new(
-        "alec.set_area_shader_under_mouse", "THREE", "PRESS", alt=True
-    )
-    kmi_alt_3.properties.mode = "WORLD"
-    _addon_keymaps_core.append((km_window, kmi_alt_3))
-    kmi_alt_4 = km_window.keymap_items.new(
-        "alec.set_area_uv_under_mouse", "FOUR", "PRESS", alt=True
-    )
-    _addon_keymaps_core.append((km_window, kmi_alt_4))
+    if need_window:
+        km_window = kc.keymaps.new(name="Window", space_type="EMPTY")
+        if _pref(prefs, "shortcut_alt_1_view3d_under_mouse"):
+            kmi_alt_1 = km_window.keymap_items.new(
+                "alec.set_area_view3d_under_mouse", "ONE", "PRESS", alt=True
+            )
+            _addon_keymaps_core.append((km_window, kmi_alt_1))
+        if _pref(prefs, "shortcut_alt_2_shader_object_under_mouse"):
+            kmi_alt_2 = km_window.keymap_items.new(
+                "alec.set_area_shader_under_mouse", "TWO", "PRESS", alt=True
+            )
+            kmi_alt_2.properties.mode = "OBJECT"
+            _addon_keymaps_core.append((km_window, kmi_alt_2))
+        if _pref(prefs, "shortcut_alt_3_shader_world_under_mouse"):
+            kmi_alt_3 = km_window.keymap_items.new(
+                "alec.set_area_shader_under_mouse", "THREE", "PRESS", alt=True
+            )
+            kmi_alt_3.properties.mode = "WORLD"
+            _addon_keymaps_core.append((km_window, kmi_alt_3))
+        if _pref(prefs, "shortcut_alt_4_uv_under_mouse"):
+            kmi_alt_4 = km_window.keymap_items.new(
+                "alec.set_area_uv_under_mouse", "FOUR", "PRESS", alt=True
+            )
+            _addon_keymaps_core.append((km_window, kmi_alt_4))
 
 
 def _register_toolbar_tool_keymaps():

@@ -183,7 +183,19 @@ class ALEC_MT_quad_menu(bpy.types.Menu):
         grid_origin.operator("alec.origin_to_active_rot", text="Active(R)", icon='ORIENTATION_GIMBAL')
         grid_origin.operator("alec.origin_to_selection", text="Selection", icon='PIVOT_CURSOR')
         grid_origin.operator("alec.origin_to_selection_rot", text="Selection(R)", icon='ORIENTATION_NORMAL')
-
+        prev_ctx = grid_origin.operator_context
+        grid_origin.operator_context = 'INVOKE_DEFAULT'
+        op = grid_origin.operator("alec.origin_rotate_axis", text="Rotate X", icon='DRIVER_ROTATIONAL_DIFFERENCE')
+        op.axis = 'X'
+        op.angle_degrees = 0.0
+        op = grid_origin.operator("alec.origin_rotate_axis", text="Rotate Y", icon='DRIVER_ROTATIONAL_DIFFERENCE')
+        op.axis = 'Y'
+        op.angle_degrees = 0.0
+        op = grid_origin.operator("alec.origin_rotate_axis", text="Rotate Z", icon='DRIVER_ROTATIONAL_DIFFERENCE')
+        op.axis = 'Z'
+        op.angle_degrees = 0.0
+        grid_origin.operator_context = prev_ctx
+        
         # --- Slice 4 (Top): Floating Shaders ---
         col_top = pie.column()
         box = col_top.box()

@@ -1,4 +1,6 @@
+import math
 import bpy
+from mathutils import Matrix
 from ..modules.utils import get_bounds_data
 
 
@@ -433,6 +435,94 @@ class ALEC_OT_cursor_to_selection(bpy.types.Operator):
             return {'CANCELLED'}
         return {'FINISHED'}
 
+
+class ALEC_OT_origin_rotate_axis(bpy.types.Operator):
+    """Rotate object origin around local axis while preserving geometry"""
+    bl_idname = "alec.origin_rotate_axis"
+    bl_label = "Origin Rotate Axis"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    axis: bpy.props.EnumProperty(
+        name="Axis",
+        items=[
+            ('X', "X", "Rotate origin around local X axis"),
+            ('Y', "Y", "Rotate origin around local Y axis"),
+            ('Z', "Z", "Rotate origin around local Z axis"),
+        ],
+        default='X',
+    ) # type: ignore
+
+    angle_degrees: bpy.props.FloatProperty(
+        name="Angle",
+        description="Rotation angle in degrees",
+        default=90.0,
+    ) # type: ignore
+
+    @classmethod
+    def poll(cls, context):
+        return bool(context.selected_objects)
+
+    def invoke(self, context, event):
+        if event.ctrl and not event.alt:
+            self.angle_degrees = 90.0
+        elif event.alt and not event.ctrl:
+            self.angle_degrees = -90.0
+        else:
+            self.angle_degrees = 0.0
+        return self.execute(context)
+
+    def execute(self, context):
+        saved_mode = context.mode
+        selected = list(context.selected_objects)
+        active = context.active_object
+
+        if saved_mode != 'OBJECT':
+            try:
+                bpy.ops.object.mode_set(mode='OBJECT')
+            except RuntimeError:
+                self.report({'ERROR'}, "Could not switch to Object Mode.")
+                return {'CANCELLED'}
+
+        angle = math.radians(self.angle_degrees)
+        rot_mat = Matrix.Rotation(angle, 4, self.axis)
+
+        skipped = 0
+        for obj in selected:
+            data = getattr(obj, "data", None)
+            if not data or not hasattr(data, "transform"):
+                skipped += 1
+                continue
+
+            # Use local transform (matrix_basis) instead of matrix_world to keep
+            # behaviour stable for parented objects while preserving geometry.
+            m_old = obj.matrix_basis.copy()
+            m_new = m_old @ rot_mat
+            data_correction = m_new.inverted() @ m_old
+
+            obj.matrix_basis = m_new
+            data.transform(data_correction)
+            data.update()
+
+        try:
+            bpy.ops.object.select_all(action='DESELECT')
+            for obj in selected:
+                obj.select_set(True)
+            if active:
+                context.view_layer.objects.active = active
+        except Exception:
+            pass
+
+        if saved_mode in {'EDIT_MESH', 'EDIT_CURVE', 'EDIT_CURVES'}:
+            try:
+                bpy.ops.object.mode_set(mode='EDIT')
+            except Exception:
+                pass
+
+        if skipped:
+            self.report({'INFO'}, f"Skipped {skipped} object(s) without transformable data")
+
+        return {'FINISHED'}
+
 classes = [
     ALEC_OT_cursor_to_selected,
     ALEC_OT_cursor_to_geometry_center,
@@ -446,4 +536,5 @@ classes = [
     ALEC_OT_origin_to_selection_rot,
     ALEC_OT_cursor_to_selection,
     ALEC_OT_cursor_to_selection_rot,
+    ALEC_OT_origin_rotate_axis,
 ]

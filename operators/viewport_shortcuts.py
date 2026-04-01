@@ -1,6 +1,7 @@
 """Viewport display toggles bound from shortcuts (F3 / F4 / F5)."""
 
 import bpy
+from ..modules.modal_handler import ModalNumberInput
 
 # Per 3D View area: saved shading when F3 wireframe+xray mode is active.
 _f3_wire_xray_saved: dict[int, dict] = {}
@@ -107,8 +108,153 @@ class ALEC_OT_viewport_toggle_solid_rendered(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class ALEC_OT_light_energy_modal(bpy.types.Operator):
+    """Adjust selected Light energy, Empty size, or Camera focal length"""
+
+    bl_idname = "alec.light_energy_modal"
+    bl_label = "Light Energy Drag"
+    bl_options = {"REGISTER", "UNDO", "BLOCKING"}
+
+    _light_names = None
+    _start_energy = None
+    _start_mouse_y = 0
+    _start_mouse_x = 0
+    _base_ref = 1.0
+    _typed_base = 0.0
+    _number_input = None
+    _mode = "LIGHT"
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        return bool(obj and obj.type in {"LIGHT", "EMPTY", "CAMERA"})
+
+    def _iter_lights(self):
+        for name in self._light_names or []:
+            obj = bpy.data.objects.get(name)
+            if obj and obj.type == self._mode:
+                if self._mode == "LIGHT" and getattr(obj, "data", None):
+                    yield obj
+                elif self._mode == "EMPTY":
+                    yield obj
+                elif self._mode == "CAMERA" and getattr(obj, "data", None):
+                    yield obj
+
+    def _get_obj_value(self, obj):
+        if self._mode == "EMPTY":
+            return float(obj.empty_display_size)
+        if self._mode == "CAMERA":
+            return float(obj.data.lens)
+        return float(obj.data.energy)
+
+    def _set_obj_value(self, obj, value):
+        val = max(0.0, float(value))
+        if self._mode == "EMPTY":
+            obj.empty_display_size = val
+        elif self._mode == "CAMERA":
+            obj.data.lens = max(1.0, val)
+        else:
+            obj.data.energy = val
+
+    def _set_energy_all(self, value):
+        for obj in self._iter_lights():
+            self._set_obj_value(obj, value)
+
+    def _update_header(self, context):
+        if not context.area:
+            return
+        if self._mode == "EMPTY":
+            label = "Empty Size"
+        elif self._mode == "CAMERA":
+            label = "Focal Length"
+        else:
+            label = "Light Energy"
+        typed = self._number_input.value_str if self._number_input else ""
+        if typed:
+            text = f"{label}: {typed} | Drag X | Shift=fine | Ctrl=fast | LMB/Enter=Confirm | RMB/Esc=Cancel"
+        else:
+            active = context.active_object
+            current = 0.0
+            if active and active.type == self._mode:
+                if self._mode == "EMPTY":
+                    current = float(active.empty_display_size)
+                elif self._mode == "CAMERA" and getattr(active, "data", None):
+                    current = float(active.data.lens)
+                elif getattr(active, "data", None):
+                    current = float(active.data.energy)
+            suffix = " mm" if self._mode == "CAMERA" else ""
+            text = f"{label}: {current:.3f}{suffix} | Drag X | Type value | LMB/Enter=Confirm | RMB/Esc=Cancel"
+        context.area.header_text_set(text)
+
+    def invoke(self, context, event):
+        active = context.active_object
+        if not active or active.type not in {"LIGHT", "EMPTY", "CAMERA"}:
+            self.report({"WARNING"}, "Active selection must be Light, Empty or Camera")
+            return {"CANCELLED"}
+
+        self._mode = active.type
+        selected_lights = [o for o in context.selected_objects if o.type == self._mode]
+        lights = selected_lights or [active]
+
+        self._light_names = [o.name for o in lights]
+        self._start_energy = {o.name: self._get_obj_value(o) for o in lights}
+        self._start_mouse_x = event.mouse_x
+        self._start_mouse_y = event.mouse_y
+        self._base_ref = max(max(self._start_energy.values(), default=1.0), 0.1)
+        self._typed_base = self._get_obj_value(active)
+        self._number_input = ModalNumberInput()
+
+        self._update_header(context)
+        context.window_manager.modal_handler_add(self)
+        return {"RUNNING_MODAL"}
+
+    def modal(self, context, event):
+        if event.type in {"LEFTMOUSE", "RET", "NUMPAD_ENTER"} and event.value == "PRESS":
+            if context.area:
+                context.area.header_text_set(None)
+            return {"FINISHED"}
+
+        if event.type in {"RIGHTMOUSE", "ESC"} and event.value == "PRESS":
+            for obj in self._iter_lights():
+                if obj.name in self._start_energy:
+                    self._set_obj_value(obj, self._start_energy[obj.name])
+            if context.area:
+                context.area.header_text_set(None)
+            return {"CANCELLED"}
+
+        if self._number_input and self._number_input.handle_event(event):
+            if self._number_input.has_value():
+                try:
+                    val = self._number_input.get_value(initial_value=self._typed_base)
+                    self._set_energy_all(val)
+                except ValueError:
+                    pass
+            self._update_header(context)
+            return {"RUNNING_MODAL"}
+
+        if event.type == "MOUSEMOVE":
+            if self._number_input:
+                self._number_input.reset()
+            dx = event.mouse_x - self._start_mouse_x
+            speed = 0.01 * self._base_ref
+            if event.shift:
+                speed *= 0.2
+            if event.ctrl:
+                speed *= 5.0
+            # Horizontal only: right increases, left decreases.
+            delta = dx * speed
+            for obj in self._iter_lights():
+                start = self._start_energy.get(obj.name, self._get_obj_value(obj))
+                self._set_obj_value(obj, start + delta)
+            self._update_header(context)
+            return {"RUNNING_MODAL"}
+
+        return {"RUNNING_MODAL"}
+
+
 classes = (
     ALEC_OT_viewport_toggle_wireframe_xray,
     ALEC_OT_viewport_toggle_overlay_wireframes,
     ALEC_OT_viewport_toggle_solid_rendered,
+    ALEC_OT_light_energy_modal,
 )
