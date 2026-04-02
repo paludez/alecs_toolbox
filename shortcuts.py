@@ -167,6 +167,13 @@ def _register_core_keymaps():
         kmi_shader_pie.properties.name = "ALEC_MT_shader_edit_pie"
         _addon_keymaps_core.append((km_node, kmi_shader_pie))
 
+        km_outliner = kc.keymaps.new(name="Outliner", space_type="OUTLINER", region_type="WINDOW")
+        kmi_outliner_pie = km_outliner.keymap_items.new(
+            "wm.call_menu_pie", "RIGHTMOUSE", "PRESS", alt=True
+        )
+        kmi_outliner_pie.properties.name = "ALEC_MT_outliner_pie"
+        _addon_keymaps_core.append((km_outliner, kmi_outliner_pie))
+
     if _pref(prefs, "shortcut_grave_outliner_show_active"):
         km_outliner = kc.keymaps.new(name="Outliner", space_type="OUTLINER", region_type="WINDOW")
         kmi_outliner_show_active = km_outliner.keymap_items.new(

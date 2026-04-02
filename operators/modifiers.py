@@ -2,6 +2,32 @@ import bpy
 from ..modules.modal_handler import BaseModalOperator
 from ..modules.utils import unit_suffixes, draw_modal_status_bar, get_unit_scale, move_to_collection, switch_to_modifier_tab
 
+def _find_layer_collection(layer_coll, target_coll):
+    if layer_coll.collection == target_coll:
+        return layer_coll
+    for child in layer_coll.children:
+        found = _find_layer_collection(child, target_coll)
+        if found:
+            return found
+    return None
+
+
+def _collection_contains(root, target):
+    if root == target:
+        return True
+    for child in root.children:
+        if _collection_contains(child, target):
+            return True
+    return False
+
+
+def _selected_outliner_collections(context):
+    result = []
+    for item in getattr(context, "selected_ids", []):
+        if isinstance(item, bpy.types.Collection):
+            result.append(item)
+    return result
+
 def get_boolean_collection(context):
     """Helper to get or create the hidden boolean collection."""
     coll_name = "Hidden_Bools"
@@ -11,10 +37,15 @@ def get_boolean_collection(context):
         coll = bpy.data.collections.new(coll_name)
         context.scene.collection.children.link(coll)
         coll.color_tag = 'COLOR_01'
-    
-    if context.view_layer.active_layer_collection.collection != coll:
-            coll.hide_viewport = True
+
+    # Keep collection visible in viewport flags, but excluded from current View Layer.
+    coll.hide_viewport = False
     coll.hide_render = True
+
+    layer_coll = _find_layer_collection(context.view_layer.layer_collection, coll)
+    if layer_coll:
+        layer_coll.exclude = True
+
     return coll
 
 class ALEC_OT_boolean_op(bpy.types.Operator):
@@ -299,6 +330,124 @@ class ALEC_OT_modifier_action(bpy.types.Operator):
 
         return {'FINISHED'}
 
+
+class ALEC_OT_hidden_bools_visibility(bpy.types.Operator):
+    """Control visibility for the Hidden_Bools collection"""
+    bl_idname = "alec.hidden_bools_visibility"
+    bl_label = "Hidden_Bools Visibility"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    action: bpy.props.EnumProperty(
+        items=[
+            ('TOGGLE', "Toggle", ""),
+            ('SHOW', "Show", ""),
+            ('HIDE', "Hide", ""),
+        ],
+        default='TOGGLE',
+    ) # type: ignore
+
+    def execute(self, context):
+        coll = bpy.data.collections.get("Hidden_Bools")
+        if coll is None:
+            self.report({'WARNING'}, "Hidden_Bools collection not found")
+            return {'CANCELLED'}
+
+        layer_coll = _find_layer_collection(context.view_layer.layer_collection, coll)
+        if layer_coll is None:
+            self.report({'WARNING'}, "Hidden_Bools not found in current View Layer")
+            return {'CANCELLED'}
+
+        if self.action == 'SHOW':
+            layer_coll.exclude = False
+        elif self.action == 'HIDE':
+            layer_coll.exclude = True
+        else:
+            layer_coll.exclude = not bool(layer_coll.exclude)
+
+        return {'FINISHED'}
+
+
+class ALEC_OT_move_to_hidden_obj(bpy.types.Operator):
+    """Move selected objects to Hidden_Obj collection and exclude it from View Layer"""
+    bl_idname = "alec.move_to_hidden_obj"
+    bl_label = "Move to Hidden_Obj"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return bool(context.selected_objects) or bool(_selected_outliner_collections(context))
+
+    def execute(self, context):
+        coll_name = "Hidden_Obj"
+        coll = bpy.data.collections.get(coll_name)
+        if coll is None:
+            coll = bpy.data.collections.new(coll_name)
+            context.scene.collection.children.link(coll)
+
+        coll.color_tag = 'COLOR_01'
+        coll.hide_viewport = False
+        coll.hide_render = True
+
+        moved_objects = 0
+        for obj in context.selected_objects:
+            move_to_collection(obj, coll)
+            moved_objects += 1
+
+        moved_collections = 0
+        skipped_collections = 0
+        for src_coll in _selected_outliner_collections(context):
+            if src_coll == coll or src_coll == context.scene.collection:
+                skipped_collections += 1
+                continue
+            # Avoid cyclic parenting (cannot move parent of Hidden_Obj under Hidden_Obj).
+            if _collection_contains(src_coll, coll):
+                skipped_collections += 1
+                continue
+
+            # Unlink from scene root as well (Scene Collection is not in bpy.data.collections).
+            if context.scene.collection.children.get(src_coll.name) is not None:
+                context.scene.collection.children.unlink(src_coll)
+
+            for parent in bpy.data.collections:
+                if parent.children.get(src_coll.name) is not None:
+                    parent.children.unlink(src_coll)
+            if coll.children.get(src_coll.name) is None:
+                coll.children.link(src_coll)
+            moved_collections += 1
+
+        layer_coll = _find_layer_collection(context.view_layer.layer_collection, coll)
+        if layer_coll is not None:
+            layer_coll.exclude = True
+
+        if skipped_collections:
+            self.report(
+                {'INFO'},
+                f"Moved {moved_objects} object(s), {moved_collections} collection(s), skipped {skipped_collections} collection(s)"
+            )
+
+        return {'FINISHED'}
+
+
+class ALEC_OT_hidden_obj_visibility(bpy.types.Operator):
+    """Toggle Hidden_Obj collection visibility via View Layer exclude"""
+    bl_idname = "alec.hidden_obj_visibility"
+    bl_label = "Hidden_Obj Visibility"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        coll = bpy.data.collections.get("Hidden_Obj")
+        if coll is None:
+            self.report({'WARNING'}, "Hidden_Obj collection not found")
+            return {'CANCELLED'}
+
+        layer_coll = _find_layer_collection(context.view_layer.layer_collection, coll)
+        if layer_coll is None:
+            self.report({'WARNING'}, "Hidden_Obj not found in current View Layer")
+            return {'CANCELLED'}
+
+        layer_coll.exclude = not bool(layer_coll.exclude)
+        return {'FINISHED'}
+
 classes = [
     ALEC_OT_boolean_op,
     ALEC_OT_slice_boolean,
@@ -306,4 +455,7 @@ classes = [
     ALEC_OT_add_simple_modifier,
     ALEC_OT_solidify_modal,
     ALEC_OT_modifier_action,
+    ALEC_OT_hidden_bools_visibility,
+    ALEC_OT_move_to_hidden_obj,
+    ALEC_OT_hidden_obj_visibility,
 ]

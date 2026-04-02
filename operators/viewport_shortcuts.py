@@ -252,9 +252,53 @@ class ALEC_OT_light_energy_modal(bpy.types.Operator):
         return {"RUNNING_MODAL"}
 
 
+class ALEC_OT_toggle_mesh_wire_textured(bpy.types.Operator):
+    """Toggle selected meshes display between Wire and Textured"""
+
+    bl_idname = "alec.toggle_mesh_wire_textured"
+    bl_label = "Toggle Mesh Wire/Textured"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        return any(o.type == "MESH" for o in context.selected_objects)
+
+    def execute(self, context):
+        meshes = [o for o in context.selected_objects if o.type == "MESH"]
+        if not meshes:
+            return {"CANCELLED"}
+        target = "TEXTURED" if all(o.display_type == "WIRE" for o in meshes) else "WIRE"
+        for obj in meshes:
+            obj.display_type = target
+        return {"FINISHED"}
+
+
+class ALEC_OT_toggle_mesh_bounds_textured(bpy.types.Operator):
+    """Toggle selected meshes display between Bounds and Textured"""
+
+    bl_idname = "alec.toggle_mesh_bounds_textured"
+    bl_label = "Toggle Mesh Bounds/Textured"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        return any(o.type == "MESH" for o in context.selected_objects)
+
+    def execute(self, context):
+        meshes = [o for o in context.selected_objects if o.type == "MESH"]
+        if not meshes:
+            return {"CANCELLED"}
+        target = "TEXTURED" if all(o.display_type == "BOUNDS" for o in meshes) else "BOUNDS"
+        for obj in meshes:
+            obj.display_type = target
+        return {"FINISHED"}
+
+
 classes = (
     ALEC_OT_viewport_toggle_wireframe_xray,
     ALEC_OT_viewport_toggle_overlay_wireframes,
     ALEC_OT_viewport_toggle_solid_rendered,
     ALEC_OT_light_energy_modal,
+    ALEC_OT_toggle_mesh_wire_textured,
+    ALEC_OT_toggle_mesh_bounds_textured,
 )

@@ -3,6 +3,15 @@ import math
 
 from . import menus_browser
 
+def _find_layer_collection(layer_coll, target_coll):
+    if layer_coll.collection == target_coll:
+        return layer_coll
+    for child in layer_coll.children:
+        found = _find_layer_collection(child, target_coll)
+        if found:
+            return found
+    return None
+
 
 def _shader_add_node(layout, text, icon, node_type: str):
     """node.add_node: type/use_transform are not valid UILayout.operator() kwargs in Blender 5."""
@@ -196,10 +205,38 @@ class ALEC_MT_quad_menu(bpy.types.Menu):
         op.angle_degrees = 0.0
         grid_origin.operator_context = prev_ctx
         
-        # --- Slice 4 (Top): Floating Shaders ---
+        # --- Slice 4 (Top): Visibility ---
         col_top = pie.column()
         box = col_top.box()
-        box.label(text="Floating Shaders", icon='WINDOW')
+        box.label(text="Visibility", icon='WINDOW')
+        grid_vis_tools = box.grid_flow(columns=2, align=True, even_columns=True)
+        coll = bpy.data.collections.get("Hidden_Bools")
+        if coll is not None:
+            layer_coll = _find_layer_collection(context.view_layer.layer_collection, coll)
+            if layer_coll is not None:
+                # Exclude=True means hidden from this view layer.
+                grid_vis_tools.prop(layer_coll, "exclude", text="Bools Toggle", toggle=True, icon='OUTLINER_COLLECTION')
+            else:
+                grid_vis_tools.operator("alec.hidden_bools_visibility", text="Bools Toggle", icon='OUTLINER_COLLECTION').action = 'TOGGLE'
+        else:
+            grid_vis_tools.operator("alec.hidden_bools_visibility", text="Bools Toggle", icon='OUTLINER_COLLECTION').action = 'TOGGLE'
+
+        coll_hidden_obj = bpy.data.collections.get("Hidden_Obj")
+        if coll_hidden_obj is not None:
+            layer_coll_hidden_obj = _find_layer_collection(context.view_layer.layer_collection, coll_hidden_obj)
+            if layer_coll_hidden_obj is not None:
+                grid_vis_tools.prop(
+                    layer_coll_hidden_obj, "exclude",
+                    text="Hidden_Obj Toggle", toggle=True, icon='HIDE_ON'
+                )
+            else:
+                grid_vis_tools.operator("alec.hidden_obj_visibility", text="Hidden_Obj Toggle", icon='HIDE_ON')
+        else:
+            grid_vis_tools.operator("alec.hidden_obj_visibility", text="Hidden_Obj Toggle", icon='HIDE_ON')
+        grid_vis_tools.operator("alec.move_to_hidden_obj", text="To Hidden_Obj", icon='HIDE_ON')
+        grid_vis_tools.operator("alec.toggle_mesh_wire_textured", text="Wire/Textured", icon='SHADING_WIRE')
+        grid_vis_tools.operator("alec.toggle_mesh_bounds_textured", text="Bounds/Textured", icon='SHADING_BBOX')
+
 
 
 class ALEC_MT_shader_edit_pie(bpy.types.Menu):
@@ -250,6 +287,48 @@ class ALEC_MT_uv_menu(bpy.types.Menu):
         pie.column()
         pie.column()
         pie.column()
+
+
+class ALEC_MT_outliner_pie(bpy.types.Menu):
+    bl_idname = "ALEC_MT_outliner_pie"
+    bl_label = "Alec Outliner Pie"
+
+    def draw(self, context):
+        pie = self.layout.menu_pie()
+
+        # Left / Right / Bottom intentionally kept empty for now.
+        pie.column()
+        pie.column()
+        pie.column()
+
+        # Top: Hidden collections controls
+        col_top = pie.column()
+        box = col_top.box()
+        box.label(text="Hidden Collections", icon='OUTLINER_COLLECTION')
+        grid = box.grid_flow(columns=2, align=True, even_columns=True)
+
+        coll_bools = bpy.data.collections.get("Hidden_Bools")
+        if coll_bools is not None:
+            layer_coll_bools = _find_layer_collection(context.view_layer.layer_collection, coll_bools)
+            if layer_coll_bools is not None:
+                grid.prop(layer_coll_bools, "exclude", text="Hidden_Bools", toggle=True, icon='OUTLINER_COLLECTION')
+            else:
+                grid.operator("alec.hidden_bools_visibility", text="Hidden_Bools", icon='OUTLINER_COLLECTION').action = 'TOGGLE'
+        else:
+            grid.operator("alec.hidden_bools_visibility", text="Hidden_Bools", icon='OUTLINER_COLLECTION').action = 'TOGGLE'
+
+        coll_hidden_obj = bpy.data.collections.get("Hidden_Obj")
+        if coll_hidden_obj is not None:
+            layer_coll_hidden_obj = _find_layer_collection(context.view_layer.layer_collection, coll_hidden_obj)
+            if layer_coll_hidden_obj is not None:
+                grid.prop(layer_coll_hidden_obj, "exclude", text="Hidden_Obj", toggle=True, icon='HIDE_ON')
+            else:
+                grid.operator("alec.hidden_obj_visibility", text="Hidden_Obj", icon='HIDE_ON')
+        else:
+            grid.operator("alec.hidden_obj_visibility", text="Hidden_Obj", icon='HIDE_ON')
+
+        grid.operator("alec.move_to_hidden_obj", text="To Hidden_Obj", icon='HIDE_ON')
+
 
 class ALEC_MT_edit_menu(bpy.types.Menu):
     bl_idname = "ALEC_MT_edit_menu"
@@ -464,6 +543,7 @@ classes = [
     ALEC_MT_edit_menu,
     ALEC_MT_edit_curve_menu,
     ALEC_MT_uv_menu,
+    ALEC_MT_outliner_pie,
     ALEC_MT_quad_menu,
     ALEC_MT_shader_edit_pie,
     *menus_browser.classes,
