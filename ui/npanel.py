@@ -2,8 +2,8 @@
 
 import bpy
 
-from .operators.camera_tools import _camera_data_from_context
-from .ui.transform import selection_math as sm
+from ..operators.camera_tools import _camera_data_from_context
+from .transform import selection_math as sm
 
 _TRANSFORM_UI_DUMMY_PROPS = {
     "alec_transform_ui_dummy_loc": bpy.props.FloatVectorProperty(

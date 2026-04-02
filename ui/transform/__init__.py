@@ -1,4 +1,4 @@
-"""Transform: operators, RNA, depsgraph (N-panel shell lives in npanel.py)."""
+"""Transform: operators, RNA, depsgraph (N-panel shell lives in ui/npanel.py)."""
 
 import bpy
 
