@@ -4,6 +4,29 @@ from mathutils import Vector
 _ALEC_TARGET_CON_NAME = "Alec Target"
 
 
+def _camera_target_empty_name(cam) -> str:
+    """Empty name: <camera name>_Target (one track target per scene camera)."""
+    return f"{cam.name}_Target"
+
+
+def _sync_empty_collections_with_camera(scene, empty, cam) -> None:
+    """Keep empty in the same collection(s) as the camera; unlink from others."""
+    cam_cols = list(cam.users_collection)
+    if not cam_cols:
+        if empty.name not in scene.collection.objects:
+            scene.collection.objects.link(empty)
+        return
+    for coll in list(empty.users_collection):
+        if coll not in cam_cols:
+            try:
+                coll.objects.unlink(empty)
+            except RuntimeError:
+                pass
+    for coll in cam_cols:
+        if empty.name not in coll.objects:
+            coll.objects.link(empty)
+
+
 def _empty_world_location_on_camera_axis(cam, world_point: Vector) -> Vector:
     """Point on camera view axis ∩ plane ⟂ axis through object (foot of O onto axis)."""
     mw = cam.matrix_world
@@ -25,14 +48,33 @@ def _object_bbox_center_world(obj) -> Vector:
     return acc * (1.0 / 8.0)
 
 
-def _ensure_empty_and_camera_track_to(context, cam, empty_name: str, loc: Vector) -> None:
+def _ensure_empty_and_camera_track_to(context, cam, loc: Vector) -> None:
+    base_name = _camera_target_empty_name(cam)
+    empty_name = base_name
     empty = bpy.data.objects.get(empty_name)
-    if empty is None or empty.type != "EMPTY":
+    if empty is not None and empty.type != "EMPTY":
+        empty = None
+        i = 1
+        while True:
+            candidate = f"{base_name}.{i:03d}"
+            o = bpy.data.objects.get(candidate)
+            if o is None:
+                empty_name = candidate
+                break
+            if o.type == "EMPTY":
+                empty = o
+                empty_name = candidate
+                break
+            i += 1
+    elif empty is None:
+        pass
+    else:
+        empty_name = empty.name
+    if empty is None:
         empty = bpy.data.objects.new(empty_name, None)
         empty.empty_display_type = "PLAIN_AXES"
         empty.empty_display_size = 0.5
-    if empty.name not in context.scene.objects:
-        context.scene.collection.objects.link(empty)
+    _sync_empty_collections_with_camera(context.scene, empty, cam)
     empty.location = loc
 
     old = cam.constraints.get(_ALEC_TARGET_CON_NAME)
@@ -99,6 +141,22 @@ def _camera_data_from_context(context):
     if cam and cam.type == "CAMERA":
         return cam.data
     return None
+
+
+def _scene_camera_alec_track_target(context):
+    """Object targeted by scene camera's Alec Track To constraint, or None."""
+    cam = context.scene.camera
+    if cam is None or cam.type != "CAMERA":
+        return None
+    con = cam.constraints.get(_ALEC_TARGET_CON_NAME)
+    if con is None or con.type != "TRACK_TO":
+        return None
+    tgt = con.target
+    if tgt is None:
+        return None
+    if tgt.name not in context.view_layer.objects:
+        return None
+    return tgt
 
 
 class ALEC_OT_camera_passepartout(bpy.types.Operator):
@@ -197,8 +255,8 @@ class ALEC_OT_camera_target_dist(bpy.types.Operator):
     bl_idname = "alec.camera_target_dist"
     bl_label = "Targ.Dist"
     bl_description = (
-        "Empty on the scene camera view axis (closest point to object center); "
-        "Track To on the scene camera to that empty"
+        "Empty <scene camera name>_Target on the camera view axis (closest to object center); "
+        "same collection(s) as the camera; Track To on the scene camera"
     )
     bl_options = {"REGISTER", "UNDO"}
 
@@ -223,8 +281,7 @@ class ALEC_OT_camera_target_dist(bpy.types.Operator):
         loc = _empty_world_location_on_camera_axis(
             cam, obj.matrix_world.translation
         )
-        empty_name = f"AlecTargetDist_{obj.name}"
-        _ensure_empty_and_camera_track_to(context, cam, empty_name, loc)
+        _ensure_empty_and_camera_track_to(context, cam, loc)
         return {"FINISHED"}
 
 
@@ -234,8 +291,8 @@ class ALEC_OT_camera_target_obj(bpy.types.Operator):
     bl_idname = "alec.camera_target_obj"
     bl_label = "Target.Obj"
     bl_description = (
-        "Empty at the world-space center of the active object's bounding box; "
-        "Track To on the scene camera to that empty"
+        "Empty <scene camera name>_Target at the active object's bbox center; "
+        "same collection(s) as the camera; Track To on the scene camera"
     )
     bl_options = {"REGISTER", "UNDO"}
 
@@ -258,8 +315,32 @@ class ALEC_OT_camera_target_obj(bpy.types.Operator):
             return {"CANCELLED"}
 
         loc = _object_bbox_center_world(obj)
-        empty_name = f"AlecTargetObj_{obj.name}"
-        _ensure_empty_and_camera_track_to(context, cam, empty_name, loc)
+        _ensure_empty_and_camera_track_to(context, cam, loc)
+        return {"FINISHED"}
+
+
+class ALEC_OT_camera_select_track_target(bpy.types.Operator):
+    """Select the scene camera's Alec track target (empty from Targ.Dist / Target.Obj)."""
+
+    bl_idname = "alec.camera_select_track_target"
+    bl_label = "Select camera target"
+    bl_description = "Select the object the scene camera tracks (Alec Target constraint)"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        return _scene_camera_alec_track_target(context) is not None
+
+    def execute(self, context):
+        tgt = _scene_camera_alec_track_target(context)
+        if tgt is None:
+            return {"CANCELLED"}
+        try:
+            bpy.ops.object.select_all(action="DESELECT")
+        except RuntimeError:
+            pass
+        tgt.select_set(True)
+        context.view_layer.objects.active = tgt
         return {"FINISHED"}
 
 
@@ -331,5 +412,6 @@ classes = (
     ALEC_OT_view_center_camera,
     ALEC_OT_camera_target_dist,
     ALEC_OT_camera_target_obj,
+    ALEC_OT_camera_select_track_target,
     ALEC_OT_new_camera_to_view,
 )

@@ -1,8 +1,8 @@
 import bpy
 import math
 
-from . import menus_browser
-from .quad_menu import ALEC_MT_quad_menu, find_layer_collection
+from .ui import menu_operators_browser
+from .ui.menu_quad import ALEC_MT_quad_menu, find_layer_collection
 
 
 def _shader_add_node(layout, text, icon, node_type: str):
@@ -417,7 +417,7 @@ classes = [
     ALEC_MT_outliner_pie,
     ALEC_MT_quad_menu,
     ALEC_MT_shader_edit_pie,
-    *menus_browser.classes,
+    *menu_operators_browser.classes,
 ]
 
 def register():

@@ -258,6 +258,11 @@ def _draw_camera_tools(layout, context):
     row_tgt = col.row(align=True)
     row_tgt.operator("alec.camera_target_dist", text="Targ.Dist")
     row_tgt.operator("alec.camera_target_obj", text="Target.Obj")
+    row_tgt.operator(
+        "alec.camera_select_track_target",
+        text="",
+        icon="RESTRICT_SELECT_OFF",
+    )
 
 
 class ALEC_PT_alec_transform(bpy.types.Panel):
