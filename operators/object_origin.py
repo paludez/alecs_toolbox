@@ -523,6 +523,51 @@ class ALEC_OT_origin_rotate_axis(bpy.types.Operator):
 
         return {'FINISHED'}
 
+
+class ALEC_OT_selection_rotate_axis_90(bpy.types.Operator):
+    """Rotate selection (or selected objects) ±90° around local X/Y/Z — Object / Edit Mesh / Edit Curve."""
+    bl_idname = "alec.selection_rotate_axis_90"
+    bl_label = "Rotate selection ±90°"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    axis: bpy.props.EnumProperty(
+        name="Axis",
+        items=[
+            ('X', "X", "Local X"),
+            ('Y', "Y", "Local Y"),
+            ('Z', "Z", "Local Z"),
+        ],
+        default='X',
+    )  # type: ignore
+
+    angle_degrees: bpy.props.FloatProperty(
+        name="Angle",
+        description="Rotation in degrees (typically ±90)",
+        default=90.0,
+    )  # type: ignore
+
+    @classmethod
+    def poll(cls, context):
+        mode = context.mode
+        if mode == 'OBJECT':
+            return bool(context.selected_objects)
+        if mode in {'EDIT_MESH', 'EDIT_CURVE', 'EDIT_CURVES'}:
+            return context.edit_object is not None
+        return False
+
+    def execute(self, context):
+        try:
+            bpy.ops.transform.rotate(
+                value=math.radians(self.angle_degrees),
+                orient_axis=self.axis,
+                orient_type='LOCAL',
+            )
+        except RuntimeError as exc:
+            self.report({'WARNING'}, str(exc))
+            return {'CANCELLED'}
+        return {'FINISHED'}
+
+
 classes = [
     ALEC_OT_cursor_to_selected,
     ALEC_OT_cursor_to_geometry_center,
@@ -537,4 +582,5 @@ classes = [
     ALEC_OT_cursor_to_selection,
     ALEC_OT_cursor_to_selection_rot,
     ALEC_OT_origin_rotate_axis,
+    ALEC_OT_selection_rotate_axis_90,
 ]

@@ -19,15 +19,18 @@ class ALEC_MT_quad_menu(bpy.types.Menu):
 
     def draw(self, context):
         pie = self.layout.menu_pie()
-        # Pie slice ordering for Alt+RightClick:
-        # 1) Left  : Viewport
+        # Ordine pie (4 felii): Stânga | Dreapta | Jos | Sus
+        # 1) Left  : Viewport | Rotate sel. (ca BBox | Align)
         # 2) Right : Pivot + Orientation + Snap
         # 3) Bottom: Cursor + Origin
         # 4) Top   : Visibility
 
-        # --- Slice 1 (Left): Viewport ---
+        # --- Slice 1 (Left): Viewport | Rotate sel. ---
         col_left = pie.column()
-        box_view = col_left.box()
+        row_lv = col_left.row()
+
+        col_view = row_lv.column()
+        box_view = col_view.box()
         box_view.label(text="Viewport", icon='RESTRICT_VIEW_OFF')
         col_inner = box_view.column(align=True)
         grid_vis = col_inner.grid_flow(columns=3, align=True, even_columns=True)
@@ -37,6 +40,28 @@ class ALEC_MT_quad_menu(bpy.types.Menu):
         grid_vis.prop(context.space_data, "show_object_viewport_light", text="Light", icon='LIGHT_DATA', toggle=True)
         grid_vis.prop(context.space_data, "show_object_viewport_camera", text="Camera", icon='CAMERA_DATA', toggle=True)
         col_inner.operator("alec.viewport_show_common_types", text="Show All", icon='CHECKMARK')
+
+        col_rot = row_lv.column()
+        box_rot = col_rot.box()
+        box_rot.label(text="Rotate selection", icon='DRIVER_ROTATIONAL_DIFFERENCE')
+        col_rot_btns = box_rot.column(align=True)
+        prev_rot_ctx = col_rot_btns.operator_context
+        col_rot_btns.operator_context = 'EXEC_DEFAULT'
+        for axis in ('X', 'Y', 'Z'):
+            row_ax = col_rot_btns.row(align=True)
+            op_m = row_ax.operator(
+                "alec.selection_rotate_axis_90",
+                text=f"-90 {axis}",
+            )
+            op_m.axis = axis
+            op_m.angle_degrees = -90.0
+            op_p = row_ax.operator(
+                "alec.selection_rotate_axis_90",
+                text=f"+90 {axis}",
+            )
+            op_p.axis = axis
+            op_p.angle_degrees = 90.0
+        col_rot_btns.operator_context = prev_rot_ctx
 
         # --- Slice 2 (Right): Pivot Point ---
         col_right = pie.column()
@@ -101,9 +126,9 @@ class ALEC_MT_quad_menu(bpy.types.Menu):
 
         # --- Slice 4 (Top): Visibility ---
         col_top = pie.column()
-        box = col_top.box()
-        box.label(text="Visibility", icon='WINDOW')
-        grid_vis_tools = box.grid_flow(columns=2, align=True, even_columns=True)
+        box_vis = col_top.box()
+        box_vis.label(text="Visibility", icon='WINDOW')
+        grid_vis_tools = box_vis.grid_flow(columns=2, align=True, even_columns=True)
         coll = bpy.data.collections.get("Hidden_Bools")
         if coll is not None:
             layer_coll = find_layer_collection(context.view_layer.layer_collection, coll)
@@ -127,5 +152,5 @@ class ALEC_MT_quad_menu(bpy.types.Menu):
         else:
             grid_vis_tools.operator("alec.hidden_obj_visibility", text="Hidden_Obj Toggle", icon='HIDE_ON')
         grid_vis_tools.operator("alec.move_to_hidden_obj", text="To Hidden_Obj", icon='HIDE_ON')
-        grid_vis_tools.operator("alec.toggle_mesh_wire_textured", text="Wire/Textured", icon='SHADING_WIRE')
-        grid_vis_tools.operator("alec.toggle_mesh_bounds_textured", text="Bounds/Textured", icon='SHADING_BBOX')
+        grid_vis_tools.operator("alec.toggle_mesh_wire_textured", text="Wire Togg", icon='SHADING_WIRE')
+        grid_vis_tools.operator("alec.toggle_mesh_bounds_textured", text="Box Togg", icon='SHADING_BBOX')
