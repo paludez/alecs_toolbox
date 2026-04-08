@@ -17,6 +17,9 @@ _km_object_mode = None
 _km_mesh_edit = None
 _km_move_tool_object = None
 _km_move_tool_mesh = None
+_km_move_tool_curve = None
+_km_move_tool_curves = None
+_km_move_tool_uv = None
 
 
 def _addon_prefs():
@@ -227,6 +230,8 @@ def _register_toolbar_tool_keymaps():
         return
 
     global _km_move_tool_object, _km_move_tool_mesh
+    global _km_move_tool_curve, _km_move_tool_curves
+    global _km_move_tool_uv
     wm = bpy.context.window_manager
     kc = wm.keyconfigs.addon
     if not kc:
@@ -239,13 +244,33 @@ def _register_toolbar_tool_keymaps():
         _km_move_tool_mesh = kc.keymaps.new(
             "Mesh", space_type="EMPTY", region_type="WINDOW"
         )
+    if _km_move_tool_curve is None:
+        _km_move_tool_curve = kc.keymaps.new(
+            "Curve", space_type="EMPTY", region_type="WINDOW"
+        )
+    if _km_move_tool_curves is None:
+        _km_move_tool_curves = kc.keymaps.new(
+            "Curves", space_type="EMPTY", region_type="WINDOW"
+        )
+    # UV Edit: keymap „UV Editor” (nu „Image” / paint).
+    if _km_move_tool_uv is None:
+        _km_move_tool_uv = kc.keymaps.new(
+            "UV Editor", space_type="EMPTY", region_type="WINDOW"
+        )
+    _toolbar_kms = (
+        _km_move_tool_object,
+        _km_move_tool_mesh,
+        _km_move_tool_curve,
+        _km_move_tool_curves,
+        _km_move_tool_uv,
+    )
     if _pref(prefs, "shortcut_w_move_tool"):
-        for km in (_km_move_tool_object, _km_move_tool_mesh):
+        for km in _toolbar_kms:
             kmi = km.keymap_items.new("wm.tool_set_by_id", "W", "PRESS")
             kmi.properties.name = "builtin.move"
             _addon_keymaps_toolbar_tools.append((km, kmi))
     if _pref(prefs, "shortcut_e_rotate_tool"):
-        for km in (_km_move_tool_object, _km_move_tool_mesh):
+        for km in _toolbar_kms:
             kmi = km.keymap_items.new("wm.tool_set_by_id", "E", "PRESS")
             kmi.properties.name = "builtin.rotate"
             _addon_keymaps_toolbar_tools.append((km, kmi))

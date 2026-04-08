@@ -254,6 +254,11 @@ def _draw_camera_tools(layout, context):
         text="",
         icon="SHADING_BBOX",
     )
+    row.operator(
+        "alec.select_scene_camera",
+        text="",
+        icon="OUTLINER_OB_CAMERA",
+    )
     col.separator()
     row_tgt = col.row(align=True)
     row_tgt.operator("alec.camera_target_dist", text="Targ.Dist")

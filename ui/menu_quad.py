@@ -20,12 +20,12 @@ class ALEC_MT_quad_menu(bpy.types.Menu):
     def draw(self, context):
         pie = self.layout.menu_pie()
         # Ordine pie (4 felii): Stânga | Dreapta | Jos | Sus
-        # 1) Left  : Viewport | Rotate sel. (ca BBox | Align)
+        # 1) Left  : Viewport | Align View (+ rotate ±90°)
         # 2) Right : Pivot + Orientation + Snap
         # 3) Bottom: Cursor + Origin
         # 4) Top   : Visibility
 
-        # --- Slice 1 (Left): Viewport | Rotate sel. ---
+        # --- Slice 1 (Left): Viewport | Align View ---
         col_left = pie.column()
         row_lv = col_left.row()
 
@@ -43,7 +43,22 @@ class ALEC_MT_quad_menu(bpy.types.Menu):
 
         col_rot = row_lv.column()
         box_rot = col_rot.box()
-        box_rot.label(text="Rotate selection", icon='DRIVER_ROTATIONAL_DIFFERENCE')
+        box_rot.label(text="Align View", icon='VIEW_PERSPECTIVE')
+        grid_align = box_rot.grid_flow(columns=2, align=True, even_columns=True)
+        for axis_type, label in (
+            ("TOP", "Top"),
+            ("BOTTOM", "Bottom"),
+            ("FRONT", "Front"),
+            ("BACK", "Back"),
+            ("RIGHT", "Right"),
+            ("LEFT", "Left"),
+        ):
+            op = grid_align.operator("view3d.view_axis", text=label)
+            op.align_active = True
+            op.type = axis_type
+
+        box_rot.separator(factor=0.5)
+        box_rot.label(text="Rotate ±90°", icon='DRIVER_ROTATIONAL_DIFFERENCE')
         col_rot_btns = box_rot.column(align=True)
         prev_rot_ctx = col_rot_btns.operator_context
         col_rot_btns.operator_context = 'EXEC_DEFAULT'

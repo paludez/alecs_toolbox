@@ -344,6 +344,34 @@ class ALEC_OT_camera_select_track_target(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class ALEC_OT_select_scene_camera(bpy.types.Operator):
+    """Select the scene camera object (scene.camera)."""
+
+    bl_idname = "alec.select_scene_camera"
+    bl_label = "Select scene camera"
+    bl_description = "Select and activate the scene camera (render camera)"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        cam = context.scene.camera
+        if cam is None or cam.type != "CAMERA":
+            return False
+        return cam.name in context.view_layer.objects
+
+    def execute(self, context):
+        cam = context.scene.camera
+        if cam is None:
+            return {"CANCELLED"}
+        try:
+            bpy.ops.object.select_all(action="DESELECT")
+        except RuntimeError:
+            pass
+        cam.select_set(True)
+        context.view_layer.objects.active = cam
+        return {"FINISHED"}
+
+
 class ALEC_OT_new_camera_to_view(bpy.types.Operator):
     """Add a camera and match the current 3D View (bpy.ops.object.camera_add + view3d.camera_to_view).
 
@@ -413,5 +441,6 @@ classes = (
     ALEC_OT_camera_target_dist,
     ALEC_OT_camera_target_obj,
     ALEC_OT_camera_select_track_target,
+    ALEC_OT_select_scene_camera,
     ALEC_OT_new_camera_to_view,
 )
