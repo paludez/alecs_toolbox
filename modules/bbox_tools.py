@@ -17,7 +17,20 @@ def set_shading_to_object(context):
                 if space.type == 'VIEW_3D':
                     space.shading.wireframe_color_type = 'OBJECT'
 
-def create_bbox(context, mode='LOCAL'):
+
+def move_to_same_collections(obj, source_obj):
+    source_collections = list(source_obj.users_collection)
+    if not source_collections:
+        return
+
+    for coll in list(obj.users_collection):
+        coll.objects.unlink(obj)
+
+    for coll in source_collections:
+        if obj.name not in coll.objects:
+            coll.objects.link(obj)
+
+def create_bbox(context, mode='LOCAL', apply_extras=True):
     selected_meshes = [o for o in context.selected_objects if o.type == 'MESH']
     active = context.active_object
     if not selected_meshes or not active: 
@@ -71,11 +84,15 @@ def create_bbox(context, mode='LOCAL'):
         bbox.dimensions = size_world
 
     bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
-    setup_bbox_visibility(bbox)
-    set_shading_to_object(context)
+    if apply_extras:
+        setup_bbox_visibility(bbox)
+        set_shading_to_object(context)
     
-    helpers_coll = get_or_create_collection(context)
-    move_to_collection(bbox, helpers_coll)
+    if apply_extras:
+        helpers_coll = get_or_create_collection(context)
+        move_to_collection(bbox, helpers_coll)
+    else:
+        move_to_same_collections(bbox, active)
     
     bpy.ops.object.select_all(action='DESELECT')
     for o in selected_meshes:

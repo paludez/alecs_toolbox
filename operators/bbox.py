@@ -9,12 +9,20 @@ class BBoxOperatorBase:
     bl_options = {'REGISTER', 'UNDO'}
     mode: str = ""
 
+    def invoke(self, context, event):
+        self.minimal_mode = bool(event.shift)
+        return self.execute(context)
+
     def execute(self, context):
         if not self.mode:
             self.report({'ERROR'}, "Mode not set in BBox operator subclass") # type: ignore
             return {'CANCELLED'}
-        
-        if bbox_tools.create_bbox(context, mode=self.mode) is None:
+
+        if bbox_tools.create_bbox(
+            context,
+            mode=self.mode,
+            apply_extras=not getattr(self, "minimal_mode", False),
+        ) is None:
             self.report({'WARNING'}, "Select at least one mesh object.")  # type: ignore
             return {'CANCELLED'}
         return {'FINISHED'}
@@ -31,6 +39,7 @@ class ALEC_OT_bbox_offset_modal(BaseModalOperator, bpy.types.Operator):
     def invoke(self, context, event):
         """Setup for the modal operator."""
         self.source_obj = context.active_object
+        self.minimal_mode = bool(event.shift)
         if not self.source_obj or self.source_obj.type != 'MESH':
             self.report({'WARNING'}, "No valid mesh object selected.")
             return {'CANCELLED'}
@@ -78,11 +87,13 @@ class ALEC_OT_bbox_offset_modal(BaseModalOperator, bpy.types.Operator):
         mesh.vertices.foreach_set("co", flat_coords)
         mesh.update()
 
-        bbox_tools.setup_bbox_visibility(offset_obj, color=(0.0, 0.5, 1.0, 1.0))
-        bbox_tools.set_shading_to_object(context)
-        
-        from ..modules.utils import move_to_collection, get_or_create_collection
-        move_to_collection(offset_obj, get_or_create_collection(context))
+        if not self.minimal_mode:
+            bbox_tools.setup_bbox_visibility(offset_obj, color=(0.0, 0.5, 1.0, 1.0))
+            bbox_tools.set_shading_to_object(context)
+            from ..modules.utils import move_to_collection, get_or_create_collection
+            move_to_collection(offset_obj, get_or_create_collection(context))
+        else:
+            bbox_tools.move_to_same_collections(offset_obj, self.source_obj)
 
     def get_header_args(self, context):
         return {"main_label": "Offset", "main_value": self.offset * self.unit_scale_display_inv, 

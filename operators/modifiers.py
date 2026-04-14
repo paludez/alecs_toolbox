@@ -448,6 +448,35 @@ class ALEC_OT_hidden_obj_visibility(bpy.types.Operator):
         layer_coll.exclude = not bool(layer_coll.exclude)
         return {'FINISHED'}
 
+
+class ALEC_OT_delete_empty_collections(bpy.types.Operator):
+    """Delete all empty collections in current .blend (excluding Scene Collection)"""
+    bl_idname = "alec.delete_empty_collections"
+    bl_label = "Delete Empty Collections"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        del_count = 0
+
+        # Repeatedly remove empty leaf collections; parents may become empty afterwards.
+        while True:
+            to_delete = [
+                coll for coll in bpy.data.collections
+                if len(coll.objects) == 0 and len(coll.children) == 0
+            ]
+            if not to_delete:
+                break
+            for coll in to_delete:
+                bpy.data.collections.remove(coll)
+                del_count += 1
+
+        if del_count == 0:
+            self.report({'INFO'}, "No empty collections found")
+            return {'CANCELLED'}
+
+        self.report({'INFO'}, f"Deleted {del_count} empty collection(s)")
+        return {'FINISHED'}
+
 classes = [
     ALEC_OT_boolean_op,
     ALEC_OT_slice_boolean,
@@ -458,4 +487,5 @@ classes = [
     ALEC_OT_hidden_bools_visibility,
     ALEC_OT_move_to_hidden_obj,
     ALEC_OT_hidden_obj_visibility,
+    ALEC_OT_delete_empty_collections,
 ]

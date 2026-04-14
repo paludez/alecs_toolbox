@@ -199,6 +199,7 @@ class ALEC_MT_outliner_pie(bpy.types.Menu):
             grid.operator("alec.hidden_obj_visibility", text="Hidden_Obj", icon='HIDE_ON')
 
         grid.operator("alec.move_to_hidden_obj", text="To Hidden_Obj", icon='HIDE_ON')
+        grid.operator("alec.delete_empty_collections", text="Clear Empty Cols", icon='TRASH')
 
 
 class ALEC_MT_edit_menu(bpy.types.Menu):

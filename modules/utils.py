@@ -14,7 +14,12 @@ def get_bounds_in_space(obj, space_matrix):
     """
     depsgraph = bpy.context.evaluated_depsgraph_get()
     obj_eval = obj.evaluated_get(depsgraph)
-    mesh_eval = obj_eval.to_mesh()
+    try:
+        mesh_eval = obj_eval.to_mesh()
+    except RuntimeError:
+        # Objects like EMPTY do not provide geometry data.
+        zero = Vector((0, 0, 0))
+        return (zero, zero)
 
     if not mesh_eval.vertices:
         obj_eval.to_mesh_clear()
@@ -53,7 +58,11 @@ def get_bounds_data(obj, point_type='CENTER', space='LOCAL'):
     else:
         depsgraph = bpy.context.evaluated_depsgraph_get()
         obj_eval = obj.evaluated_get(depsgraph)
-        mesh_eval = obj_eval.to_mesh()
+        try:
+            mesh_eval = obj_eval.to_mesh()
+        except RuntimeError:
+            # Non-geometry objects (e.g. EMPTY) should align by pivot location.
+            return obj.matrix_world.to_translation()
         
         verts_count = len(mesh_eval.vertices)
         if verts_count == 0:
