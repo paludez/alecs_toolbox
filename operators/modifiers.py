@@ -1,40 +1,7 @@
 import bpy
 from ..modules.modal_handler import BaseModalOperator
-from ..modules.utils import unit_suffixes, draw_modal_status_bar, get_unit_scale, move_to_collection, switch_to_modifier_tab, find_layer_collection, collection_in_subtree
-
-
-def _selected_outliner_collections(context):
-    result = []
-    for item in getattr(context, "selected_ids", []):
-        if isinstance(item, bpy.types.Collection):
-            result.append(item)
-    return result
-
-def _ensure_hidden_collection(context, coll_name, color_tag):
-    """Get or create a hidden auxiliary collection excluded from the View Layer."""
-    if coll_name in bpy.data.collections:
-        coll = bpy.data.collections[coll_name]
-    else:
-        coll = bpy.data.collections.new(coll_name)
-        context.scene.collection.children.link(coll)
-        coll.color_tag = color_tag
-
-    coll.hide_viewport = False
-    coll.hide_render = True
-
-    layer_coll = find_layer_collection(context.view_layer.layer_collection, coll)
-    if layer_coll:
-        layer_coll.exclude = True
-
-    return coll
-
-
-def get_boolean_collection(context):
-    return _ensure_hidden_collection(context, "Hidden_Bools", 'COLOR_01')
-
-
-def get_hidden_sources_collection(context):
-    return _ensure_hidden_collection(context, "Hidden_Sources", 'COLOR_05')
+from ..modules.utils import unit_suffixes, draw_modal_status_bar, get_unit_scale, move_to_collection, switch_to_modifier_tab
+from .outliner import get_boolean_collection, get_hidden_sources_collection
 
 class ALEC_OT_boolean_op(bpy.types.Operator):
     """Add Boolean Modifier and hide target in 'Hidden_Bools'"""
@@ -369,92 +336,6 @@ class ALEC_OT_modifier_action(bpy.types.Operator):
         return {'FINISHED'}
 
 
-class ALEC_OT_hidden_collection_visibility(bpy.types.Operator):
-    """Toggle exclude state of a hidden auxiliary collection in the current View Layer"""
-    bl_idname = "alec.hidden_collection_visibility"
-    bl_label = "Hidden Collection Visibility"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    coll_name: bpy.props.StringProperty() # type: ignore
-    action: bpy.props.EnumProperty(
-        items=[
-            ('TOGGLE', "Toggle", ""),
-            ('SHOW', "Show", ""),
-            ('HIDE', "Hide", ""),
-        ],
-        default='TOGGLE',
-    ) # type: ignore
-
-    def execute(self, context):
-        coll = bpy.data.collections.get(self.coll_name)
-        if coll is None:
-            self.report({'WARNING'}, f"{self.coll_name} collection not found")
-            return {'CANCELLED'}
-
-        layer_coll = find_layer_collection(context.view_layer.layer_collection, coll)
-        if layer_coll is None:
-            self.report({'WARNING'}, f"{self.coll_name} not found in current View Layer")
-            return {'CANCELLED'}
-
-        if self.action == 'SHOW':
-            layer_coll.exclude = False
-        elif self.action == 'HIDE':
-            layer_coll.exclude = True
-        else:
-            layer_coll.exclude = not bool(layer_coll.exclude)
-
-        return {'FINISHED'}
-
-
-class ALEC_OT_move_to_hidden_obj(bpy.types.Operator):
-    """Move selected objects to Hidden_Obj collection and exclude it from View Layer"""
-    bl_idname = "alec.move_to_hidden_obj"
-    bl_label = "Move to Hidden_Obj"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    @classmethod
-    def poll(cls, context):
-        return bool(context.selected_objects) or bool(_selected_outliner_collections(context))
-
-    def execute(self, context):
-        coll = _ensure_hidden_collection(context, "Hidden_Obj", 'COLOR_01')
-
-        moved_objects = 0
-        for obj in context.selected_objects:
-            move_to_collection(obj, coll)
-            moved_objects += 1
-
-        moved_collections = 0
-        skipped_collections = 0
-        for src_coll in _selected_outliner_collections(context):
-            if src_coll == coll or src_coll == context.scene.collection:
-                skipped_collections += 1
-                continue
-            # Avoid cyclic parenting (cannot move parent of Hidden_Obj under Hidden_Obj).
-            if collection_in_subtree(src_coll, coll):
-                skipped_collections += 1
-                continue
-
-            # Unlink from scene root as well (Scene Collection is not in bpy.data.collections).
-            if context.scene.collection.children.get(src_coll.name) is not None:
-                context.scene.collection.children.unlink(src_coll)
-
-            for parent in bpy.data.collections:
-                if parent.children.get(src_coll.name) is not None:
-                    parent.children.unlink(src_coll)
-            if coll.children.get(src_coll.name) is None:
-                coll.children.link(src_coll)
-            moved_collections += 1
-
-        if skipped_collections:
-            self.report(
-                {'INFO'},
-                f"Moved {moved_objects} object(s), {moved_collections} collection(s), skipped {skipped_collections} collection(s)"
-            )
-
-        return {'FINISHED'}
-
-
 class ALEC_OT_bake_mesh_hide_source(bpy.types.Operator):
     """Duplicate active object, convert the copy to mesh (applying modifiers),
     move the original to Hidden_Sources collection, and keep the baked mesh active."""
@@ -502,34 +383,6 @@ class ALEC_OT_bake_mesh_hide_source(bpy.types.Operator):
         return {'FINISHED'}
 
 
-class ALEC_OT_delete_empty_collections(bpy.types.Operator):
-    """Delete all empty collections in current .blend (excluding Scene Collection)"""
-    bl_idname = "alec.delete_empty_collections"
-    bl_label = "Delete Empty Collections"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    def execute(self, context):
-        del_count = 0
-
-        # Repeatedly remove empty leaf collections; parents may become empty afterwards.
-        while True:
-            to_delete = [
-                coll for coll in bpy.data.collections
-                if len(coll.objects) == 0 and len(coll.children) == 0
-            ]
-            if not to_delete:
-                break
-            for coll in to_delete:
-                bpy.data.collections.remove(coll)
-                del_count += 1
-
-        if del_count == 0:
-            self.report({'INFO'}, "No empty collections found")
-            return {'CANCELLED'}
-
-        self.report({'INFO'}, f"Deleted {del_count} empty collection(s)")
-        return {'FINISHED'}
-
 classes = [
     ALEC_OT_boolean_op,
     ALEC_OT_slice_boolean,
@@ -538,8 +391,5 @@ classes = [
     ALEC_OT_solidify_modal,
     ALEC_OT_bevel_weight_modal,
     ALEC_OT_modifier_action,
-    ALEC_OT_hidden_collection_visibility,
-    ALEC_OT_move_to_hidden_obj,
     ALEC_OT_bake_mesh_hide_source,
-    ALEC_OT_delete_empty_collections,
 ]

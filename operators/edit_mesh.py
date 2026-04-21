@@ -1263,6 +1263,26 @@ class ALEC_OT_extract_and_solidify(bpy.types.Operator):
             
         return {'FINISHED'}
 
+class ALEC_OT_select_similar_face_material(bpy.types.Operator):
+    """Select faces with the same material (only available in face select mode)."""
+    bl_idname = "alec.select_similar_face_material"
+    bl_label = "Select Similar (Material)"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        return (
+            obj is not None
+            and obj.type == 'MESH'
+            and context.mode == 'EDIT_MESH'
+            and context.tool_settings.mesh_select_mode[2]
+        )
+
+    def execute(self, context):
+        return bpy.ops.mesh.select_similar('EXEC_DEFAULT', type='FACE_MATERIAL', compare='EQUAL', threshold=0.0)
+
+
 classes = [
     ALEC_OT_set_edge_length,
     ALEC_OT_equalize_edge_lengths,
@@ -1275,4 +1295,5 @@ classes = [
     ALEC_OT_make_circle,
     ALEC_OT_clean_mesh,
     ALEC_OT_extract_and_solidify,
+    ALEC_OT_select_similar_face_material,
 ]

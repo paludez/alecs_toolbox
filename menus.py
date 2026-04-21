@@ -49,7 +49,7 @@ _SHADER_EDIT_PIE_NODES_NORMAL = (
     ("Principled", "SHADING_RENDERED", "ShaderNodeBsdfPrincipled"),
     ("Emission", "LIGHT", "ShaderNodeEmission"),
     ("Glass", "SHADING_RENDERED", "ShaderNodeBsdfGlass"),
-    ("Gloassy", "SHADING_RENDERED", "ShaderNodeBsdfGlossy"),
+    ("Glossy", "SHADING_RENDERED", "ShaderNodeBsdfGlossy"),
     _SHADER_PIE_SEP,
     ("RGB", "COLOR", "ShaderNodeRGB"),
     ("Value", "LINENUMBERS_OFF", "ShaderNodeValue"),
@@ -167,13 +167,12 @@ class ALEC_MT_outliner_pie(bpy.types.Menu):
     def draw(self, context):
         pie = self.layout.menu_pie()
 
-        # Left / Right / Bottom intentionally kept empty for now.
         pie.column()
         pie.column()
         pie.column()
 
-        # Top: Hidden collections controls
         col_top = pie.column()
+
         box = col_top.box()
         box.label(text="Hidden Collections", icon='OUTLINER_COLLECTION')
         grid = box.grid_flow(columns=2, align=True, even_columns=True)
@@ -184,6 +183,11 @@ class ALEC_MT_outliner_pie(bpy.types.Menu):
 
         grid.operator("alec.move_to_hidden_obj", text="To Hidden_Obj", icon='HIDE_ON')
         grid.operator("alec.delete_empty_collections", text="Clear Empty Cols", icon='TRASH')
+
+        box_obj = col_top.box()
+        box_obj.label(text="Objects", icon='OBJECT_DATA')
+        col_obj = box_obj.column(align=True)
+        col_obj.operator("alec.rename_data_to_object_name", text="Data = Object name", icon='OUTLINER_DATA_MESH')
 
 
 class ALEC_MT_edit_menu(bpy.types.Menu):

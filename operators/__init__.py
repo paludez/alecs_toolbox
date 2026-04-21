@@ -9,6 +9,7 @@ from . import materials
 from . import batch_materials
 from . import modifiers
 from . import system
+from . import outliner
 from . import uv
 from . import bbox
 from . import auto_linked_mode
@@ -27,6 +28,7 @@ classes = (
     *batch_materials.classes,
     *modifiers.classes,
     *system.classes,
+    *outliner.classes,
     *uv.classes,
     *bbox.classes,
     *auto_linked_mode.classes,

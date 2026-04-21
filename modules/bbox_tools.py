@@ -9,6 +9,11 @@ def setup_bbox_visibility(bbox, color=(0.0, 1.0, 0.2, 1.0)):
     bbox.hide_render = True
     bbox.visible_camera = False
     bbox.visible_shadow = False
+    bbox.visible_diffuse = False
+    bbox.visible_glossy = False
+    bbox.visible_transmission = False
+    bbox.visible_volume_scatter = False
+    bbox.display.show_shadows = False
 
 def set_shading_to_object(context):
     for area in context.screen.areas:
