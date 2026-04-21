@@ -51,7 +51,6 @@ def _register_core_keymaps():
     need_3d = any(
         (
             _pref(prefs, "shortcut_q_alt_menu"),
-            _pref(prefs, "shortcut_q_ctrl_alt_browser"),
             _pref(prefs, "shortcut_alt_rmb_quad"),
             _pref(prefs, "shortcut_f1_search"),
             _pref(prefs, "shortcut_f3_wireframe_xray"),
@@ -71,13 +70,6 @@ def _register_core_keymaps():
     if km is not None and _pref(prefs, "shortcut_q_alt_menu"):
         kmi_main = km.keymap_items.new("alec.menu_dispatcher", "Q", "PRESS", alt=True)
         _addon_keymaps_core.append((km, kmi_main))
-
-    if km is not None and _pref(prefs, "shortcut_q_ctrl_alt_browser"):
-        kmi_browser = km.keymap_items.new(
-            "wm.call_menu", "Q", "PRESS", ctrl=True, alt=True
-        )
-        kmi_browser.properties.name = "ALEC_MT_alec_browser"
-        _addon_keymaps_core.append((km, kmi_browser))
 
     if km is not None and _pref(prefs, "shortcut_alt_rmb_quad"):
         kmi_quad = km.keymap_items.new(
@@ -140,7 +132,6 @@ def _register_core_keymaps():
 
     if (
         _pref(prefs, "shortcut_q_alt_menu")
-        or _pref(prefs, "shortcut_q_ctrl_alt_browser")
         or _pref(prefs, "shortcut_alt_rmb_quad")
     ):
         km_uv = kc.keymaps.new(name="Image", space_type="IMAGE_EDITOR", region_type="WINDOW")
@@ -149,12 +140,6 @@ def _register_core_keymaps():
                 "alec.menu_dispatcher", "Q", "PRESS", alt=True
             )
             _addon_keymaps_core.append((km_uv, kmi_uv))
-        if _pref(prefs, "shortcut_q_ctrl_alt_browser"):
-            kmi_uv_browser = km_uv.keymap_items.new(
-                "wm.call_menu", "Q", "PRESS", ctrl=True, alt=True
-            )
-            kmi_uv_browser.properties.name = "ALEC_MT_alec_browser"
-            _addon_keymaps_core.append((km_uv, kmi_uv_browser))
         if _pref(prefs, "shortcut_alt_rmb_quad"):
             kmi_uv_pie = km_uv.keymap_items.new(
                 "wm.call_menu_pie", "RIGHTMOUSE", "PRESS", alt=True

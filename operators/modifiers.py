@@ -1,24 +1,6 @@
 import bpy
 from ..modules.modal_handler import BaseModalOperator
-from ..modules.utils import unit_suffixes, draw_modal_status_bar, get_unit_scale, move_to_collection, switch_to_modifier_tab
-
-def _find_layer_collection(layer_coll, target_coll):
-    if layer_coll.collection == target_coll:
-        return layer_coll
-    for child in layer_coll.children:
-        found = _find_layer_collection(child, target_coll)
-        if found:
-            return found
-    return None
-
-
-def _collection_contains(root, target):
-    if root == target:
-        return True
-    for child in root.children:
-        if _collection_contains(child, target):
-            return True
-    return False
+from ..modules.utils import unit_suffixes, draw_modal_status_bar, get_unit_scale, move_to_collection, switch_to_modifier_tab, find_layer_collection, collection_in_subtree
 
 
 def _selected_outliner_collections(context):
@@ -28,25 +10,31 @@ def _selected_outliner_collections(context):
             result.append(item)
     return result
 
-def get_boolean_collection(context):
-    """Helper to get or create the hidden boolean collection."""
-    coll_name = "Hidden_Bools"
+def _ensure_hidden_collection(context, coll_name, color_tag):
+    """Get or create a hidden auxiliary collection excluded from the View Layer."""
     if coll_name in bpy.data.collections:
         coll = bpy.data.collections[coll_name]
     else:
         coll = bpy.data.collections.new(coll_name)
         context.scene.collection.children.link(coll)
-        coll.color_tag = 'COLOR_01'
+        coll.color_tag = color_tag
 
-    # Keep collection visible in viewport flags, but excluded from current View Layer.
     coll.hide_viewport = False
     coll.hide_render = True
 
-    layer_coll = _find_layer_collection(context.view_layer.layer_collection, coll)
+    layer_coll = find_layer_collection(context.view_layer.layer_collection, coll)
     if layer_coll:
         layer_coll.exclude = True
 
     return coll
+
+
+def get_boolean_collection(context):
+    return _ensure_hidden_collection(context, "Hidden_Bools", 'COLOR_01')
+
+
+def get_hidden_sources_collection(context):
+    return _ensure_hidden_collection(context, "Hidden_Sources", 'COLOR_05')
 
 class ALEC_OT_boolean_op(bpy.types.Operator):
     """Add Boolean Modifier and hide target in 'Hidden_Bools'"""
@@ -381,12 +369,13 @@ class ALEC_OT_modifier_action(bpy.types.Operator):
         return {'FINISHED'}
 
 
-class ALEC_OT_hidden_bools_visibility(bpy.types.Operator):
-    """Control visibility for the Hidden_Bools collection"""
-    bl_idname = "alec.hidden_bools_visibility"
-    bl_label = "Hidden_Bools Visibility"
+class ALEC_OT_hidden_collection_visibility(bpy.types.Operator):
+    """Toggle exclude state of a hidden auxiliary collection in the current View Layer"""
+    bl_idname = "alec.hidden_collection_visibility"
+    bl_label = "Hidden Collection Visibility"
     bl_options = {'REGISTER', 'UNDO'}
 
+    coll_name: bpy.props.StringProperty() # type: ignore
     action: bpy.props.EnumProperty(
         items=[
             ('TOGGLE', "Toggle", ""),
@@ -397,14 +386,14 @@ class ALEC_OT_hidden_bools_visibility(bpy.types.Operator):
     ) # type: ignore
 
     def execute(self, context):
-        coll = bpy.data.collections.get("Hidden_Bools")
+        coll = bpy.data.collections.get(self.coll_name)
         if coll is None:
-            self.report({'WARNING'}, "Hidden_Bools collection not found")
+            self.report({'WARNING'}, f"{self.coll_name} collection not found")
             return {'CANCELLED'}
 
-        layer_coll = _find_layer_collection(context.view_layer.layer_collection, coll)
+        layer_coll = find_layer_collection(context.view_layer.layer_collection, coll)
         if layer_coll is None:
-            self.report({'WARNING'}, "Hidden_Bools not found in current View Layer")
+            self.report({'WARNING'}, f"{self.coll_name} not found in current View Layer")
             return {'CANCELLED'}
 
         if self.action == 'SHOW':
@@ -428,15 +417,7 @@ class ALEC_OT_move_to_hidden_obj(bpy.types.Operator):
         return bool(context.selected_objects) or bool(_selected_outliner_collections(context))
 
     def execute(self, context):
-        coll_name = "Hidden_Obj"
-        coll = bpy.data.collections.get(coll_name)
-        if coll is None:
-            coll = bpy.data.collections.new(coll_name)
-            context.scene.collection.children.link(coll)
-
-        coll.color_tag = 'COLOR_01'
-        coll.hide_viewport = False
-        coll.hide_render = True
+        coll = _ensure_hidden_collection(context, "Hidden_Obj", 'COLOR_01')
 
         moved_objects = 0
         for obj in context.selected_objects:
@@ -450,7 +431,7 @@ class ALEC_OT_move_to_hidden_obj(bpy.types.Operator):
                 skipped_collections += 1
                 continue
             # Avoid cyclic parenting (cannot move parent of Hidden_Obj under Hidden_Obj).
-            if _collection_contains(src_coll, coll):
+            if collection_in_subtree(src_coll, coll):
                 skipped_collections += 1
                 continue
 
@@ -465,10 +446,6 @@ class ALEC_OT_move_to_hidden_obj(bpy.types.Operator):
                 coll.children.link(src_coll)
             moved_collections += 1
 
-        layer_coll = _find_layer_collection(context.view_layer.layer_collection, coll)
-        if layer_coll is not None:
-            layer_coll.exclude = True
-
         if skipped_collections:
             self.report(
                 {'INFO'},
@@ -478,24 +455,50 @@ class ALEC_OT_move_to_hidden_obj(bpy.types.Operator):
         return {'FINISHED'}
 
 
-class ALEC_OT_hidden_obj_visibility(bpy.types.Operator):
-    """Toggle Hidden_Obj collection visibility via View Layer exclude"""
-    bl_idname = "alec.hidden_obj_visibility"
-    bl_label = "Hidden_Obj Visibility"
+class ALEC_OT_bake_mesh_hide_source(bpy.types.Operator):
+    """Duplicate active object, convert the copy to mesh (applying modifiers),
+    move the original to Hidden_Sources collection, and keep the baked mesh active."""
+    bl_idname = "alec.bake_mesh_hide_source"
+    bl_label = "Bake Mesh, Hide Source"
     bl_options = {'REGISTER', 'UNDO'}
 
+    _convertible_types = {'MESH', 'CURVE', 'FONT', 'META', 'SURFACE'}
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        return (
+            context.mode == 'OBJECT'
+            and obj is not None
+            and obj.type in cls._convertible_types
+        )
+
     def execute(self, context):
-        coll = bpy.data.collections.get("Hidden_Obj")
-        if coll is None:
-            self.report({'WARNING'}, "Hidden_Obj collection not found")
+        src = context.active_object
+
+        bpy.ops.object.select_all(action='DESELECT')
+        src.select_set(True)
+        context.view_layer.objects.active = src
+
+        bpy.ops.object.duplicate(linked=False)
+        dup = context.active_object
+
+        try:
+            bpy.ops.object.convert(target='MESH')
+        except Exception as e:
+            self.report({'WARNING'}, f"Convert failed: {e}")
+            bpy.data.objects.remove(dup, do_unlink=True)
             return {'CANCELLED'}
 
-        layer_coll = _find_layer_collection(context.view_layer.layer_collection, coll)
-        if layer_coll is None:
-            self.report({'WARNING'}, "Hidden_Obj not found in current View Layer")
-            return {'CANCELLED'}
+        src.name = src.name + "_source"
 
-        layer_coll.exclude = not bool(layer_coll.exclude)
+        coll = get_hidden_sources_collection(context)
+        move_to_collection(src, coll)
+
+        bpy.ops.object.select_all(action='DESELECT')
+        dup.select_set(True)
+        context.view_layer.objects.active = dup
+
         return {'FINISHED'}
 
 
@@ -535,8 +538,8 @@ classes = [
     ALEC_OT_solidify_modal,
     ALEC_OT_bevel_weight_modal,
     ALEC_OT_modifier_action,
-    ALEC_OT_hidden_bools_visibility,
+    ALEC_OT_hidden_collection_visibility,
     ALEC_OT_move_to_hidden_obj,
-    ALEC_OT_hidden_obj_visibility,
+    ALEC_OT_bake_mesh_hide_source,
     ALEC_OT_delete_empty_collections,
 ]

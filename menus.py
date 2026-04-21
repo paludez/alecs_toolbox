@@ -1,8 +1,8 @@
 import bpy
 import math
 
-from .ui import menu_operators_browser
-from .ui.menu_quad import ALEC_MT_quad_menu, find_layer_collection
+from .ui.menu_quad import ALEC_MT_quad_menu
+from .modules.utils import draw_hidden_coll_toggle
 
 
 def _shader_add_node(layout, text, icon, node_type: str):
@@ -178,25 +178,9 @@ class ALEC_MT_outliner_pie(bpy.types.Menu):
         box.label(text="Hidden Collections", icon='OUTLINER_COLLECTION')
         grid = box.grid_flow(columns=2, align=True, even_columns=True)
 
-        coll_bools = bpy.data.collections.get("Hidden_Bools")
-        if coll_bools is not None:
-            layer_coll_bools = find_layer_collection(context.view_layer.layer_collection, coll_bools)
-            if layer_coll_bools is not None:
-                grid.prop(layer_coll_bools, "exclude", text="Hidden_Bools", toggle=True, icon='OUTLINER_COLLECTION')
-            else:
-                grid.operator("alec.hidden_bools_visibility", text="Hidden_Bools", icon='OUTLINER_COLLECTION').action = 'TOGGLE'
-        else:
-            grid.operator("alec.hidden_bools_visibility", text="Hidden_Bools", icon='OUTLINER_COLLECTION').action = 'TOGGLE'
-
-        coll_hidden_obj = bpy.data.collections.get("Hidden_Obj")
-        if coll_hidden_obj is not None:
-            layer_coll_hidden_obj = find_layer_collection(context.view_layer.layer_collection, coll_hidden_obj)
-            if layer_coll_hidden_obj is not None:
-                grid.prop(layer_coll_hidden_obj, "exclude", text="Hidden_Obj", toggle=True, icon='HIDE_ON')
-            else:
-                grid.operator("alec.hidden_obj_visibility", text="Hidden_Obj", icon='HIDE_ON')
-        else:
-            grid.operator("alec.hidden_obj_visibility", text="Hidden_Obj", icon='HIDE_ON')
+        draw_hidden_coll_toggle(grid, context, "Hidden_Bools", "Hidden_Bools", icon='OUTLINER_COLLECTION')
+        draw_hidden_coll_toggle(grid, context, "Hidden_Obj", "Hidden_Obj")
+        draw_hidden_coll_toggle(grid, context, "Hidden_Sources", "Hidden_Sources")
 
         grid.operator("alec.move_to_hidden_obj", text="To Hidden_Obj", icon='HIDE_ON')
         grid.operator("alec.delete_empty_collections", text="Clear Empty Cols", icon='TRASH')
@@ -374,6 +358,9 @@ class ALEC_MT_object_menu(bpy.types.Menu):
         grid_bool.operator("alec.slice_boolean", text="Slice", icon='MOD_BOOLEAN')
 
         box_mods.separator()
+        box_mods.operator("alec.bake_mesh_hide_source", text="Bake Mesh, Hide Source", icon='OUTLINER_OB_MESH')
+
+        box_mods.separator()
 
         row_gen = box_mods.row(align=True)
         col_gen_l = row_gen.column(align=True)
@@ -434,7 +421,6 @@ classes = [
     ALEC_MT_outliner_pie,
     ALEC_MT_quad_menu,
     ALEC_MT_shader_edit_pie,
-    *menu_operators_browser.classes,
 ]
 
 def register():

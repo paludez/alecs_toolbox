@@ -1,16 +1,7 @@
 """3D View quad pie menu (Alt+Right Click) — ALEC_MT_quad_menu."""
 
 import bpy
-
-
-def find_layer_collection(layer_coll, target_coll):
-    if layer_coll.collection == target_coll:
-        return layer_coll
-    for child in layer_coll.children:
-        found = find_layer_collection(child, target_coll)
-        if found:
-            return found
-    return None
+from ..modules.utils import draw_hidden_coll_toggle
 
 
 class ALEC_MT_quad_menu(bpy.types.Menu):
@@ -144,28 +135,10 @@ class ALEC_MT_quad_menu(bpy.types.Menu):
         box_vis = col_top.box()
         box_vis.label(text="Visibility", icon='WINDOW')
         grid_vis_tools = box_vis.grid_flow(columns=2, align=True, even_columns=True)
-        coll = bpy.data.collections.get("Hidden_Bools")
-        if coll is not None:
-            layer_coll = find_layer_collection(context.view_layer.layer_collection, coll)
-            if layer_coll is not None:
-                grid_vis_tools.prop(layer_coll, "exclude", text="Bools Toggle", toggle=True, icon='OUTLINER_COLLECTION')
-            else:
-                grid_vis_tools.operator("alec.hidden_bools_visibility", text="Bools Toggle", icon='OUTLINER_COLLECTION').action = 'TOGGLE'
-        else:
-            grid_vis_tools.operator("alec.hidden_bools_visibility", text="Bools Toggle", icon='OUTLINER_COLLECTION').action = 'TOGGLE'
+        draw_hidden_coll_toggle(grid_vis_tools, context, "Hidden_Bools", "Bools Toggle", icon='OUTLINER_COLLECTION')
+        draw_hidden_coll_toggle(grid_vis_tools, context, "Hidden_Obj", "Hidden_Obj Toggle")
+        draw_hidden_coll_toggle(grid_vis_tools, context, "Hidden_Sources", "Sources Toggle")
 
-        coll_hidden_obj = bpy.data.collections.get("Hidden_Obj")
-        if coll_hidden_obj is not None:
-            layer_coll_hidden_obj = find_layer_collection(context.view_layer.layer_collection, coll_hidden_obj)
-            if layer_coll_hidden_obj is not None:
-                grid_vis_tools.prop(
-                    layer_coll_hidden_obj, "exclude",
-                    text="Hidden_Obj Toggle", toggle=True, icon='HIDE_ON'
-                )
-            else:
-                grid_vis_tools.operator("alec.hidden_obj_visibility", text="Hidden_Obj Toggle", icon='HIDE_ON')
-        else:
-            grid_vis_tools.operator("alec.hidden_obj_visibility", text="Hidden_Obj Toggle", icon='HIDE_ON')
         grid_vis_tools.operator("alec.move_to_hidden_obj", text="To Hidden_Obj", icon='HIDE_ON')
         grid_vis_tools.operator("alec.toggle_mesh_wire_textured", text="Wire Togg", icon='SHADING_WIRE')
         grid_vis_tools.operator("alec.toggle_mesh_bounds_textured", text="Box Togg", icon='SHADING_BBOX')

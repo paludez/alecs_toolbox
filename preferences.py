@@ -48,12 +48,6 @@ class ALECS_TB_AddonPreferences(AddonPreferences):
         default=True,
         update=_refresh_addon_keymaps,
     )
-    shortcut_q_ctrl_alt_browser: BoolProperty(
-        name="Ctrl+Alt+Q — Alec browser",
-        description="Open the Alec browser menu (3D View + UV Editor).",
-        default=True,
-        update=_refresh_addon_keymaps,
-    )
     shortcut_alt_rmb_quad: BoolProperty(
         name="Alt+Right Mouse — Quad pie menu",
         description=(
@@ -204,7 +198,6 @@ class ALECS_TB_AddonPreferences(AddonPreferences):
         box.label(text="Shortcuts (addon keymap)")
         col = box.column(align=True)
         col.prop(self, "shortcut_q_alt_menu")
-        col.prop(self, "shortcut_q_ctrl_alt_browser")
         col.prop(self, "shortcut_alt_rmb_quad")
         col.prop(self, "shortcut_f1_search")
         col.prop(self, "shortcut_f3_wireframe_xray")

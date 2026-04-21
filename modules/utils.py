@@ -154,6 +154,30 @@ def draw_modal_status_bar(layout, items):
             sub_row.label(text=f"{label}:")
         sub_row.label(text=value)
 
+def find_layer_collection(layer_coll, target_coll):
+    """Recursively find a LayerCollection wrapping target_coll."""
+    if layer_coll.collection == target_coll:
+        return layer_coll
+    for child in layer_coll.children:
+        found = find_layer_collection(child, target_coll)
+        if found:
+            return found
+    return None
+
+
+def draw_hidden_coll_toggle(layout, context, coll_name, text, icon='HIDE_ON'):
+    """Draw a toggle button for a hidden auxiliary collection's View Layer exclude state."""
+    coll = bpy.data.collections.get(coll_name)
+    if coll is not None:
+        layer_coll = find_layer_collection(context.view_layer.layer_collection, coll)
+        if layer_coll is not None:
+            layout.prop(layer_coll, "exclude", text=text, toggle=True, icon=icon)
+            return
+    op = layout.operator("alec.hidden_collection_visibility", text=text, icon=icon)
+    op.coll_name = coll_name
+    op.action = 'TOGGLE'
+
+
 def move_to_collection(obj, target_collection):
     source_collections = list(obj.users_collection)
 
@@ -166,11 +190,11 @@ def move_to_collection(obj, target_collection):
             coll.objects.unlink(obj)
         target_collection.objects.link(obj)
 
-def _collection_in_subtree(root, coll):
+def collection_in_subtree(root, coll):
     if root == coll:
         return True
     for child in root.children:
-        if _collection_in_subtree(child, coll):
+        if collection_in_subtree(child, coll):
             return True
     return False
 
@@ -196,7 +220,7 @@ def get_or_create_collection(context, coll_name="bbox_helpers", color='COLOR_04'
         coll.hide_render = hide_render
     else:
         coll = bpy.data.collections[full_name]
-        if not _collection_in_subtree(scene.collection, coll):
+        if not collection_in_subtree(scene.collection, coll):
             scene.collection.children.link(coll)
 
     return coll
