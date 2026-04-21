@@ -263,6 +263,56 @@ class ALEC_OT_solidify_modal(BaseModalOperator, bpy.types.Operator):
                 self.mod.thickness = typed_val * self.unit_scale
             except ValueError: pass
 
+
+class ALEC_OT_bevel_weight_modal(BaseModalOperator, bpy.types.Operator):
+    """Add Bevel (limit by weight) and set amount with mouse / typed value."""
+    bl_idname = "alec.bevel_weight_modal"
+    bl_label = "Bevel Weight"
+    bl_options = {'REGISTER', 'UNDO', 'GRAB_CURSOR', 'BLOCKING'}
+
+    def invoke(self, context, event):
+        obj = context.active_object
+        if not obj or obj.type != 'MESH':
+            self.report({'WARNING'}, "Select a mesh object")
+            return {'CANCELLED'}
+
+        self.mod = obj.modifiers.new(name="Bevel", type='BEVEL')
+        self.mod.limit_method = 'WEIGHT'
+        self.initial_width = self.mod.width
+
+        switch_to_modifier_tab(context)
+        return self.base_invoke(context, event)
+
+    def get_header_args(self, context):
+        return {
+            "main_label": "Amount",
+            "main_value": self.mod.width * self.unit_scale_display_inv,
+            "suffix": unit_suffixes.get(context.scene.unit_settings.length_unit, ''),
+            "initial_value": self.initial_width * self.unit_scale_display_inv,
+        }
+
+    def on_cancel(self, context, event):
+        self.mod.width = self.initial_width
+        context.active_object.modifiers.remove(self.mod)
+
+    def on_reset(self, context, event):
+        self.mod.width = self.initial_width
+
+    def on_mouse_move(self, context, event, delta_x):
+        sens = 0.005 * (0.1 if event.shift else 1.0)
+        self.mod.width = max(0.0, self.initial_width + delta_x * sens)
+
+    def on_apply_typed_value(self, context, event):
+        if self.number_input.has_value():
+            try:
+                typed_val = self.number_input.get_value(
+                    initial_value=self.initial_width * self.unit_scale_display_inv
+                )
+                self.mod.width = max(0.0, typed_val * self.unit_scale)
+            except ValueError:
+                pass
+
+
 class ALEC_OT_modifier_action(bpy.types.Operator):
     """Manage Modifiers: Apply, Delete, Move"""
     bl_idname = "alec.modifier_action"
@@ -483,6 +533,7 @@ classes = [
     ALEC_OT_mirror_control,
     ALEC_OT_add_simple_modifier,
     ALEC_OT_solidify_modal,
+    ALEC_OT_bevel_weight_modal,
     ALEC_OT_modifier_action,
     ALEC_OT_hidden_bools_visibility,
     ALEC_OT_move_to_hidden_obj,

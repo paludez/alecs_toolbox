@@ -623,6 +623,8 @@ def _sync_object_world_from_active(context) -> None:
         scene.alec_object_world = t
         scene.alec_rotation_world = eu
         scene.alec_rotation_local = eu_orient
+    except AttributeError:
+        pass  # depsgraph context is read-only in some frames; panel redraws next frame anyway
     finally:
         _alec_syncing_world = False
 

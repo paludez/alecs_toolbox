@@ -241,6 +241,26 @@ class ALEC_OT_view_selected_safe(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class ALEC_OT_select_similar_face_material(bpy.types.Operator):
+    """Select faces with the same material (only available in face select mode)."""
+    bl_idname = "alec.select_similar_face_material"
+    bl_label = "Select Similar (Material)"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        return (
+            obj is not None
+            and obj.type == 'MESH'
+            and context.mode == 'EDIT_MESH'
+            and context.tool_settings.mesh_select_mode[2]
+        )
+
+    def execute(self, context):
+        return bpy.ops.mesh.select_similar('EXEC_DEFAULT', type='FACE_MATERIAL', compare='EQUAL', threshold=0.0)
+
+
 classes = [
     ALEC_OT_menu_dispatcher,
     ALEC_OT_set_area_view3d_under_mouse,
@@ -249,4 +269,5 @@ classes = [
     ALEC_OT_floating_shader_editor,
     ALEC_OT_toggle_global_local_orientation,
     ALEC_OT_view_selected_safe,
+    ALEC_OT_select_similar_face_material,
 ]

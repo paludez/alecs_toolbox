@@ -209,14 +209,26 @@ class ALEC_MT_edit_menu(bpy.types.Menu):
         pie = self.layout.menu_pie()
 
         # Desired positions:
-        # - Left  : Collinear / Coplanar / Extract
+        # - Left  : Select | Collinear / Coplanar / Extract
         # - Top   : Dimensions
         # - Right : Shapes / Orientation / Cleanup
         # - Bottom: Cursor + Origin (Edit)
 
-        # --- Slice 1 (Left): Collinear / Coplanar / Extract ---
+        # --- Slice 1 (Left): Select | Collinear / Coplanar / Extract ---
         col = pie.column()
-        box = col.box()
+        row = col.row(align=True)
+
+        col_sel = row.column(align=True)
+        box_sel = col_sel.box()
+        box_sel.label(text="Select", icon='FACESEL')
+        s = box_sel.column(align=True)
+        s.operator("mesh.faces_select_linked_flat", text="Linked Flat")
+        s.operator("mesh.region_to_loop", text="Region to Loop")
+        s.operator("mesh.loop_to_region", text="Loop to Region")
+        s.operator("alec.select_similar_face_material", text="Similar (Material)")
+
+        col_main = row.column(align=True)
+        box = col_main.box()
         box.label(text="Collinear", icon='PROP_CON')
         col_inner = box.column(align=True)
         op = col_inner.operator("alec.make_collinear", text="Farthest Points")
@@ -230,7 +242,7 @@ class ALEC_MT_edit_menu(bpy.types.Menu):
         op.distribute = True
         col_inner.operator("alec.distribute_vertices", text="Distribute Evenly")
 
-        box = col.box()
+        box = col_main.box()
         box.label(text="Coplanar", icon='GRID')
         col_inner = box.column(align=True)
         op = col_inner.operator("alec.make_coplanar", text="Best Fit")
@@ -240,7 +252,7 @@ class ALEC_MT_edit_menu(bpy.types.Menu):
         op = col_inner.operator("alec.make_coplanar", text="Active Face Normal")
         op.mode = 'ACTIVE_FACE'
 
-        box = col.box()
+        box = col_main.box()
         box.label(text="Extract", icon='DUPLICATE')
         box.operator("alec.extract_and_solidify", text="Panel (Solidify)")
 
@@ -363,11 +375,15 @@ class ALEC_MT_object_menu(bpy.types.Menu):
 
         box_mods.separator()
 
-        col_gen = box_mods.column(align=True)
-        col_gen.operator("alec.add_simple_modifier", text="Mirror", icon='MOD_MIRROR').mod_type = 'MIRROR'
-        col_gen.operator("alec.mirror_control", text="Mirror (Null)", icon='EMPTY_AXIS')
-        col_gen.operator("alec.solidify_modal", text="Solidify", icon='MOD_SOLIDIFY')
-        col_gen.operator("alec.add_simple_modifier", text="Subdivision", icon='MOD_SUBSURF').mod_type = 'SUBSURF'
+        row_gen = box_mods.row(align=True)
+        col_gen_l = row_gen.column(align=True)
+        col_gen_l.operator("alec.add_simple_modifier", text="Mirror", icon='MOD_MIRROR').mod_type = 'MIRROR'
+        col_gen_l.operator("alec.mirror_control", text="Mirror (Null)", icon='EMPTY_AXIS')
+        col_gen_l.operator("alec.solidify_modal", text="Solidify", icon='MOD_SOLIDIFY')
+        col_gen_l.operator("alec.add_simple_modifier", text="Subdivision", icon='MOD_SUBSURF').mod_type = 'SUBSURF'
+        col_gen_r = row_gen.column(align=True)
+        col_gen_r.operator("object.modifier_add", text="Bevel", icon='MOD_BEVEL').type = 'BEVEL'
+        col_gen_r.operator("alec.bevel_weight_modal", text="Bevel Weight", icon='MOD_BEVEL')
 
         box_mods.separator()
 
