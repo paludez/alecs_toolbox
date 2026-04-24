@@ -2,14 +2,16 @@ import bpy
 import math
 
 from .ui.menu_quad import ALEC_MT_quad_menu
-from .modules.utils import draw_hidden_coll_toggle
+from .modules.utils import draw_hidden_coll_toggle, safe_operator_props
 
 
 def _shader_add_node(layout, text, icon, node_type: str):
     """node.add_node: type/use_transform are not valid UILayout.operator() kwargs in Blender 5."""
-    op = layout.operator("node.add_node", text=text, icon=icon)
-    op.type = node_type
-    op.use_transform = True
+    safe_operator_props(
+        layout.operator("node.add_node", text=text, icon=icon),
+        type=node_type,
+        use_transform=True,
+    )
 
 
 # Insert between tuples in _SHADER_EDIT_PIE_NODES_* for a horizontal rule in the pie slice.
@@ -254,9 +256,11 @@ class ALEC_MT_edit_menu(bpy.types.Menu):
         box = col.box()
         box.label(text="Orientation", icon='ORIENTATION_GLOBAL')
         col_inner = box.column(align=True)
-        op = col_inner.operator("transform.create_orientation", text="Create New", icon='ADD')
-        op.use = True
-        op.overwrite = True
+        safe_operator_props(
+            col_inner.operator("transform.create_orientation", text="Create New", icon='ADD'),
+            use=True,
+            overwrite=True,
+        )
 
         box_clean = col.box()
         box_clean.label(text="Cleanup", icon='BRUSH_DATA')
@@ -373,7 +377,10 @@ class ALEC_MT_object_menu(bpy.types.Menu):
         col_gen_l.operator("alec.solidify_modal", text="Solidify", icon='MOD_SOLIDIFY')
         col_gen_l.operator("alec.add_simple_modifier", text="Subdivision", icon='MOD_SUBSURF').mod_type = 'SUBSURF'
         col_gen_r = row_gen.column(align=True)
-        col_gen_r.operator("object.modifier_add", text="Bevel", icon='MOD_BEVEL').type = 'BEVEL'
+        safe_operator_props(
+            col_gen_r.operator("object.modifier_add", text="Bevel", icon='MOD_BEVEL'),
+            type='BEVEL',
+        )
         col_gen_r.operator("alec.bevel_weight_modal", text="Bevel Weight", icon='MOD_BEVEL')
 
         box_mods.separator()
@@ -399,7 +406,10 @@ class ALEC_MT_object_menu(bpy.types.Menu):
         box_mat.label(text="Materials", icon='MATERIAL')
         col_inner = box_mat.column(align=True)
         col_inner.operator("alec.material_linker", text="Material Linker")
-        col_inner.operator("object.make_links_data", text="Link Materials", icon='LINKED').type = 'MATERIAL'
+        safe_operator_props(
+            col_inner.operator("object.make_links_data", text="Link Materials", icon='LINKED'),
+            type='MATERIAL',
+        )
         col_inner.operator("alec.assign_gray_material", text="Gray Material (70%)", icon='SHADING_SOLID')
         col_inner.operator("alec.remove_orphan_materials", text="Clean Unused", icon='TRASH')
         col_inner.operator("alec.select_material_users", text="Select Users", icon='RESTRICT_SELECT_OFF')
@@ -410,11 +420,19 @@ class ALEC_MT_object_menu(bpy.types.Menu):
         box_parent = col_up.box()
         box_parent.label(text="Parenting", icon='ORIENTATION_PARENT')
         col_inner = box_parent.grid_flow(columns=2, align=True)
-        op = col_inner.operator("object.parent_set", text="Parent", icon='LINKED')
-        op.type = 'OBJECT'
-        op.keep_transform = True
-        col_inner.operator("object.parent_clear", text="Clear Parent", icon='X').type = 'CLEAR'
-        col_inner.operator("object.parent_clear", text="Keep Tran.", icon='UNLINKED').type = 'CLEAR_KEEP_TRANSFORM'
+        safe_operator_props(
+            col_inner.operator("object.parent_set", text="Parent", icon='LINKED'),
+            type='OBJECT',
+            keep_transform=True,
+        )
+        safe_operator_props(
+            col_inner.operator("object.parent_clear", text="Clear Parent", icon='X'),
+            type='CLEAR',
+        )
+        safe_operator_props(
+            col_inner.operator("object.parent_clear", text="Keep Tran.", icon='UNLINKED'),
+            type='CLEAR_KEEP_TRANSFORM',
+        )
 
 classes = [
     ALEC_OT_viewport_show_common_types,

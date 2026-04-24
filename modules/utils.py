@@ -6,6 +6,18 @@ import mathutils
 import numpy as np
 from mathutils import Vector
 
+
+def safe_operator_props(op, **kwargs):
+    """Set RNA props on a layout.operator() result; no-op if poll failed (None or stub)."""
+    if op is None:
+        return
+    for key, value in kwargs.items():
+        try:
+            setattr(op, key, value)
+        except (AttributeError, TypeError):
+            pass
+
+
 def get_bounds_in_space(obj, space_matrix):
     """
     Calculates the min/max bounds of an object's vertices within a given coordinate space.

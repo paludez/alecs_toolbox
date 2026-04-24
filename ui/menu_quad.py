@@ -1,7 +1,7 @@
 """3D View quad pie menu (Alt+Right Click) — ALEC_MT_quad_menu."""
 
 import bpy
-from ..modules.utils import draw_hidden_coll_toggle
+from ..modules.utils import draw_hidden_coll_toggle, safe_operator_props
 
 
 class ALEC_MT_quad_menu(bpy.types.Menu):
@@ -44,9 +44,11 @@ class ALEC_MT_quad_menu(bpy.types.Menu):
             ("RIGHT", "Right"),
             ("LEFT", "Left"),
         ):
-            op = grid_align.operator("view3d.view_axis", text=label)
-            op.align_active = True
-            op.type = axis_type
+            safe_operator_props(
+                grid_align.operator("view3d.view_axis", text=label),
+                align_active=True,
+                type=axis_type,
+            )
 
         box_rot.separator(factor=0.5)
         box_rot.label(text="Rotate ±90°", icon='DRIVER_ROTATIONAL_DIFFERENCE')
