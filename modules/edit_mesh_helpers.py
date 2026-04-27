@@ -44,6 +44,36 @@ def poll_two_edges_in_select_history(context):
         return False
 
 
+def edge_pair_from_select_history(bm):
+    """
+    Return (edge_moving, edge_stationary) from select history, or (None, None) if invalid.
+    Last selected edge is stationary; previous is moving (same convention as set_edge_angle).
+    """
+    history = select_history_edges(bm)
+    if len(history) < 2:
+        return None, None
+    return history[-2], history[-1]
+
+
+def angle_pivot_for_edge_pair(stationary_edge, moving_edge):
+    """
+    Common vertex, angle in radians between edge directions, or (None, None, None) if not measurable.
+    """
+    common_verts = set(stationary_edge.verts) & set(moving_edge.verts)
+    if not common_verts:
+        return None, None, None
+    pivot = common_verts.pop()
+    v_stat = [v for v in stationary_edge.verts if v != pivot][0]
+    v_mov = [v for v in moving_edge.verts if v != pivot][0]
+    t0 = (v_stat.co - pivot.co).normalized()
+    t1 = (v_mov.co - pivot.co).normalized()
+    if t0.length < 1e-9 or t1.length < 1e-9:
+        return None, None, None
+    if t0.cross(t1).length < 1e-6:
+        return None, None, None
+    return pivot.co.copy(), t0.angle(t1), (moving_edge.index, stationary_edge.index)
+
+
 def poll_active_mesh_edit_mode(context):
     return (
         context.active_object is not None

@@ -149,10 +149,11 @@ class ALECS_TB_AddonPreferences(AddonPreferences):
         update=_refresh_addon_keymaps,
     )
     shortcut_alt_e_extrude: BoolProperty(
-        name="Alt+E / Shift+Alt+E — Extrude (Edit Mesh)",
+        name="Alt+E / Shift+Alt+E — Extrude (Edit Mesh / Curves)",
         description=(
-            "Alt+E: view3d.edit_mesh_extrude_move_normal (extrude along normal). "
-            "Shift+Alt+E: Extrude menu (VIEW3D_MT_edit_mesh_extrude). Only when E is Rotate."
+            "Edit Mesh: Alt+E extrude along normal; Shift+Alt+E extrude menu. "
+            "Edit Curve (legacy): Alt+E → curve.extrude_move. "
+            "Edit Curves (hair): Alt+E → curves.extrude_move. Only when E is Rotate."
         ),
         default=True,
         update=_refresh_addon_keymaps,

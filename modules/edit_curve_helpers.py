@@ -66,6 +66,32 @@ class _NurbsPolyPoint:
         self.pt.co.z = v.z
 
 
+def selected_control_point_keys(curve):
+    """
+    Bezier control points and NURBS/poly points only (no handles).
+    """
+    keys = []
+    for si, spline in enumerate(curve.splines):
+        if spline.type == "BEZIER":
+            for pi, bp in enumerate(spline.bezier_points):
+                if getattr(bp, "hide", False):
+                    continue
+                if bp.select_control_point:
+                    keys.append((si, pi, "CONTROL"))
+        else:
+            for pi, pt in enumerate(spline.points):
+                if getattr(pt, "hide", False):
+                    continue
+                if pt.select:
+                    keys.append((si, pi, "POINT"))
+    return keys
+
+
+def canonical_point_pair_key(key_a, key_b):
+    """Stable key for a pair of control-point keys (for de-dupe)."""
+    return tuple(sorted((key_a, key_b), key=lambda k: (k[0], k[1], k[2])))
+
+
 def gather_selected_curve_targets(curve):
     """Bezier (control + handles) and NURBS / Poly / Path-style splines (points)."""
     targets = []

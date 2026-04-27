@@ -87,6 +87,32 @@ class ALEC_OT_viewport_toggle_overlay_wireframes(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class ALEC_OT_viewport_toggle_curve_bezier_handles(bpy.types.Operator):
+    """Toggle Bezier handle overlay: hidden, or only for selected control points (SELECTED / NONE)."""
+
+    bl_idname = "alec.viewport_toggle_curve_bezier_handles"
+    bl_label = "Toggle Bezier Handles"
+    bl_description = "Hide or show Bezier tangents for the selected control points"
+    bl_options = {"REGISTER"}
+
+    @classmethod
+    def poll(cls, context):
+        if context.mode != "EDIT_CURVE":
+            return False
+        return _view3d_space(context) is not None
+
+    def execute(self, context):
+        space = _view3d_space(context)
+        if space is None:
+            return {"CANCELLED"}
+        ov = space.overlay
+        if getattr(ov, "display_handle", "NONE") == "NONE":
+            ov.display_handle = "SELECTED"
+        else:
+            ov.display_handle = "NONE"
+        return {"FINISHED"}
+
+
 class ALEC_OT_viewport_toggle_solid_rendered(bpy.types.Operator):
     """Toggle viewport shading Solid ↔ Rendered (space_data.shading.type)."""
 
@@ -297,6 +323,7 @@ class ALEC_OT_toggle_mesh_bounds_textured(bpy.types.Operator):
 classes = (
     ALEC_OT_viewport_toggle_wireframe_xray,
     ALEC_OT_viewport_toggle_overlay_wireframes,
+    ALEC_OT_viewport_toggle_curve_bezier_handles,
     ALEC_OT_viewport_toggle_solid_rendered,
     ALEC_OT_light_energy_modal,
     ALEC_OT_toggle_mesh_wire_textured,

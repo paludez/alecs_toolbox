@@ -281,12 +281,25 @@ class ALEC_MT_edit_menu(bpy.types.Menu):
         row.operator("alec.dimension_action", text="Add", icon='ADD').action = 'ADD'
         row.operator("alec.dimension_action", text="Rem", icon='REMOVE').action = 'REMOVE'
 
-        col_inner_dim.operator("alec.dimension_action", text="Clear All", icon='TRASH').action = 'CLEAR'
         col_inner_dim.operator("alec.select_dimension_edges", text="Select Dim Edges", icon='RESTRICT_SELECT_OFF')
 
         col_inner_dim.separator()
-        col_inner_dim.operator("alec.set_edge_angle", text="Set to 90°", icon='IPO_CONSTANT').angle = math.pi / 2.0
-        col_inner_dim.operator("alec.set_edge_angle", text="Set Angle...", icon='IPO_EASE_IN_OUT').run_modal = True
+        col_inner_dim.operator("alec.measure_edge_angle", text="Measure Angle", icon='DRIVER_ROTATIONAL_DIFFERENCE')
+        row90 = col_inner_dim.row(align=True)
+        op90a = row90.operator("alec.set_edge_angle", text="Set 90°", icon='IPO_CONSTANT')
+        op90a.angle = math.pi / 2.0
+        op90a.run_modal = False
+        op90a.flip_side = False
+        op90b = row90.operator("alec.set_edge_angle", text="90° other", icon='ARROW_LEFTRIGHT')
+        op90b.angle = math.pi / 2.0
+        op90b.run_modal = False
+        op90b.flip_side = True
+        op_ang = col_inner_dim.operator("alec.set_edge_angle", text="Set Angle...", icon='IPO_EASE_IN_OUT')
+        op_ang.run_modal = True
+        op_ang.flip_side = False
+
+        col_inner_dim.separator()
+        col_inner_dim.operator("alec.dimension_action", text="Clear All", icon='TRASH').action = 'CLEAR'
 
 
 class ALEC_MT_edit_curve_menu(bpy.types.Menu):
@@ -296,6 +309,19 @@ class ALEC_MT_edit_curve_menu(bpy.types.Menu):
     def draw(self, context):
         pie = self.layout.menu_pie()
         col = pie.column()
+
+        box_ov = col.box()
+        box_ov.label(text="Display", icon='OVERLAY')
+        space = context.space_data
+        ov = getattr(space, "overlay", None) if space and getattr(space, "type", None) == "VIEW_3D" else None
+        dh = getattr(ov, "display_handle", "NONE") if ov else "NONE"
+        row_ov = box_ov.row(align=True)
+        row_ov.operator(
+            "alec.viewport_toggle_curve_bezier_handles",
+            text="Bezier handles",
+            icon="HANDLE_VECTOR",
+            depress=dh != "NONE",
+        )
 
         box = col.box()
         box.label(text="Collinear", icon='CURVE_BEZCURVE')
@@ -318,6 +344,16 @@ class ALEC_MT_edit_curve_menu(bpy.types.Menu):
         box.label(text="Segments", icon='CURVE_DATA')
         col_inner = box.column(align=True)
         col_inner.operator("alec.curve_split_at_point", text="Split At Point", icon='SCULPTMODE_HLT')
+
+        box_len = col.box()
+        box_len.label(text="Point distance (3D)", icon='DRIVER_DISTANCE')
+        col_l = box_len.column(align=True)
+        col_l.operator("alec.set_curve_point_length", text="Set Point Distance", icon='SEQ_STRIP_DUPLICATE')
+        rowd = col_l.row(align=True)
+        rowd.operator("alec.curve_point_dimension", text="Add", icon='ADD').action = 'ADD'
+        rowd.operator("alec.curve_point_dimension", text="Rem", icon='REMOVE').action = 'REMOVE'
+        col_l.separator()
+        col_l.operator("alec.curve_point_dimension", text="Clear All", icon='TRASH').action = 'CLEAR'
 
 
 class ALEC_MT_object_menu(bpy.types.Menu):

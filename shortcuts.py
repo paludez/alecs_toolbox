@@ -204,7 +204,7 @@ def _register_core_keymaps():
 
 
 def _register_toolbar_tool_keymaps():
-    """W → Move, E → Rotate (left toolbar); Mesh: Alt+E → extrude (was E)."""
+    """W → Move, E → Rotate (left toolbar); Mesh/Curve/Curves: Alt+E → extrude (was E)."""
     prefs = _addon_prefs()
     need = (
         _pref(prefs, "shortcut_w_move_tool")
@@ -269,6 +269,14 @@ def _register_toolbar_tool_keymaps():
         )
         kmi_shift_alt.properties.name = "VIEW3D_MT_edit_mesh_extrude"
         _addon_keymaps_toolbar_tools.append((_km_move_tool_mesh, kmi_shift_alt))
+        kmi_curve_alt = _km_move_tool_curve.keymap_items.new(
+            "curve.extrude_move", "E", "PRESS", alt=True
+        )
+        _addon_keymaps_toolbar_tools.append((_km_move_tool_curve, kmi_curve_alt))
+        kmi_curves_alt = _km_move_tool_curves.keymap_items.new(
+            "curves.extrude_move", "E", "PRESS", alt=True
+        )
+        _addon_keymaps_toolbar_tools.append((_km_move_tool_curves, kmi_curves_alt))
 
 
 def _unregister_toolbar_tool_keymaps():

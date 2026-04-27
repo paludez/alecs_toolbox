@@ -242,7 +242,7 @@ class ALEC_OT_dimension_action(bpy.types.Operator):
 
         draw_state._draw_data['edge_indices'] = list(current_indices)
 
-        draw_state.update_dimension_px_handler(context, bool(current_indices))
+        draw_state.refresh_edit_mesh_px_handler(context)
 
         for area in context.screen.areas:
             if area.type == 'VIEW_3D':
@@ -300,6 +300,15 @@ class ALEC_OT_set_edge_angle(modal_handler.BaseModalOperator, bpy.types.Operator
     run_modal: bpy.props.BoolProperty(
         name="Interactive", default=False,
         description="Run in interactive modal mode"
+    ) # type: ignore
+
+    flip_side: bpy.props.BoolProperty(
+        name="Other side",
+        default=False,
+        description=(
+            "If set, reach the target angle by rotating the other way in the edge plane (two solutions). "
+            "Ignored in interactive (modal) mode"
+        )
     ) # type: ignore
 
     _active_instance = None
@@ -372,13 +381,24 @@ class ALEC_OT_set_edge_angle(modal_handler.BaseModalOperator, bpy.types.Operator
         self._initial_state = {idx: self._bm.verts[idx].co.copy() for idx in self._verts_to_transform_indices}
         return True
 
+    def _angle_delta(self, target_angle):
+        # In the plane of the two edges, two rotations achieve the same undirected
+        # target angle: delta = T - alpha, or delta = -T - alpha (the "other" side of stationary).
+        if self.run_modal or not self.flip_side:
+            return target_angle - self._initial_angle
+        return -target_angle - self._initial_angle
+
     def _apply_rotation(self, target_angle):
-        angle_delta = target_angle - self._initial_angle
+        angle_delta = self._angle_delta(target_angle)
         rot_mat = Matrix.Rotation(angle_delta, 4, self._rot_axis)
         T = Matrix.Translation(self._pivot_vert_co)
         transform_mat = T @ rot_mat @ T.inverted()
 
-        self._bm.verts.ensure_lookup_table()
+        try:
+            self._bm = bmesh.from_edit_mesh(self._obj.data)
+            self._bm.verts.ensure_lookup_table()
+        except Exception:
+            raise
         for v_idx in self._verts_to_transform_indices:
             v = self._bm.verts[v_idx]
             v.co = transform_mat @ self._initial_state[v_idx]
@@ -410,6 +430,7 @@ class ALEC_OT_set_edge_angle(modal_handler.BaseModalOperator, bpy.types.Operator
         draw_state._draw_data.pop('angle_pie', None)
 
     def on_cancel(self, context, event):
+        # Always reset: zero rotation from _initial_state (ignore flip for delta=0)
         self._apply_rotation(self._initial_angle)
         draw_state._draw_data.pop('angle_pie', None)
 
@@ -426,6 +447,64 @@ class ALEC_OT_set_edge_angle(modal_handler.BaseModalOperator, bpy.types.Operator
                 self._apply_rotation(self._current_angle)
                 self._update_pie_preview()
             except ValueError: pass
+
+
+class ALEC_OT_measure_edge_angle(bpy.types.Operator):
+    """Display the angle between two edges in the viewport (2D overlay, like edge length dimensions)."""
+    bl_idname = "alec.measure_edge_angle"
+    bl_label = "Measure Angle"
+    bl_options = {'REGISTER'}
+    bl_description = (
+        "Add a corner angle label (like dimension Add). Repeat with new edge pairs to stack several measures. "
+        "Last edge in history is the reference (same as Set Angle)"
+    )
+
+    @classmethod
+    def poll(cls, context):
+        return emh.poll_two_edges_in_select_history(context)
+
+    def execute(self, context):
+        obj = context.edit_object
+        bm = bmesh.from_edit_mesh(obj.data)
+        bm.select_flush(False)
+
+        moving, stationary = emh.edge_pair_from_select_history(bm)
+        if not moving or not stationary:
+            self.report({'WARNING'}, "Select two edges in order (last one is stationary)")
+            return {'CANCELLED'}
+
+        pivot_co, angle_rad, edge_pair = emh.angle_pivot_for_edge_pair(stationary, moving)
+        if pivot_co is None:
+            if not (set(stationary.verts) & set(moving.verts)):
+                self.report({'WARNING'}, "Edges must share a common vertex")
+            else:
+                self.report({'WARNING'}, "Edges are collinear, cannot measure angle")
+            return {'CANCELLED'}
+
+        if draw_state._draw_data.get('object_name') != obj.name or draw_state._draw_data.get('mesh_name') != obj.data.name:
+            draw_state._draw_data.clear()
+        draw_state._draw_data['object_name'] = obj.name
+        draw_state._draw_data['mesh_name'] = obj.data.name
+
+        raw_angles = draw_state._draw_data.get('measured_angle_edges')
+        if isinstance(raw_angles, tuple) and len(raw_angles) == 2:
+            pairs = [raw_angles]
+        elif isinstance(raw_angles, list):
+            pairs = list(raw_angles)
+        else:
+            pairs = []
+        if edge_pair not in pairs:
+            pairs.append(edge_pair)
+        draw_state._draw_data['measured_angle_edges'] = pairs
+
+        draw_state.refresh_edit_mesh_px_handler(context)
+        for area in context.screen.areas:
+            if area.type == 'VIEW_3D':
+                area.tag_redraw()
+        n = len(draw_state._draw_data['measured_angle_edges'])
+        self.report({'INFO'}, f"Angle: {math.degrees(angle_rad):.2f}° — {n} measure(s) in overlay")
+        return {'FINISHED'}
+
 
 class ALEC_OT_distribute_vertices(bpy.types.Operator):
     """Distributes selected vertices evenly along the existing path"""
@@ -1289,6 +1368,7 @@ classes = [
     ALEC_OT_dimension_action,
     ALEC_OT_select_dimension_edges,
     ALEC_OT_set_edge_angle,
+    ALEC_OT_measure_edge_angle,
     ALEC_OT_distribute_vertices,
     ALEC_OT_make_collinear,
     ALEC_OT_make_coplanar,
