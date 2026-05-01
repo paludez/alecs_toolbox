@@ -35,13 +35,86 @@ def _pref(prefs, attr: str, default: bool = True) -> bool:
     return bool(getattr(prefs, attr, default))
 
 
+_disabled_default_kmis: list = []
+
+
+def _iter_3d_view_window_keymaps(kc):
+    """All non-modal 3D View » Window keymaps (Blender may ship more than one name)."""
+    if kc is None:
+        return
+    find = getattr(kc.keymaps, "find", None)
+    if find:
+        try:
+            km = find("3D View", "VIEW_3D", "WINDOW")
+            if km is not None:
+                yield km
+                return
+        except (TypeError, ValueError):
+            pass
+    for km in kc.keymaps:
+        if getattr(km, "modal", False):
+            continue
+        if km.space_type == "VIEW_3D" and km.region_type == "WINDOW":
+            yield km
+
+
+def _is_sidebar_toggle_n(kmi) -> bool:
+    """Built-in N that toggles the right sidebar (Tools/N-panel region)."""
+    if kmi.type != "N" or kmi.value != "PRESS":
+        return False
+    if kmi.any or kmi.shift or kmi.ctrl or kmi.alt:
+        return False
+    if getattr(kmi, "oskey", False):
+        return False
+    if not kmi.active:
+        return False
+    if kmi.idname == "wm.context_toggle":
+        dp = getattr(kmi.properties, "data_path", "") or ""
+        return dp == "space_data.show_region_ui"
+    return False
+
+
+def _disable_default_n_key():
+    """Mute Blender's built-in N sidebar toggle (editable prefs keymap, not default-only)."""
+    wm = bpy.context.window_manager
+    # preferences = merged editable key configuration; 'default' is often not writable
+    for store_name in ("preferences", "user"):
+        kc = getattr(wm.keyconfigs, store_name, None)
+        if kc is None:
+            continue
+        for km in _iter_3d_view_window_keymaps(kc):
+            if km is None:
+                continue
+            for kmi in km.keymap_items:
+                if not _is_sidebar_toggle_n(kmi):
+                    continue
+                if kmi in _disabled_default_kmis:
+                    continue
+                try:
+                    kmi.active = False
+                    _disabled_default_kmis.append(kmi)
+                except Exception:
+                    pass
+
+
+def _restore_default_n_key():
+    for kmi in _disabled_default_kmis:
+        try:
+            kmi.active = True
+        except Exception:
+            pass
+    _disabled_default_kmis.clear()
+
+
 def _unregister_core_keymaps():
     for km, kmi in _addon_keymaps_core:
         km.keymap_items.remove(kmi)
     _addon_keymaps_core.clear()
+    _restore_default_n_key()
 
 
 def _register_core_keymaps():
+    _restore_default_n_key()  # reset state înainte de re-registrare
     prefs = _addon_prefs()
     wm = bpy.context.window_manager
     kc = wm.keyconfigs.addon
@@ -60,6 +133,7 @@ def _register_core_keymaps():
             _pref(prefs, "shortcut_grave_isolate"),
             _pref(prefs, "shortcut_alt_grave_orientation"),
             _pref(prefs, "shortcut_ctrl_grave_frame_selected"),
+            _pref(prefs, "shortcut_n_alec_panel"),
             _pref(prefs, "shortcut_alt_w_light_energy_modal"),
         )
     )
@@ -123,6 +197,11 @@ def _register_core_keymaps():
             "alec.view_selected_safe", "ACCENT_GRAVE", "PRESS", ctrl=True
         )
         _addon_keymaps_core.append((km, kmi_frame_selected))
+
+    if km is not None and _pref(prefs, "shortcut_n_alec_panel"):
+        kmi_n = km.keymap_items.new("alec.open_alec_panel", "N", "PRESS")
+        _addon_keymaps_core.append((km, kmi_n))
+        _disable_default_n_key()
 
     if km is not None and _pref(prefs, "shortcut_alt_w_light_energy_modal"):
         kmi_light_modal = km.keymap_items.new(

@@ -1,7 +1,120 @@
 import bpy
-from mathutils import Vector
+from mathutils import Matrix, Vector
 
 _ALEC_TARGET_CON_NAME = "Alec Target"
+
+# ---------------------------------------------------------------------------
+# Focal length UI + dolly compensation
+# ---------------------------------------------------------------------------
+
+_lens_sync_busy: bool = False
+
+_SCENE_FOCAL_PROP_NAMES = (
+    "alec_focal_lens_ui",
+    "alec_focal_dolly_compensate",
+)
+
+
+def scene_persp_camera(scene):
+    """Return scene.camera if it is a perspective Camera object, else None."""
+    cam = getattr(scene, "camera", None)
+    if cam is None or getattr(cam, "type", None) != "CAMERA":
+        return None
+    if getattr(cam.data, "type", None) != "PERSP":
+        return None
+    return cam
+
+
+def _apply_focal_dolly(cam, tgt, old_lens: float, new_lens: float) -> None:
+    """Dolly along view axis in world space. Uses matrix_world so parented cameras work."""
+    if abs(old_lens) < 1e-6 or abs(new_lens / old_lens - 1.0) < 1e-9:
+        return
+    mw = cam.matrix_world
+    forward = (mw.to_3x3() @ Vector((0.0, 0.0, -1.0))).normalized()
+    c = mw.translation.copy()
+    t = tgt.matrix_world.translation.copy()
+    d0 = (t - c).dot(forward)
+    if abs(d0) < 1e-6:
+        return
+    d1 = d0 * (new_lens / old_lens)
+    delta_w = forward * (d0 - d1)
+    loc, rot, sca = mw.decompose()
+    cam.matrix_world = Matrix.LocRotScale(loc + delta_w, rot, sca)
+
+
+def _alec_focal_lens_ui_update(scene, context):
+    global _lens_sync_busy
+    if _lens_sync_busy:
+        return
+    cam = scene_persp_camera(scene)
+    if cam is None:
+        return
+    new_lens = float(scene.alec_focal_lens_ui)
+    old_lens = float(cam.data.lens)
+    if abs(new_lens - old_lens) < 1e-6:
+        return
+    cam.data.lens = new_lens
+    if not bool(scene.alec_focal_dolly_compensate):
+        return
+    tgt = getattr(context, "active_object", None)
+    if tgt is None or tgt is cam:
+        return
+    _apply_focal_dolly(cam, tgt, old_lens, new_lens)
+
+
+def _alec_focal_dolly_toggle_update(scene, _context):
+    """Re-sync mirror on toggle so no jump occurs when turning dolly on."""
+    global _lens_sync_busy
+    cam = scene_persp_camera(scene)
+    if cam is None:
+        return
+    _lens_sync_busy = True
+    try:
+        scene.alec_focal_lens_ui = float(cam.data.lens)
+    finally:
+        _lens_sync_busy = False
+
+
+def register_focal_lens_scene_props() -> None:
+    for name in _SCENE_FOCAL_PROP_NAMES:
+        if hasattr(bpy.types.Scene, name):
+            try:
+                delattr(bpy.types.Scene, name)
+            except Exception:
+                pass
+    bpy.types.Scene.alec_focal_lens_ui = bpy.props.FloatProperty(
+        name="Focal (mm)",
+        description=(
+            "Scene camera focal length. "
+            "Editing here optionally dollies the camera (see toggle below)."
+        ),
+        default=50.0,
+        min=1.0,
+        soft_max=500.0,
+        precision=2,
+        step=100,
+        update=_alec_focal_lens_ui_update,
+    )
+    bpy.types.Scene.alec_focal_dolly_compensate = bpy.props.BoolProperty(
+        name="Dolly focal",
+        description=(
+            "When on: changing focal length in this panel also moves the scene camera "
+            "along its view axis so framing stays similar toward the active object. "
+            "Camera does not need to be selected. Has no effect when editing focal "
+            "length elsewhere (e.g. Properties)."
+        ),
+        default=False,
+        update=_alec_focal_dolly_toggle_update,
+    )
+
+
+def unregister_focal_lens_scene_props() -> None:
+    for name in _SCENE_FOCAL_PROP_NAMES:
+        if hasattr(bpy.types.Scene, name):
+            try:
+                delattr(bpy.types.Scene, name)
+            except Exception:
+                pass
 
 
 def _camera_target_empty_name(cam) -> str:

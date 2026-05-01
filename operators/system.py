@@ -241,6 +241,74 @@ class ALEC_OT_view_selected_safe(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class ALEC_OT_open_alec_panel(bpy.types.Operator):
+    """Open sidebar and jump to Alec tab; close sidebar if Alec tab is already visible."""
+
+    bl_idname = "alec.open_alec_panel"
+    bl_label = "Open Alec Panel"
+    bl_options = set()
+
+    _CATEGORY = "Alec"
+
+    @classmethod
+    def poll(cls, context):
+        return getattr(context, "screen", None) is not None
+
+    def execute(self, context):
+        screen = context.screen
+        if not screen:
+            return {"CANCELLED"}
+
+        area = context.area
+        if area is None or area.type != "VIEW_3D":
+            area = next((a for a in screen.areas if a.type == "VIEW_3D"), None)
+        if area is None:
+            return {"CANCELLED"}
+
+        space = area.spaces.active
+        if space is None or space.type != "VIEW_3D":
+            return {"CANCELLED"}
+
+        ui_region = next((r for r in area.regions if r.type == "UI"), None)
+        sidebar_open = bool(ui_region and ui_region.width > 1)
+        cur = (
+            getattr(ui_region, "active_panel_category", None) if ui_region else None
+        )
+
+        if sidebar_open and cur == self._CATEGORY:
+            if hasattr(space, "show_region_ui"):
+                space.show_region_ui = False
+            area.tag_redraw()
+            return {"FINISHED"}
+
+        if hasattr(space, "show_region_ui"):
+            space.show_region_ui = True
+        area.tag_redraw()
+
+        category = self._CATEGORY
+
+        def apply_category():
+            ctx = bpy.context
+            ar = ctx.area
+            if ar is None or ar.type != "VIEW_3D":
+                ar = next(
+                    (a for a in ctx.screen.areas if a.type == "VIEW_3D"), None
+                )
+            if ar is None:
+                return None
+            ui = next((r for r in ar.regions if r.type == "UI"), None)
+            if ui is not None and hasattr(ui, "active_panel_category"):
+                try:
+                    ui.active_panel_category = category
+                except Exception:
+                    pass
+            ar.tag_redraw()
+            return None
+
+        bpy.app.timers.register(apply_category, first_interval=0)
+        return {"FINISHED"}
+
+
 classes = [
     ALEC_OT_menu_dispatcher,
     ALEC_OT_set_area_view3d_under_mouse,
@@ -249,4 +317,5 @@ classes = [
     ALEC_OT_floating_shader_editor,
     ALEC_OT_toggle_global_local_orientation,
     ALEC_OT_view_selected_safe,
+    ALEC_OT_open_alec_panel,
 ]

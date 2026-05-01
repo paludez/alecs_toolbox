@@ -1,8 +1,9 @@
-"""N-panel Alec tab: Transform + Camera Tools (același panel)."""
+"""N-panel Alec tab: Transform + Camera Tools + Lights Tools (același panel)."""
 
 import bpy
 
-from ..operators.camera_tools import _camera_data_from_context
+from ..operators import camera_tools as _camera_tools_mod
+from ..operators.camera_tools import _camera_data_from_context, scene_persp_camera
 from .transform import selection_math as sm
 
 _TRANSFORM_UI_DUMMY_PROPS = {
@@ -26,6 +27,61 @@ _TRANSFORM_UI_DUMMY_PROPS = {
     ),
 }
 
+_LIGHTS_UI_DUMMY_PROPS = {
+    "alec_lights_ui_dummy_energy": bpy.props.FloatProperty(
+        name="Energy",
+        description="Placeholder when no light is active",
+        default=1000.0,
+        min=0.0,
+        soft_max=100000.0,
+    ),
+    "alec_lights_ui_dummy_color": bpy.props.FloatVectorProperty(
+        name="Color",
+        description="Placeholder when no light is active",
+        size=3,
+        subtype="COLOR",
+        default=(1.0, 1.0, 1.0),
+        min=0.0,
+        max=1.0,
+    ),
+    "alec_lights_ui_dummy_lt_distance": bpy.props.FloatProperty(
+        name="Distance",
+        description="Placeholder when no light is active",
+        default=3.0,
+        min=0.01,
+        soft_max=500.0,
+        unit="LENGTH",
+    ),
+    "alec_lights_ui_dummy_lt_angle": bpy.props.FloatProperty(
+        name="Azimuth",
+        description="Placeholder when no light is active",
+        default=0.0,
+        subtype="ANGLE",
+    ),
+    "alec_lights_ui_dummy_lt_elevation": bpy.props.FloatProperty(
+        name="Elevation",
+        description="Placeholder when no light is active",
+        default=0.0,
+        subtype="ANGLE",
+    ),
+    "alec_lights_ui_dummy_area_size": bpy.props.FloatProperty(
+        name="Size X",
+        description="Placeholder when Area light is not active",
+        default=1.0,
+        min=0.0001,
+        soft_max=100.0,
+        unit="LENGTH",
+    ),
+    "alec_lights_ui_dummy_area_size_y": bpy.props.FloatProperty(
+        name="Size Y",
+        description="Placeholder when Area light is not active",
+        default=1.0,
+        min=0.0001,
+        soft_max=100.0,
+        unit="LENGTH",
+    ),
+}
+
 
 def _register_transform_ui_dummy_props() -> None:
     """Register Scene props; remove stale RNA left from a failed reload."""
@@ -37,6 +93,19 @@ def _register_transform_ui_dummy_props() -> None:
 
 def _unregister_transform_ui_dummy_props() -> None:
     for name in _TRANSFORM_UI_DUMMY_PROPS:
+        if hasattr(bpy.types.Scene, name):
+            delattr(bpy.types.Scene, name)
+
+
+def _register_lights_ui_dummy_props() -> None:
+    for name, prop in _LIGHTS_UI_DUMMY_PROPS.items():
+        if hasattr(bpy.types.Scene, name):
+            delattr(bpy.types.Scene, name)
+        setattr(bpy.types.Scene, name, prop)
+
+
+def _unregister_lights_ui_dummy_props() -> None:
+    for name in _LIGHTS_UI_DUMMY_PROPS:
         if hasattr(bpy.types.Scene, name):
             delattr(bpy.types.Scene, name)
 
@@ -269,6 +338,128 @@ def _draw_camera_tools(layout, context):
         icon="RESTRICT_SELECT_OFF",
     )
 
+    scene = context.scene
+    cam = scene_persp_camera(scene)
+    if cam is not None:
+        # Sync mirror from cam.data.lens if edited elsewhere (no dolly).
+        cur_lens = float(cam.data.lens)
+        mirror_lens = float(getattr(scene, "alec_focal_lens_ui", cur_lens))
+        if abs(mirror_lens - cur_lens) > 1e-4:
+            _camera_tools_mod._lens_sync_busy = True
+            try:
+                scene.alec_focal_lens_ui = cur_lens
+            finally:
+                _camera_tools_mod._lens_sync_busy = False
+
+    col.separator()
+    focal_block = col.column(align=True)
+    focal_block.enabled = cam is not None
+    row_focal = focal_block.row(align=True)
+    row_focal.prop(scene, "alec_focal_lens_ui", text="Focal mm")
+    dolly_on = bool(scene.alec_focal_dolly_compensate)
+    tgt = context.active_object
+    pivot_ok = cam is not None and tgt is not None and tgt is not cam
+    toggle_icon = "CON_CAMERASOLVER" if dolly_on else "CAMERA_DATA"
+    sub = row_focal.row(align=True)
+    sub.alert = bool(cam is not None and dolly_on and not pivot_ok)
+    sub.prop(
+        scene,
+        "alec_focal_dolly_compensate",
+        text="",
+        icon=toggle_icon,
+        toggle=True,
+    )
+
+
+def _draw_lights_tools(layout, context):
+    layout.use_property_split = False
+    layout.use_property_decorate = False
+    layout.separator()
+    layout.label(text="Lights Tools", icon="LIGHT_DATA")
+    col = layout.column(align=True)
+    col.use_property_split = False
+    obj = context.active_object
+    light_data = (
+        obj.data
+        if obj is not None and obj.type == "LIGHT" and obj.data is not None
+        else None
+    )
+    cur_type = light_data.type if light_data is not None else None
+
+    row_types = col.row(align=True)
+    row_types.operator("alec.new_light_rig", text="New Light")
+    for lt, icon in (
+        ("POINT", "LIGHT_POINT"),
+        ("SUN", "LIGHT_SUN"),
+        ("SPOT", "LIGHT_SPOT"),
+        ("AREA", "LIGHT_AREA"),
+    ):
+        op = row_types.operator(
+            "alec.light_add",
+            text="",
+            icon=icon,
+            depress=(cur_type == lt),
+        )
+        op.light_type = lt
+
+    scene = context.scene
+    area_light_ok = light_data is not None and light_data.type == "AREA"
+    cur_area_shape = (
+        light_data.shape if area_light_ok else None
+    )
+
+    # Același rând: dimensiuni la început, shape-uri la sfârșit (sub-rând pt. cele 2 float-uri).
+    area_block = col.column(align=True)
+    area_block.enabled = area_light_ok
+    row_area = area_block.row(align=True)
+    sz = row_area.row(align=True)
+    sz.ui_units_x = 12
+    if area_light_ok:
+        sz.prop(light_data, "size", text="")
+        sz.prop(light_data, "size_y", text="")
+    else:
+        sz.prop(scene, "alec_lights_ui_dummy_area_size", text="")
+        sz.prop(scene, "alec_lights_ui_dummy_area_size_y", text="")
+    for shape_id, icon in (
+        ("SQUARE", "MESH_PLANE"),
+        ("RECTANGLE", "UV_FACESEL"),
+        ("DISK", "MESH_CIRCLE"),
+        ("ELLIPSE", "META_ELLIPSOID"),
+    ):
+        op = row_area.operator(
+            "alec.light_area_shape",
+            text="",
+            icon=icon,
+            depress=(area_light_ok and cur_area_shape == shape_id),
+        )
+        op.shape = shape_id
+
+    row_rig = col.row(align=True)
+    row_rig.enabled = light_data is not None
+    if light_data is not None:
+        row_rig.prop(obj, "alec_lt_distance", text="Dist")
+        row_rig.prop(obj, "alec_lt_angle", text="Az")
+        row_rig.prop(obj, "alec_lt_elevation", text="El")
+    else:
+        row_rig.prop(scene, "alec_lights_ui_dummy_lt_distance", text="Dist")
+        row_rig.prop(scene, "alec_lights_ui_dummy_lt_angle", text="Az")
+        row_rig.prop(scene, "alec_lights_ui_dummy_lt_elevation", text="El")
+
+    col.separator()
+    eng_block = col.column(align=True)
+    eng_block.enabled = light_data is not None
+    row_e = eng_block.row(align=True)
+    if light_data is not None:
+        row_e.prop(light_data, "energy", text="Energy")
+    else:
+        row_e.prop(scene, "alec_lights_ui_dummy_energy", text="Energy")
+    sub = row_e.row(align=True)
+    sub.ui_units_x = 4
+    if light_data is not None:
+        sub.prop(light_data, "color", text="")
+    else:
+        sub.prop(scene, "alec_lights_ui_dummy_color", text="")
+
 
 class ALEC_PT_alec_transform(bpy.types.Panel):
     bl_space_type = "VIEW_3D"
@@ -302,6 +493,7 @@ class ALEC_PT_alec_transform(bpy.types.Panel):
                     )
         _draw_object_transform(layout, context, obj)
         _draw_camera_tools(layout, context)
+        _draw_lights_tools(layout, context)
 
 
 class ALEC_PT_alec_misc(bpy.types.Panel):
@@ -346,6 +538,7 @@ class ALEC_PT_alec_misc_materials(bpy.types.Panel):
 
 def register():
     _register_transform_ui_dummy_props()
+    _register_lights_ui_dummy_props()
     bpy.utils.register_class(ALEC_PT_alec_transform)
     bpy.utils.register_class(ALEC_PT_alec_misc)
     bpy.utils.register_class(ALEC_PT_alec_misc_materials)
@@ -355,4 +548,5 @@ def unregister():
     bpy.utils.unregister_class(ALEC_PT_alec_misc_materials)
     bpy.utils.unregister_class(ALEC_PT_alec_misc)
     bpy.utils.unregister_class(ALEC_PT_alec_transform)
+    _unregister_lights_ui_dummy_props()
     _unregister_transform_ui_dummy_props()

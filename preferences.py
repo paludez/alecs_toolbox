@@ -132,6 +132,15 @@ class ALECS_TB_AddonPreferences(AddonPreferences):
         default=True,
         update=_refresh_addon_keymaps,
     )
+    shortcut_n_alec_panel: BoolProperty(
+        name="N — Open Alec panel (replaces default sidebar toggle)",
+        description=(
+            "N opens sidebar and jumps to Alec tab; "
+            "if Alec tab is already visible, N closes the sidebar."
+        ),
+        default=True,
+        update=_refresh_addon_keymaps,
+    )
     shortcut_alt_w_light_energy_modal: BoolProperty(
         name="Alt+W — Light/Empty value drag (modal)",
         description="If active is Light: energy; Empty: display size; Camera: focal length. Drag left/right or type value.",
@@ -213,6 +222,7 @@ class ALECS_TB_AddonPreferences(AddonPreferences):
         col.prop(self, "shortcut_alt_2_shader_object_under_mouse")
         col.prop(self, "shortcut_alt_3_shader_world_under_mouse")
         col.prop(self, "shortcut_alt_4_uv_under_mouse")
+        col.prop(self, "shortcut_n_alec_panel")
         col.prop(self, "shortcut_alt_w_light_energy_modal")
 
         box2 = layout.box()
