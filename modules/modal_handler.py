@@ -132,9 +132,10 @@ class BaseModalOperator:
         self.__class__._active_instance = self
         self.number_input = ModalNumberInput()
 
-        from .utils import get_unit_scale
-        self.unit_scale = get_unit_scale(context)
-        self.unit_scale_display_inv = 1.0 / self.unit_scale if self.unit_scale != 0 else 1.0
+        from .utils import display_length_to_bu_multiplier, length_bu_to_display_multiplier
+        # Legacy names: values convert between scene display lengths and Blender Units (same as Blender UI).
+        self.unit_scale_display_inv = length_bu_to_display_multiplier(context)
+        self.unit_scale = display_length_to_bu_multiplier(context)
 
         center_x = context.region.x + context.region.width // 2
         center_y = context.region.y + context.region.height // 2

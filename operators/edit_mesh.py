@@ -20,9 +20,26 @@ class ALEC_OT_set_edge_length(modal_handler.BaseModalOperator, bpy.types.Operato
         return [("Anchor", "[A] Active", self.anchor_mode == 'ACTIVE'), ("", "[B] Other", self.anchor_mode == 'OTHER'),
                 ("", "[C] Center", self.anchor_mode == 'CENTER'), None, ("Confirm", "[LMB]"), ("Cancel", "[RMB]")]
 
+    def _sync_bm_verts(self):
+        """from_edit_mesh invalidates old BMVerts after other tools touch the mesh; resolve by index."""
+        try:
+            self.bm = bmesh.from_edit_mesh(self.me)
+            self.bm.verts.ensure_lookup_table()
+            if self.v1_index >= len(self.bm.verts) or self.v2_index >= len(self.bm.verts):
+                return False
+            self.v1 = self.bm.verts[self.v1_index]
+            self.v2 = self.bm.verts[self.v2_index]
+            self.active_vert = self.v1 if self._active_is_v1 else self.v2
+            self.other_vert = self.v2 if self.active_vert is self.v1 else self.v1
+            return True
+        except ReferenceError:
+            return False
+
     def apply_length(self):
+        if not self._sync_bm_verts():
+            return
         world_direction = self.world_direction
-        
+
         if self.anchor_mode == 'CENTER':
             world_center_point = (self.world_mx @ self.v1.co + self.world_mx @ self.v2.co) / 2
             half_length = self.current_length / 2
@@ -36,8 +53,8 @@ class ALEC_OT_set_edge_length(modal_handler.BaseModalOperator, bpy.types.Operato
 
             stationary_co = self.world_mx @ stationary_vert.co
 
-            sign = 1.0 if stationary_vert == self.v1 else -1.0
-            
+            sign = 1.0 if stationary_vert.index == self.v1_index else -1.0
+
             new_moved_co = stationary_co + (world_direction * sign) * self.current_length
             moved_vert.co = self.inv_world_mx @ new_moved_co
 
@@ -82,6 +99,10 @@ class ALEC_OT_set_edge_length(modal_handler.BaseModalOperator, bpy.types.Operato
         
         self.other_vert = self.v2 if self.active_vert == self.v1 else self.v1
 
+        self.v1_index = self.v1.index
+        self.v2_index = self.v2.index
+        self._active_is_v1 = self.active_vert is self.v1
+
         self.initial_length = direction_vector.length
         self.current_length = self.initial_length
         self.anchor_mode = 'ACTIVE'
@@ -99,6 +120,8 @@ class ALEC_OT_set_edge_length(modal_handler.BaseModalOperator, bpy.types.Operato
                 "suffix": suffix, "secondary_text": secondary, "initial_value": init_len_val}
 
     def on_cancel(self, context, event):
+        if not self._sync_bm_verts():
+            return
         self.v1.co = self.initial_v1_co
         self.v2.co = self.initial_v2_co
         bmesh.update_edit_mesh(self.me)
@@ -110,6 +133,8 @@ class ALEC_OT_set_edge_length(modal_handler.BaseModalOperator, bpy.types.Operato
 
     def on_custom_event(self, context, event):
         if event.type in {'A', 'B', 'C'} and event.value == 'PRESS':
+            if not self._sync_bm_verts():
+                return
             self.v1.co = self.initial_v1_co
             self.v2.co = self.initial_v2_co
             self.current_length = self.initial_length
@@ -130,7 +155,8 @@ class ALEC_OT_set_edge_length(modal_handler.BaseModalOperator, bpy.types.Operato
                 typed_val = self.number_input.get_value(initial_value=self.initial_length * self.unit_scale_display_inv)
                 self.current_length = abs(typed_val * self.unit_scale)
                 self.apply_length()
-            except ValueError: pass
+            except ValueError:
+                pass
 
 class ALEC_OT_equalize_edge_lengths(bpy.types.Operator):
     """Make all selected edges equal in length to the active edge (scaling from center)"""
@@ -218,9 +244,8 @@ class ALEC_OT_dimension_action(bpy.types.Operator):
             draw_state._draw_data['mesh_name'] = obj.data.name
             draw_state._draw_data['edge_indices'] = []
 
-        unit_scale = utils.get_unit_scale(context)
         unit_setting = context.scene.unit_settings.length_unit
-        draw_state._draw_data['unit_inv'] = 1.0 / unit_scale if unit_scale != 0 else 1.0
+        draw_state._draw_data['unit_inv'] = utils.length_bu_to_display_multiplier(context)
         draw_state._draw_data['suffix'] = utils.unit_suffixes.get(unit_setting, '')
 
         current_indices = set(draw_state._draw_data.get('edge_indices', []))
@@ -1362,8 +1387,81 @@ class ALEC_OT_select_similar_face_material(bpy.types.Operator):
         return bpy.ops.mesh.select_similar('EXEC_DEFAULT', type='FACE_MATERIAL', compare='EQUAL', threshold=0.0)
 
 
+class ALEC_OT_scale_object_to_edge_length(bpy.types.Operator):
+    """Scale the active object uniformly so that the selected edge reaches the given world-space length.
+    Uses Transform Pivot Point (3D Cursor, Median, Bounding Box, Active Element)."""
+    bl_idname = "alec.scale_object_to_edge_length"
+    bl_label = "Scale Object to Edge Length"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    target_length: bpy.props.FloatProperty(
+        name="Target Length",
+        description="Desired world-space length for the selected edge",
+        default=1.0,
+        min=0.0001,
+        unit='LENGTH',
+    ) # type: ignore
+
+    @classmethod
+    def poll(cls, context):
+        return emh.poll_active_mesh_edit_mode(context)
+
+    def invoke(self, context, event):
+        obj = context.active_object
+        me = obj.data
+        bm = bmesh.from_edit_mesh(me)
+
+        edge = emh.get_active_or_latest_selected_edge(bm)
+        if edge:
+            v1, v2 = edge.verts
+        else:
+            selected_verts = [v for v in bm.verts if v.select]
+            if len(selected_verts) == 2:
+                v1, v2 = selected_verts
+            else:
+                self.report({'WARNING'}, "Select an edge or exactly 2 vertices")
+                return {'CANCELLED'}
+
+        mw = obj.matrix_world
+        current_length = ((mw @ v1.co) - (mw @ v2.co)).length
+        if current_length < 1e-9:
+            self.report({'WARNING'}, "Edge length is zero")
+            return {'CANCELLED'}
+
+        self.target_length = current_length
+        return context.window_manager.invoke_props_dialog(self)
+
+    def execute(self, context):
+        obj = context.active_object
+        me = obj.data
+        bm = bmesh.from_edit_mesh(me)
+
+        edge = emh.get_active_or_latest_selected_edge(bm)
+        if edge:
+            v1, v2 = edge.verts
+        else:
+            selected_verts = [v for v in bm.verts if v.select]
+            if len(selected_verts) == 2:
+                v1, v2 = selected_verts
+            else:
+                self.report({'WARNING'}, "Select an edge or exactly 2 vertices")
+                return {'CANCELLED'}
+
+        mw = obj.matrix_world
+        current_length = ((mw @ v1.co) - (mw @ v2.co)).length
+        if current_length < 1e-9:
+            self.report({'WARNING'}, "Edge length is zero")
+            return {'CANCELLED'}
+
+        factor = self.target_length / current_length
+        pivot = emh.edit_mesh_transform_pivot_world(context, obj, bm)
+        emh.scale_object_uniform_world_around_pivot(obj, factor, pivot)
+        return {'FINISHED'}
+
+
 classes = [
     ALEC_OT_set_edge_length,
+    ALEC_OT_scale_object_to_edge_length,
     ALEC_OT_equalize_edge_lengths,
     ALEC_OT_dimension_action,
     ALEC_OT_select_dimension_edges,

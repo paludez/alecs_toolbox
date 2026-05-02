@@ -97,6 +97,44 @@ def get_bounds_data(obj, point_type='CENTER', space='LOCAL'):
         if point_type == 'MAX': return Vector(w_max)
         return Vector((w_min + w_max) / 2)
 
+
+def bbox_world_axis_interval(obj, axis_dir):
+    """
+    Min/max scalar projection of the object's evaluated mesh bounds onto axis_dir (world space).
+    Matches get_bounds_data(WORLD) geometry (evaluated mesh + matrix_world), so scale and
+    modifiers are included. Falls back to bound_box @ matrix_world for non-mesh objects.
+    """
+    axis_dir = axis_dir.normalized()
+    bpy.context.view_layer.update()
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    obj_eval = obj.evaluated_get(depsgraph)
+    try:
+        mesh_eval = obj_eval.to_mesh()
+    except RuntimeError:
+        mw = obj.matrix_world
+        dots = [(mw @ Vector(corner)) @ axis_dir for corner in obj.bound_box]
+        return min(dots), max(dots)
+
+    verts_count = len(mesh_eval.vertices)
+    if verts_count == 0:
+        obj_eval.to_mesh_clear()
+        mw = obj.matrix_world
+        dots = [(mw @ Vector(corner)) @ axis_dir for corner in obj.bound_box]
+        return min(dots), max(dots)
+
+    coords = np.empty(verts_count * 3, dtype=np.float32)
+    mesh_eval.vertices.foreach_get("co", coords)
+    coords.shape = (verts_count, 3)
+    matrix = np.array(obj_eval.matrix_world)
+    world_coords = np.dot(coords, matrix[:3, :3].T) + matrix[:3, 3]
+    ax = np.array((axis_dir.x, axis_dir.y, axis_dir.z), dtype=np.float64)
+    dots = world_coords @ ax
+    mn = float(dots.min())
+    mx = float(dots.max())
+    obj_eval.to_mesh_clear()
+    return mn, mx
+
+
 def apply_align_move(obj, delta_world):
     """Applies movement directly to the global matrix."""
     obj.matrix_world.translation += delta_world
@@ -117,10 +155,117 @@ unit_suffixes = {
 
 def get_unit_scale(context):
     """
-    Returns the scale factor to convert from the current display unit to Blender's internal meters.
-    e.g., if scene is in 'CM', returns 0.01.
+    Meters per Blender Unit (Scene.unit_settings.scale_length).
+    Real-world meters = length_in_BU * scale_length.
     """
     return context.scene.unit_settings.scale_length
+
+
+_LEN_UNIT_METERS = {
+    'METERS': 1.0,
+    'CENTIMETERS': 0.01,
+    'MILLIMETERS': 0.001,
+    'MICROMETERS': 1e-6,
+    'DECIMETERS': 0.1,
+    'DEKAMETERS': 10.0,
+    'HECTOMETERS': 100.0,
+    'KILOMETERS': 1000.0,
+    'MILES': 1609.344,
+    'FEET': 0.3048,
+    'YARDS': 0.9144,
+    'INCHES': 0.0254,
+    'THOU': 0.0254 / 1000.0,
+}
+
+
+def _length_unit_identifier(us):
+    """Stable string RNA identifier for length_unit (handles int enum indices)."""
+    lu = getattr(us, 'length_unit', None)
+    if isinstance(lu, int):
+        try:
+            prop = us.bl_rna.properties['length_unit']
+            items = prop.enum_items
+            if 0 <= lu < len(items):
+                return items[lu].identifier
+        except (AttributeError, KeyError, IndexError, TypeError):
+            pass
+    if lu is None:
+        return 'DEFAULT'
+    return str(lu)
+
+
+def _length_unit_meters_per_display_step(length_unit_key):
+    """Meters represented by one increment of the given length_unit (Metric/Imperial)."""
+    return _LEN_UNIT_METERS.get(length_unit_key)
+
+
+def _effective_length_unit_key(us):
+    """
+    Map DEFAULT / ADAPTIVE (and unknowns) to a fixed unit key we can convert.
+    ADAPTIVE cannot match Blender exactly with one scalar; meters is a stable fallback.
+    """
+    key = _length_unit_identifier(us)
+    sys = getattr(us, 'system', 'NONE')
+    if sys == 'NONE':
+        return None
+    if key == 'DEFAULT':
+        return 'METERS' if sys == 'METRIC' else 'FEET'
+    if key == 'ADAPTIVE':
+        return 'METERS'
+    return key
+
+
+def length_bu_to_display_multiplier(context):
+    """
+    Multiply a length in Blender Units (mesh space, modifiers, etc.) to match the number
+    Blender shows for lengths - same idea as the transform panel / scene units.
+    """
+    try:
+        scene = getattr(context, 'scene', None)
+        if scene is None:
+            return 1.0
+        us = scene.unit_settings
+        if getattr(us, 'system', 'NONE') == 'NONE':
+            return 1.0
+
+        eff = _effective_length_unit_key(us)
+        if eff is None:
+            return 1.0
+        base = _length_unit_meters_per_display_step(eff)
+        if base is None or base == 0.0:
+            return 1.0
+
+        sl = float(getattr(us, 'scale_length', 1.0) or 0.0)
+        if sl <= 0.0:
+            sl = 1.0
+        return sl / base
+    except Exception:
+        return 1.0
+
+
+def display_length_to_bu_multiplier(context):
+    """Multiply a typed or UI length (current scene unit) into Blender Units."""
+    try:
+        scene = getattr(context, 'scene', None)
+        if scene is None:
+            return 1.0
+        us = scene.unit_settings
+        if getattr(us, 'system', 'NONE') == 'NONE':
+            return 1.0
+
+        eff = _effective_length_unit_key(us)
+        if eff is None:
+            return 1.0
+        base = _length_unit_meters_per_display_step(eff)
+        if base is None or base == 0.0:
+            return 1.0
+
+        sl = float(getattr(us, 'scale_length', 1.0) or 0.0)
+        if sl <= 0.0:
+            sl = 1.0
+        return base / sl
+    except Exception:
+        return 1.0
 
 def find_farthest_vertices(verts):
     """

@@ -276,12 +276,11 @@ class ALEC_MT_edit_menu(bpy.types.Menu):
         col_inner_dim = box_dim.column(align=True)
         col_inner_dim.operator("alec.equalize_edge_lengths", text="Equalize Lengths", icon='ALIGN_JUSTIFY')
         col_inner_dim.operator("alec.set_edge_length", text="Set Edge Length", icon='SEQ_STRIP_DUPLICATE')
+        col_inner_dim.operator("alec.scale_object_to_edge_length", text="Scale Object to Edge Length", icon='FULLSCREEN_ENTER')
 
         row = col_inner_dim.row(align=True)
         row.operator("alec.dimension_action", text="Add", icon='ADD').action = 'ADD'
         row.operator("alec.dimension_action", text="Rem", icon='REMOVE').action = 'REMOVE'
-
-        col_inner_dim.operator("alec.select_dimension_edges", text="Select Dim Edges", icon='RESTRICT_SELECT_OFF')
 
         col_inner_dim.separator()
         col_inner_dim.operator("alec.measure_edge_angle", text="Measure Angle", icon='DRIVER_ROTATIONAL_DIFFERENCE')
@@ -389,6 +388,7 @@ class ALEC_MT_object_menu(bpy.types.Menu):
         col_inner.operator("view3d.snap_selected_to_active", text="Align_Origins")
         col_inner.operator("alec.quick_pivot_rot", text="Align_Origins(Rot)")
         col_inner.operator("alec.align_dialog", text="Align Dialog")
+        col_inner.operator("alec.distribute_objects_dialog", text="Distribute...", icon='ALIGN_JUSTIFY')
 
         # --- Slice 2 (Right): Modifiers ---
         col_right = pie.column()

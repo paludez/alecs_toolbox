@@ -2,7 +2,7 @@ import bpy
 import bmesh
 from ..modules import bbox_tools
 from ..modules.modal_handler import BaseModalOperator
-from ..modules.utils import unit_suffixes, draw_modal_status_bar, get_unit_scale
+from ..modules.utils import unit_suffixes, draw_modal_status_bar
 from ..modules.drawing_tools import draw_mesh_wireframe
 
 class BBoxOperatorBase:

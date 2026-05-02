@@ -201,8 +201,7 @@ class ALEC_OT_curve_point_dimension(bpy.types.Operator):
         d['object_name'] = obj.name
         d['mesh_name'] = me.name
 
-        unit = utils.get_unit_scale(context)
-        d['curve_dim_unit_inv'] = 1.0 / unit if unit else 1.0
+        d['curve_dim_unit_inv'] = utils.length_bu_to_display_multiplier(context)
         d['curve_dim_suffix'] = utils.unit_suffixes.get(context.scene.unit_settings.length_unit, '')
 
         pairs = list(d.get('curve_point_pairs', []))

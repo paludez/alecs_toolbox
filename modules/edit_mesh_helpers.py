@@ -1,7 +1,73 @@
 """Poll and bmesh helpers for edit-mesh operators."""
 import bmesh
+from mathutils import Vector, Matrix
 
 from . import edit_curve_helpers as ech
+
+
+def edit_mesh_transform_pivot_world(context, obj, bm):
+    """
+    World-space pivot matching Tool Settings → Transform Pivot Point (Edit Mesh).
+    INDIVIDUAL_ORIGINS is approximated with the median of the current selection
+    (full per-island pivots would require loose-part detection).
+    """
+    pivot_type = context.scene.tool_settings.transform_pivot_point
+    mw = obj.matrix_world
+    sel_verts = [v for v in bm.verts if v.select]
+
+    if pivot_type == 'CURSOR':
+        return context.scene.cursor.location.copy()
+
+    if pivot_type == 'ACTIVE_ELEMENT':
+        active = bm.select_history.active
+        if isinstance(active, bmesh.types.BMVert):
+            return mw @ active.co
+        if isinstance(active, bmesh.types.BMEdge):
+            v0, v1 = active.verts
+            return (mw @ v0.co + mw @ v1.co) * 0.5
+        if isinstance(active, bmesh.types.BMFace):
+            return mw @ active.calc_center_median()
+        if sel_verts:
+            acc = Vector((0.0, 0.0, 0.0))
+            for v in sel_verts:
+                acc += mw @ v.co
+            return acc / len(sel_verts)
+        return mw.translation.copy()
+
+    if pivot_type == 'BOUNDING_BOX_CENTER':
+        if not sel_verts:
+            return mw.translation.copy()
+        ws = [mw @ v.co for v in sel_verts]
+        xs = [p.x for p in ws]
+        ys = [p.y for p in ws]
+        zs = [p.z for p in ws]
+        return Vector(
+            (
+                (min(xs) + max(xs)) * 0.5,
+                (min(ys) + max(ys)) * 0.5,
+                (min(zs) + max(zs)) * 0.5,
+            )
+        )
+
+    if pivot_type in {'MEDIAN_POINT', 'INDIVIDUAL_ORIGINS'}:
+        if not sel_verts:
+            return mw.translation.copy()
+        acc = Vector((0.0, 0.0, 0.0))
+        for v in sel_verts:
+            acc += mw @ v.co
+        return acc / len(sel_verts)
+
+    return mw.translation.copy()
+
+
+def scale_object_uniform_world_around_pivot(obj, factor, pivot_world):
+    """Apply uniform world-space scale factor around pivot via matrix_world."""
+    k = factor
+    S = Matrix.Identity(4)
+    S[0][0] = S[1][1] = S[2][2] = k
+    T = Matrix.Translation(pivot_world)
+    Ti = Matrix.Translation(-pivot_world)
+    obj.matrix_world = T @ S @ Ti @ obj.matrix_world
 
 
 def select_history_edges(bm):

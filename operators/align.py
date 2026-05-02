@@ -1,5 +1,62 @@
 import bpy
+from mathutils import Vector
 from ..modules import align_tools
+
+
+# ── Active-object history (last 2 distinct active names) ─────────────────────
+_active_history: list[str] = []
+_last_seen_active: str | None = None
+
+
+def _track_active_object_handler(scene, depsgraph):
+    global _last_seen_active
+    try:
+        obj = bpy.context.active_object
+    except Exception:
+        return
+    if obj is None:
+        return
+    name = obj.name
+    if name == _last_seen_active:
+        return
+    _last_seen_active = name
+    if _active_history and _active_history[-1] == name:
+        return
+    if len(_active_history) >= 2:
+        _active_history.pop(0)
+    _active_history.append(name)
+
+
+def get_last_two_active_objects():
+    """Return (penultimate_active, last_active) or (None, None) if not enough history."""
+    if len(_active_history) < 2:
+        return None, None
+    return (
+        bpy.data.objects.get(_active_history[-2]),
+        bpy.data.objects.get(_active_history[-1]),
+    )
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _axis_direction_from_enum(context, axis_mode):
+    """World-space unit vector for enum WORLD_* / LOCAL_* (LOCAL uses active object)."""
+    if axis_mode == 'WORLD_X':
+        return Vector((1.0, 0.0, 0.0))
+    if axis_mode == 'WORLD_Y':
+        return Vector((0.0, 1.0, 0.0))
+    if axis_mode == 'WORLD_Z':
+        return Vector((0.0, 0.0, 1.0))
+    active = context.active_object
+    if active is None:
+        return None
+    rot = active.matrix_world.to_3x3()
+    if axis_mode == 'LOCAL_X':
+        return rot.col[0].normalized()
+    if axis_mode == 'LOCAL_Y':
+        return rot.col[1].normalized()
+    if axis_mode == 'LOCAL_Z':
+        return rot.col[2].normalized()
+    return Vector((1.0, 0.0, 0.0))
 
 class AlignBase:
     """Base mixin class for alignment operators containing properties and logic"""
@@ -218,9 +275,101 @@ class ALEC_OT_quick_pivot_rot(AlignBase, bpy.types.Operator):
         self.orient_z = True
         return self.execute(context)
 
+
+class ALEC_OT_distribute_objects_dialog(bpy.types.Operator):
+    """Distribute selected objects along an axis (even positions or equal bbox gaps)"""
+    bl_idname = "alec.distribute_objects_dialog"
+    bl_label = "Distribute Objects"
+    bl_description = (
+        "Positions: space reference points evenly. Gaps: equal space between evaluated bbox projections. "
+        "Endpoints: shift-click two objects last (penultimate + active); otherwise uses left/right extremes on axis"
+    )
+    bl_options = {'REGISTER', 'UNDO'}
+
+    mode: bpy.props.EnumProperty(
+        name="Mode",
+        items=[
+            ('POSITIONS', "Positions", "Even spacing between reference points (min/center/pivot/max)"),
+            ('GAPS', "Gaps", "Equal space between bounding boxes along the axis"),
+        ],
+        default='POSITIONS',
+    ) # type: ignore
+
+    axis: bpy.props.EnumProperty(
+        name="Axis",
+        items=[
+            ('WORLD_X', "World X", ""),
+            ('WORLD_Y', "World Y", ""),
+            ('WORLD_Z', "World Z", ""),
+            ('LOCAL_X', "Local X (Active)", ""),
+            ('LOCAL_Y', "Local Y (Active)", ""),
+            ('LOCAL_Z', "Local Z (Active)", ""),
+        ],
+        default='WORLD_X',
+    ) # type: ignore
+
+    reference_point: bpy.props.EnumProperty(
+        name="Reference",
+        description="Reference point on each object (Positions mode only)",
+        items=[
+            ('MIN', "Minimum", ""),
+            ('CENTER', "Center", ""),
+            ('PIVOT', "Pivot", ""),
+            ('MAX', "Maximum", ""),
+        ],
+        default='PIVOT',
+    ) # type: ignore
+
+    @classmethod
+    def poll(cls, context):
+        return (
+            context.mode == 'OBJECT'
+            and len(context.selected_objects) >= 2
+        )
+
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(self, "mode", expand=True)
+        layout.prop(self, "axis", text="Axis")
+        sub = layout.column()
+        sub.prop(self, "reference_point", expand=True)
+        sub.enabled = self.mode == 'POSITIONS'
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self, width=400)
+
+    def execute(self, context):
+        axis_dir = _axis_direction_from_enum(context, self.axis)
+        if axis_dir is None:
+            self.report({'WARNING'}, "Need an active object for local axes")
+            return {'CANCELLED'}
+
+        objects = list(context.selected_objects)
+
+        ep_prev, ep_last = get_last_two_active_objects()
+        sel_set = set(objects)
+        if ep_prev in sel_set and ep_last in sel_set:
+            endpoints = (ep_prev, ep_last)
+        else:
+            endpoints = None
+
+        if self.mode == 'POSITIONS':
+            ok, msg = align_tools.distribute_objects_positions(
+                objects, axis_dir, self.reference_point, endpoint_objs=endpoints)
+        else:
+            ok, msg = align_tools.distribute_objects_gaps(
+                objects, axis_dir, endpoint_objs=endpoints)
+
+        if not ok:
+            self.report({'WARNING'}, msg)
+            return {'CANCELLED'}
+        return {'FINISHED'}
+
+
 classes = [
     ALEC_OT_align_dialog,
     ALEC_OT_quick_center,
     ALEC_OT_quick_center_rot,
     ALEC_OT_quick_pivot_rot,
+    ALEC_OT_distribute_objects_dialog,
 ]
