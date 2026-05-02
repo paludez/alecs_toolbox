@@ -370,6 +370,22 @@ def _draw_camera_tools(layout, context):
         toggle=True,
     )
 
+    col.separator()
+    row_tl = col.row(align=True)
+    row_tl.operator(
+        "alec.cameras_bind_all_to_timeline",
+        text="All Cams -> TL",
+        icon="MARKER_HLT",
+    )
+    row_tl.operator(
+        "alec.cameras_bind_selected_to_end",
+        text="Sel. -> End",
+        icon="MARKER",
+    )
+    sub_step = row_tl.row(align=True)
+    sub_step.ui_units_x = 4
+    sub_step.prop(scene, "alec_camera_marker_step", text="Step")
+
 
 def _draw_lights_tools(layout, context):
     layout.use_property_split = False

@@ -12,6 +12,7 @@ _lens_sync_busy: bool = False
 _SCENE_FOCAL_PROP_NAMES = (
     "alec_focal_lens_ui",
     "alec_focal_dolly_compensate",
+    "alec_camera_marker_step",
 )
 
 
@@ -105,6 +106,16 @@ def register_focal_lens_scene_props() -> None:
         ),
         default=False,
         update=_alec_focal_dolly_toggle_update,
+    )
+    bpy.types.Scene.alec_camera_marker_step = bpy.props.IntProperty(
+        name="Camera marker step",
+        description=(
+            "Frame step between consecutive camera markers added by the "
+            "All Cams / Selected Cams timeline buttons"
+        ),
+        default=1,
+        min=1,
+        soft_max=1000,
     )
 
 
@@ -547,6 +558,93 @@ class ALEC_OT_new_camera_to_view(bpy.types.Operator):
         return {"FINISHED"}
 
 
+def _last_marker_frame_any(scene, fallback: int) -> int:
+    """Frame of the latest timeline marker (any kind), or fallback if none."""
+    if not scene.timeline_markers:
+        return fallback
+    return max(m.frame for m in scene.timeline_markers)
+
+
+def _last_camera_marker_frame(scene, fallback: int) -> int:
+    """Frame of the latest timeline marker that is bound to a camera, else fallback."""
+    cam_frames = [m.frame for m in scene.timeline_markers if m.camera is not None]
+    return max(cam_frames) if cam_frames else fallback
+
+
+def _append_camera_markers(scene, cams, start_frame: int, step: int) -> int:
+    """Create one camera-bound timeline marker per camera at start_frame, +step, +2*step ..."""
+    count = 0
+    for i, cam in enumerate(cams):
+        m = scene.timeline_markers.new(cam.name, frame=start_frame + i * step)
+        m.camera = cam
+        count += 1
+    return count
+
+
+class ALEC_OT_cameras_bind_all_to_timeline(bpy.types.Operator):
+    """All scene cameras as timeline markers, appended after the last existing marker."""
+
+    bl_idname = "alec.cameras_bind_all_to_timeline"
+    bl_label = "All Cams to Timeline"
+    bl_description = (
+        "Add a camera-bound timeline marker for every camera in the scene, "
+        "starting after the last existing marker (any kind), separated by Step frames"
+    )
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        return any(o.type == "CAMERA" for o in bpy.data.objects)
+
+    def execute(self, context):
+        scene = context.scene
+        cams = sorted(
+            (o for o in bpy.data.objects if o.type == "CAMERA"),
+            key=lambda o: o.name,
+        )
+        if not cams:
+            self.report({"WARNING"}, "No cameras in scene")
+            return {"CANCELLED"}
+        step = int(scene.alec_camera_marker_step)
+        last = _last_marker_frame_any(scene, scene.frame_start - step)
+        start_frame = last + step
+        n = _append_camera_markers(scene, cams, start_frame, step)
+        self.report({"INFO"}, f"Added {n} camera marker(s) starting at frame {start_frame}")
+        return {"FINISHED"}
+
+
+class ALEC_OT_cameras_bind_selected_to_end(bpy.types.Operator):
+    """Selected cameras as timeline markers, appended after the last camera marker."""
+
+    bl_idname = "alec.cameras_bind_selected_to_end"
+    bl_label = "Selected Cams to End"
+    bl_description = (
+        "Add a camera-bound timeline marker for every selected camera, "
+        "starting after the last camera-bound marker, separated by Step frames"
+    )
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        return any(o.type == "CAMERA" for o in context.selected_objects)
+
+    def execute(self, context):
+        scene = context.scene
+        cams = sorted(
+            (o for o in context.selected_objects if o.type == "CAMERA"),
+            key=lambda o: o.name,
+        )
+        if not cams:
+            self.report({"WARNING"}, "No cameras selected")
+            return {"CANCELLED"}
+        step = int(scene.alec_camera_marker_step)
+        last = _last_camera_marker_frame(scene, scene.frame_start - step)
+        start_frame = last + step
+        n = _append_camera_markers(scene, cams, start_frame, step)
+        self.report({"INFO"}, f"Added {n} camera marker(s) starting at frame {start_frame}")
+        return {"FINISHED"}
+
+
 classes = (
     ALEC_OT_camera_passepartout,
     ALEC_OT_toggle_lock_camera,
@@ -556,4 +654,6 @@ classes = (
     ALEC_OT_camera_select_track_target,
     ALEC_OT_select_scene_camera,
     ALEC_OT_new_camera_to_view,
+    ALEC_OT_cameras_bind_all_to_timeline,
+    ALEC_OT_cameras_bind_selected_to_end,
 )
