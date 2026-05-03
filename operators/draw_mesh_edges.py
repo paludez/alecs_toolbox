@@ -9,11 +9,16 @@ from bpy_extras.view3d_utils import (
 )
 
 from ..modules import edit_mesh_draw_state as draw_state
+from ..modules import cursor_plane as cp
+from ..modules import modal_handler
 from ..ui.transform.selection_math import _orientation_matrix_world
 
 
 class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
-    """Draw polylines on the 3D cursor work plane. [RMB]/close snap ends session — run again from N-panel for another line. Snaps verts/mids; [Shift] ortho; [X/Y/Z] axis; [V]/[W] snap; [Tab] numeric; [C] close poly; [Enter/Esc] exit."""
+    """Draw polylines on the 3D cursor work plane. Snaps verts/mids; [Shift] ortho;
+    [X/Y/Z] axis; [V]/[W] snap; type length like edge-length (mouse when no digits,
+    digits + Enter commits); [C] close; [Bksp] undoes vert or clears typing; [RMB]
+    / close snap finishes; plain [Enter] exits; [Esc] clears typing or exits."""
     bl_idname = "alec.draw_mesh_edges"
     bl_label = "Draw Mesh Edges"
     bl_options = {'REGISTER', 'UNDO', 'BLOCKING'}
@@ -35,9 +40,11 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
         self._axis_lock: str | None = None
         self._snap_verts_on: bool = True
         self._snap_other_on: bool = False
-        self._numeric_mode: bool = False
-        self._numeric_str: str = ""
-        self._last_event_mouse: tuple[int, int] | None = None
+        self.number_input = modal_handler.ModalNumberInput()
+        self._last_event_mouse: tuple[int, int] | None = (
+            event.mouse_region_x,
+            event.mouse_region_y,
+        )
 
         if context.mode == "EDIT_MESH" and context.active_object is not None and context.active_object.type == "MESH":
             self._obj = context.active_object
@@ -63,6 +70,7 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
 
         self._update_cursor_plane_visual(context)
         self._set_status(context)
+        self._update_area_header(context)
 
         context.window_manager.modal_handler_add(self)
         if context.area is not None:
@@ -73,6 +81,34 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
         if event.type in {'MIDDLEMOUSE', 'WHEELUPMOUSE', 'WHEELDOWNMOUSE'}:
             return {'PASS_THROUGH'}
 
+        if event.type == 'ESC' and event.value == 'PRESS':
+            if self._chain_vert_indices and self.number_input.has_value():
+                self.number_input.reset()
+                self._refresh_preview(context)
+                if context.area is not None:
+                    context.area.tag_redraw()
+                return {'RUNNING_MODAL'}
+            cancelled = (
+                self._created_object
+                and not self._chain_vert_indices
+                and not self._chains_history
+            )
+            self._cleanup(context, cancelled=cancelled)
+            return {'CANCELLED'} if cancelled else {'FINISHED'}
+
+        if (
+            event.type in {'RET', 'NUMPAD_ENTER'}
+            and event.value == 'PRESS'
+            and self._chain_vert_indices
+            and self.number_input.has_value()
+        ):
+            if self._apply_typed_vertex(context):
+                self.number_input.reset()
+            self._refresh_preview(context)
+            if context.area is not None:
+                context.area.tag_redraw()
+            return {'RUNNING_MODAL'}
+
         if event.type == 'MOUSEMOVE':
             if context.region is None or context.region_data is None:
                 return {'RUNNING_MODAL'}
@@ -80,8 +116,49 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
             self._refresh_preview(context)
             return {'RUNNING_MODAL'}
 
-        if self._numeric_mode:
-            return self._modal_numeric(context, event)
+        if event.type == 'BACK_SPACE' and event.value == 'PRESS':
+            if self._chain_vert_indices and self.number_input.has_value():
+                self.number_input.value_str = self.number_input.value_str[:-1]
+                self._refresh_preview(context)
+                if context.area is not None:
+                    context.area.tag_redraw()
+                return {'RUNNING_MODAL'}
+            self._undo_last_vert(context)
+            return {'RUNNING_MODAL'}
+
+        _modal_reserved = {
+            'ESC',
+            'RET',
+            'NUMPAD_ENTER',
+            'BACK_SPACE',
+            'LEFTMOUSE',
+            'RIGHTMOUSE',
+            'LEFT_SHIFT',
+            'RIGHT_SHIFT',
+            'C',
+            'V',
+            'W',
+            'X',
+            'Y',
+            'Z',
+            'MIDDLEMOUSE',
+            'WHEELUPMOUSE',
+            'WHEELDOWNMOUSE',
+            'MOUSEMOVE',
+            'TAB',
+            'INBETWEEN_MOUSEMOVE',
+        }
+        if (
+            event.value == 'PRESS'
+            and self._chain_vert_indices
+            and context.area is not None
+            and event.type not in _modal_reserved
+        ):
+            if self.number_input.handle_event(event):
+                self._refresh_preview(context)
+                if context.area is not None:
+                    context.area.tag_redraw()
+                return {'RUNNING_MODAL'}
 
         if event.type == 'LEFTMOUSE' and event.value == 'PRESS':
             if self._on_click(context):
@@ -99,10 +176,6 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
                 self._close_chain(context)
                 self._cleanup(context, cancelled=False)
                 return {'FINISHED'}
-            return {'RUNNING_MODAL'}
-
-        if event.type == 'BACK_SPACE' and event.value == 'PRESS':
-            self._undo_last_vert(context)
             return {'RUNNING_MODAL'}
 
         if event.type in {'LEFT_SHIFT', 'RIGHT_SHIFT'} and event.value == 'PRESS':
@@ -123,14 +196,6 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
             self._refresh_preview(context)
             return {'RUNNING_MODAL'}
 
-        if event.type == 'TAB' and event.value == 'PRESS':
-            if self._chain_vert_indices:
-                self._numeric_mode = True
-                self._numeric_str = ""
-                self._set_status(context)
-                self._refresh_preview(context)
-            return {'RUNNING_MODAL'}
-
         if event.type in {'X', 'Y', 'Z'} and event.value == 'PRESS':
             key = event.type
             if self._axis_lock == key:
@@ -145,66 +210,109 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
             self._cleanup(context, cancelled=False)
             return {'FINISHED'}
 
-        if event.type == 'ESC' and event.value == 'PRESS':
-            cancelled = self._created_object and not self._chain_vert_indices and not self._chains_history
-            self._cleanup(context, cancelled=cancelled)
-            return {'CANCELLED'} if cancelled else {'FINISHED'}
-
         return {'RUNNING_MODAL'}
 
-    def _modal_numeric(self, context, event):
-        if event.value != 'PRESS':
-            return {'RUNNING_MODAL'}
+    def _mouse_segment_geometry(
+        self, context
+    ) -> tuple[Vector, Vector, Vector, float] | None:
+        last_world = self._last_chain_world_pos()
+        if last_world is None or self._last_event_mouse is None:
+            return None
+        raw_pos, _s, _i, _o, _a = self._resolve_3d_position(
+            context, self._last_event_mouse
+        )
+        delta = raw_pos - last_world
+        if delta.length_squared < 1e-12:
+            direction = Vector((1.0, 0.0, 0.0))
+            mouse_len = 0.0
+        else:
+            direction = delta.normalized()
+            mouse_len = delta.length
+        return last_world, raw_pos, direction, mouse_len
 
-        if event.type == 'ESC' or event.type == 'TAB':
-            self._numeric_mode = False
-            self._numeric_str = ""
-            self._set_status(context)
-            self._refresh_preview(context)
-            return {'RUNNING_MODAL'}
+    def _apply_typed_vertex(self, context) -> bool:
+        geom = self._mouse_segment_geometry(context)
+        if geom is None:
+            return False
+        last_world, _raw_pos, direction, mouse_len = geom
+        try:
+            dist = self.number_input.get_value(initial_value=mouse_len)
+        except ValueError:
+            return False
+        if dist <= 1e-9:
+            return False
+        world_pos = last_world + direction * dist
 
-        if event.type in {'RET', 'NUMPAD_ENTER'}:
-            applied = self._on_click_numeric(context)
-            self._numeric_mode = False
-            self._numeric_str = ""
-            self._set_status(context)
-            self._refresh_preview(context)
-            if applied:
-                return {'RUNNING_MODAL'}
-            return {'RUNNING_MODAL'}
+        me = self._obj.data
+        try:
+            bm = bmesh.from_edit_mesh(me)
+        except Exception:
+            return False
+        bm.verts.ensure_lookup_table()
+        bm.edges.ensure_lookup_table()
+        try:
+            inv = self._obj.matrix_world.inverted()
+        except Exception:
+            return False
+        local = inv @ world_pos
+        new_vert = bm.verts.new(local)
+        bm.verts.index_update()
+        bm.verts.ensure_lookup_table()
+        prev_idx = self._chain_vert_indices[-1]
+        if prev_idx < len(bm.verts):
+            prev_vert = bm.verts[prev_idx]
+            self._safe_new_edge_objs(bm, prev_vert, new_vert)
+        bm.verts.index_update()
+        self._chain_vert_indices.append(new_vert.index)
+        bmesh.update_edit_mesh(me)
+        me.update_tag()
+        self._axis_lock = None
+        return True
 
-        if event.type == 'BACK_SPACE':
-            if self._numeric_str:
-                self._numeric_str = self._numeric_str[:-1]
-            self._set_status(context)
-            self._refresh_preview(context)
-            return {'RUNNING_MODAL'}
-
-        digit_keys = {
-            'ZERO': '0', 'ONE': '1', 'TWO': '2', 'THREE': '3', 'FOUR': '4',
-            'FIVE': '5', 'SIX': '6', 'SEVEN': '7', 'EIGHT': '8', 'NINE': '9',
-            'NUMPAD_0': '0', 'NUMPAD_1': '1', 'NUMPAD_2': '2', 'NUMPAD_3': '3',
-            'NUMPAD_4': '4', 'NUMPAD_5': '5', 'NUMPAD_6': '6', 'NUMPAD_7': '7',
-            'NUMPAD_8': '8', 'NUMPAD_9': '9',
-            'PERIOD': '.', 'NUMPAD_PERIOD': '.', 'COMMA': '.',
-            'MINUS': '-', 'NUMPAD_MINUS': '-',
-        }
-        ch = digit_keys.get(event.type)
-        if ch is not None:
-            if ch == '.' and '.' in self._numeric_str:
+    def _update_area_header(self, context):
+        area = getattr(context, 'area', None)
+        if area is None:
+            return
+        if (
+            not self._chain_vert_indices
+            or self._last_event_mouse is None
+            or context.region is None
+        ):
+            try:
+                area.header_text_set(None)
+            except Exception:
                 pass
-            elif ch == '-':
-                if self._numeric_str.startswith('-'):
-                    self._numeric_str = self._numeric_str[1:]
-                else:
-                    self._numeric_str = '-' + self._numeric_str
-            else:
-                self._numeric_str += ch
-            self._set_status(context)
-            self._refresh_preview(context)
-            return {'RUNNING_MODAL'}
+            return
 
-        return {'RUNNING_MODAL'}
+        lw = self._last_chain_world_pos()
+        pp = self._preview_world_pos
+        if lw is None or pp is None:
+            try:
+                area.header_text_set(None)
+            except Exception:
+                pass
+            return
+        seg_len = (pp - lw).length
+        unit_sys = context.scene.unit_settings.system
+        if self.number_input.value_str:
+            modal_handler.update_modal_header(
+                context,
+                main_label='Length',
+                main_value=float(seg_len),
+                typed_str=self.number_input.value_str,
+                suffix='',
+                secondary_text='',
+                initial_value=float(seg_len),
+            )
+            return
+        try:
+            disp = bpy.utils.units.to_string(unit_sys, 'LENGTH', seg_len, precision=4)
+        except Exception:
+            disp = f'{seg_len:.4f}'
+        try:
+            area.header_text_set(f'Length: {disp}')
+        except Exception:
+            pass
 
     def _set_status(self, context):
         try:
@@ -212,14 +320,17 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
             v_snap = "ON" if self._snap_verts_on else "OFF"
             w_snap = "ON" if self._snap_other_on else "OFF"
             axis = self._axis_lock if self._axis_lock else "—"
-            if self._numeric_mode:
-                num_part = f"[Tab]Num:{self._numeric_str or '_'}"
+            if self._chain_vert_indices and self.number_input.has_value():
+                num_part = "typing length"
+            elif self._chain_vert_indices:
+                num_part = "digits=length • Enter=text apply • plain Enter=exit"
             else:
-                num_part = "[Tab]Num"
+                num_part = ""
+            sep = " " if num_part else ""
             context.workspace.status_text_set(
-                f"[LMB]Add [Bksp]Undo [RMB]Finish [C]Close "
+                f"[LMB]Add [Bksp]Undo/buffer [RMB]Finish [C]Close "
                 f"[Shift]Ortho:{ortho} [V]ObjSnap:{v_snap} [W]WorldSnap:{w_snap} "
-                f"[X/Y/Z]Axis:{axis} {num_part} [Enter/Esc]Exit"
+                f"[X/Y/Z]Axis:{axis}{sep}{num_part} [Enter/Esc]Exit"
             )
         except Exception:
             pass
@@ -230,19 +341,21 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
 
         last_world = self._last_chain_world_pos()
 
-        if self._numeric_mode and last_world is not None:
+        if self._chain_vert_indices and self.number_input.has_value() and last_world is not None:
             raw_pos, _is_snap, _snap_idx, _is_ortho, _snap_anchor = self._resolve_3d_position(
                 context, self._last_event_mouse
             )
             direction = raw_pos - last_world
             if direction.length_squared > 1e-12:
                 direction = direction.normalized()
+                mouse_len = (raw_pos - last_world).length
             else:
                 direction = Vector((1.0, 0.0, 0.0))
+                mouse_len = 0.0
             try:
-                dist = float(self._numeric_str) if self._numeric_str not in ("", "-", ".", "-.") else 0.0
+                dist = self.number_input.get_value(initial_value=mouse_len)
             except ValueError:
-                dist = 0.0
+                dist = mouse_len
             pos = last_world + direction * dist
             self._preview_world_pos = pos
             self._preview_is_snap = False
@@ -251,6 +364,7 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
             snap_idx_for_draw: int | None = None
             is_snap_for_draw = False
             is_ortho_for_draw = self._preview_is_ortho
+            snap_anchor_for_draw = None
         else:
             pos, is_snap, snap_idx, is_ortho, snap_anchor = self._resolve_3d_position(
                 context, self._last_event_mouse
@@ -272,12 +386,12 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
             snap_idx_for_draw,
             is_ortho_for_draw,
             axis_guide,
-            snap_anchor_for_draw if not self._numeric_mode else None,
+            snap_anchor_for_draw if not self.number_input.has_value() else None,
         )
         if (
             is_snap_for_draw
             and pos is not None
-            and not self._numeric_mode
+            and not self.number_input.has_value()
             and context.region is not None
             and context.region_data is not None
         ):
@@ -300,6 +414,7 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
         draw_state.refresh_edit_mesh_px_handler(context)
         self._update_cursor_plane_visual(context)
         self._set_status(context)
+        self._update_area_header(context)
         if context.area is not None:
             context.area.tag_redraw()
 
@@ -310,8 +425,13 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
         try:
             length = (pos - last_world).length
             mid = (last_world + pos) * 0.5
-            if self._numeric_mode:
-                text = f"> {self._numeric_str or ''}"
+            if self.number_input.has_value():
+                unit_system = context.scene.unit_settings.system
+                try:
+                    lens = bpy.utils.units.to_string(unit_system, 'LENGTH', length, precision=4)
+                except Exception:
+                    lens = f'{length:.4f}'
+                text = f'> {self.number_input.value_str}  →  {lens}'
             else:
                 unit_system = context.scene.unit_settings.system
                 try:
@@ -359,37 +479,11 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
         except Exception:
             return None
 
-    def _cursor_plane_axes(self, context) -> tuple[Vector, Vector, Vector]:
-        """Returns (normal, u, v) axes of the cursor's XY plane (Z normal)."""
-        cursor = context.scene.cursor
-        M3 = cursor.matrix.to_3x3()
-        cx = Vector((M3[0][0], M3[1][0], M3[2][0])).normalized()
-        cy = Vector((M3[0][1], M3[1][1], M3[2][1])).normalized()
-        cz = Vector((M3[0][2], M3[1][2], M3[2][2])).normalized()
-        return (cz, cx, cy)
-
-    def _intersect_cursor_plane(self, context, origin_w: Vector, direction_w: Vector) -> Vector:
-        cursor = context.scene.cursor
-        plane_co = cursor.location
-        normal, _u, _v = self._cursor_plane_axes(context)
-        denom = direction_w.dot(normal)
-        if abs(denom) < 1e-9:
-            return plane_co.copy()
-        t = (plane_co - origin_w).dot(normal) / denom
-        return origin_w + direction_w * t
-
-    def _project_onto_cursor_plane(self, context, world_co: Vector) -> Vector:
-        cursor = context.scene.cursor
-        plane_co = cursor.location
-        normal, _u, _v = self._cursor_plane_axes(context)
-        dist = (world_co - plane_co).dot(normal)
-        return world_co - normal * dist
-
     def _update_cursor_plane_visual(self, context):
         try:
             cursor = context.scene.cursor
             center = cursor.location.copy()
-            _n, u, v = self._cursor_plane_axes(context)
+            _n, u, v = cp.cursor_plane_axes(context)
             draw_state._draw_data['cursor_plane'] = (center, u, v)
         except Exception:
             draw_state._draw_data.pop('cursor_plane', None)
@@ -426,7 +520,7 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
                         return constrained, True, None, True, anchor
             return snap_pos, True, snap_idx, False, anchor
 
-        pos = self._intersect_cursor_plane(context, origin_w, direction_w)
+        pos = cp.intersect_cursor_plane(context, origin_w, direction_w)
 
         is_ortho = False
         use_auto_ortho = self._ortho_on and self._axis_lock is None
@@ -579,7 +673,7 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
                         if d2 < best_d2:
                             best_d2 = d2
                             best_idx = -3
-                            best_world = self._project_onto_cursor_plane(context, v_world)
+                            best_world = cp.project_onto_cursor_plane(context, v_world)
 
         if best_idx is None or best_world is None:
             return None, None
@@ -617,6 +711,7 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
                 me.update_tag()
                 self._end_chain()
                 self._axis_lock = None
+                self.number_input.reset()
                 self._refresh_preview(context)
                 return True
             return False
@@ -648,41 +743,9 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
         bmesh.update_edit_mesh(me)
         me.update_tag()
         self._axis_lock = None
+        self.number_input.reset()
         self._refresh_preview(context)
         return False
-
-    def _on_click_numeric(self, context) -> bool:
-        if self._preview_world_pos is None or not self._chain_vert_indices:
-            return False
-        try:
-            float(self._numeric_str)
-        except (ValueError, TypeError):
-            return False
-        me = self._obj.data
-        try:
-            bm = bmesh.from_edit_mesh(me)
-        except Exception:
-            return False
-        bm.verts.ensure_lookup_table()
-        bm.edges.ensure_lookup_table()
-        try:
-            inv = self._obj.matrix_world.inverted()
-        except Exception:
-            return False
-        local = inv @ self._preview_world_pos
-        new_vert = bm.verts.new(local)
-        bm.verts.index_update()
-        bm.verts.ensure_lookup_table()
-        prev_idx = self._chain_vert_indices[-1]
-        if prev_idx < len(bm.verts):
-            prev_vert = bm.verts[prev_idx]
-            self._safe_new_edge_objs(bm, prev_vert, new_vert)
-        bm.verts.index_update()
-        self._chain_vert_indices.append(new_vert.index)
-        bmesh.update_edit_mesh(me)
-        me.update_tag()
-        self._axis_lock = None
-        return True
 
     def _safe_new_edge_objs(self, bm, va, vb):
         if va is vb:
@@ -718,6 +781,7 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
         me.update_tag()
         self._end_chain()
         self._axis_lock = None
+        self.number_input.reset()
         self._refresh_preview(context)
 
     def _undo_last_vert(self, context):
@@ -777,6 +841,10 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
         except Exception:
             pass
         if context.area is not None:
+            try:
+                context.area.header_text_set(None)
+            except Exception:
+                pass
             context.area.tag_redraw()
 
         if cancelled and self._created_object:

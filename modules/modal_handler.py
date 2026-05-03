@@ -3,6 +3,20 @@ import re
 
 ALLOWED_CHARS = re.compile(r"^[0-9\.\+\-\*\/\(\)\sEe]+$")
 
+_KEY_TO_DIGIT = {
+    'ZERO': '0',
+    'ONE': '1',
+    'TWO': '2',
+    'THREE': '3',
+    'FOUR': '4',
+    'FIVE': '5',
+    'SIX': '6',
+    'SEVEN': '7',
+    'EIGHT': '8',
+    'NINE': '9',
+}
+
+
 class ModalNumberInput:
     """
     A helper class to handle numeric input during a modal operation.
@@ -50,8 +64,13 @@ class ModalNumberInput:
 
         key = event.type
 
-        if key in {'ZERO', 'ONE', 'TWO', 'THREE', 'FOUR', 'FIVE', 'SIX', 'SEVEN', 'EIGHT', 'NINE'}:
-            self.value_str += event.unicode
+        if key in _KEY_TO_DIGIT:
+            # In VIEW_3D modal operators event.unicode is often empty for top-row digits.
+            u = event.unicode or ''
+            if len(u) == 1 and u.isdigit():
+                self.value_str += u
+            else:
+                self.value_str += _KEY_TO_DIGIT[key]
             return True
 
         elif key.startswith('NUMPAD_'):
@@ -100,6 +119,9 @@ class ModalNumberInput:
 
 def update_modal_header(context, main_label, main_value, typed_str, suffix="", secondary_text="", initial_value=None, precision=4):
     """Updates the 3D View header with formatted text for a modal operator."""
+    if getattr(context, 'area', None) is None:
+        return
+
     if typed_str:
         if initial_value is not None and typed_str[0] in {'*', '/', '+', '-'}:
             formatted_initial = f"{initial_value:.{precision}f}".rstrip('0').rstrip('.')

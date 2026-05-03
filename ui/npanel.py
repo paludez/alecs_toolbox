@@ -567,6 +567,8 @@ class ALEC_PT_alec_misc_modeling(bpy.types.Panel):
         layout = self.layout
         col = layout.column(align=True)
         col.operator("alec.draw_mesh_edges", text="Draw Mesh Edges", icon="GREASEPENCIL")
+        col.operator("alec.trim_extend_edges", text="Trim / Extend", icon="UV_EDGESEL")
+        col.operator("alec.fillet_edges", text="Fillet / Chamfer", icon="MOD_BEVEL")
 
 
 def register():

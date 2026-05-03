@@ -19,6 +19,8 @@ from . import viewport_shortcuts
 from . import object_hide_viewport_render
 from . import triplanar_mapping
 from . import draw_mesh_edges
+from . import trim_extend
+from . import fillet_chamfer
 
 classes = (
     *object_grouping.classes,
@@ -40,6 +42,8 @@ classes = (
     *object_hide_viewport_render.classes,
     *triplanar_mapping.classes,
     *draw_mesh_edges.classes,
+    *trim_extend.classes,
+    *fillet_chamfer.classes,
 )
 
 _app_handlers = []

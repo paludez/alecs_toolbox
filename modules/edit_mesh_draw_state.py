@@ -377,6 +377,62 @@ def draw_callback_3d(context):
                 _draw_simple_lines([last_world.copy(), preview_world.copy()], color_line, width=2.0)
             _draw_simple_points([preview_world.copy()], color_point, size=8.0)
 
+    te = _draw_data.get('trim_extend_state')
+    if te:
+        try:
+            from .drawing_tools import _draw_simple_lines, _draw_simple_points
+
+            ref_edge = te.get('ref_edge')
+            if ref_edge is not None:
+                ra, rb = ref_edge
+                _draw_simple_lines([ra.copy(), rb.copy()], (0.2, 1.0, 0.45, 0.95), width=2.5)
+            ref_face_loop = te.get('ref_face_loop')
+            if ref_face_loop:
+                pts = []
+                n = len(ref_face_loop)
+                for i in range(n):
+                    pts.append(ref_face_loop[i].copy())
+                    pts.append(ref_face_loop[(i + 1) % n].copy())
+                _draw_simple_lines(pts, (0.15, 0.85, 1.0, 0.9), width=2.0)
+            ref_line = te.get('ref_infinite_line')
+            if ref_line is not None:
+                la, lb = ref_line
+                _draw_simple_lines([la.copy(), lb.copy()], (0.2, 1.0, 0.45, 0.45), width=1.0)
+            target_remove = te.get('target_remove_segment')
+            if target_remove is not None:
+                ta, tb = target_remove
+                _draw_simple_lines([ta.copy(), tb.copy()], (1.0, 0.2, 0.2, 0.95), width=4.0)
+            target_keep = te.get('target_keep_segment')
+            if target_keep is not None:
+                ta, tb = target_keep
+                _draw_simple_lines([ta.copy(), tb.copy()], (0.6, 0.6, 0.6, 0.55), width=1.5)
+            extend_preview = te.get('extend_preview')
+            if extend_preview is not None:
+                ea, eb = extend_preview
+                _draw_simple_lines([ea.copy(), eb.copy()], (0.2, 1.0, 0.4, 0.95), width=2.5)
+                _draw_simple_points([eb.copy()], (1.0, 0.85, 0.15, 1.0), size=8.0)
+            hit_point = te.get('hit_point')
+            if hit_point is not None:
+                _draw_simple_points([hit_point.copy()], (1.0, 0.85, 0.15, 1.0), size=7.0)
+            warn_segment = te.get('warn_segment')
+            if warn_segment is not None:
+                wa, wb = warn_segment
+                _draw_simple_lines([wa.copy(), wb.copy()], (1.0, 0.55, 0.1, 0.85), width=2.5)
+            arc_points = te.get('fillet_chamfer_arc')
+            if arc_points and len(arc_points) >= 2:
+                pts = []
+                for i in range(len(arc_points) - 1):
+                    pts.append(arc_points[i].copy())
+                    pts.append(arc_points[i + 1].copy())
+                _draw_simple_lines(pts, (1.0, 1.0, 1.0, 0.95), width=2.5)
+            extra_lines = te.get('extra_lines')
+            if extra_lines:
+                for seg, color in extra_lines:
+                    a, b = seg
+                    _draw_simple_lines([a.copy(), b.copy()], color, width=2.5)
+        except Exception:
+            pass
+
 
 def update_dimension_px_handler(context, has_items):
     """Attach or remove the 2D dimension overlay handler."""

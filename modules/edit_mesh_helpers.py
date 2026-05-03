@@ -1,8 +1,13 @@
 """Poll and bmesh helpers for edit-mesh operators."""
 import bmesh
 from mathutils import Vector, Matrix
+from bpy_extras.view3d_utils import location_3d_to_region_2d
 
 from . import edit_curve_helpers as ech
+
+
+DRAFT_EPS = 1e-6
+DRAFT_PLANAR_EPS = 1e-4
 
 
 def edit_mesh_transform_pivot_world(context, obj, bm):
@@ -170,3 +175,144 @@ def poll_make_circle(context):
         and context.active_object.type == 'MESH'
         and context.mode == 'EDIT_MESH'
     )
+
+
+def bm_edge_key(edge):
+    """Stable unordered key for lookup after bmesh/topology edits."""
+    a, b = edge.verts[0].index, edge.verts[1].index
+    return (a, b) if a <= b else (b, a)
+
+
+def bm_face_key(face):
+    return frozenset(v.index for v in face.verts)
+
+
+def bm_edge_from_key(bm, key):
+    if key is None:
+        return None
+    bm.verts.ensure_lookup_table()
+    bm.edges.ensure_lookup_table()
+    i0, i1 = key
+    try:
+        v0 = bm.verts[i0]
+        v1 = bm.verts[i1]
+        if not v0.is_valid or not v1.is_valid:
+            return None
+    except (IndexError, ReferenceError):
+        return None
+    for ed in v0.link_edges:
+        ov = ed.other_vert(v0)
+        if ov.is_valid and ov.index == i1:
+            return ed
+    return None
+
+
+def bm_face_from_key(bm, key):  # key = frozenset of vert indices
+    if key is None:
+        return None
+    bm.faces.ensure_lookup_table()
+    for f in bm.faces:
+        if not f.is_valid:
+            continue
+        try:
+            if frozenset(v.index for v in f.verts) == key:
+                return f
+        except ReferenceError:
+            continue
+    return None
+
+
+def bmesh_edge_split_normalized(edge, v_from, fac):
+    """bmesh.utils.edge_split with defensive (edge, vert) typing.
+
+    Blender doc order is (BMEdge, BMVert); some builds / edge cases behave
+    otherwise — normalize so callers always get (new_edge_fragment, split_vert).
+    """
+    tup = bmesh.utils.edge_split(edge, v_from, fac)
+    a, b = tup
+    if isinstance(a, bmesh.types.BMVert):
+        split_vert, split_edge_piece = a, b
+        return split_edge_piece, split_vert
+    split_edge_piece, split_vert = a, b
+    return split_edge_piece, split_vert
+
+
+def hovered_edge(bm, mw, region, rv3d, mouse_xy, threshold_px=14, exclude_edges=None):
+    """Pick edge under mouse_xy in screen space.
+
+    Returns (edge, t_along, hover_d2_px) or (None, None, None) if no edge is
+    within threshold_px.
+    """
+    if region is None or rv3d is None:
+        return None, None, None
+    bm.edges.ensure_lookup_table()
+    excluded = set()
+    if exclude_edges:
+        for e in exclude_edges:
+            if e is not None:
+                excluded.add(e)
+    best_d2 = float(threshold_px) * float(threshold_px)
+    best_edge = None
+    best_t = 0.0
+    for e in bm.edges:
+        if e in excluded:
+            continue
+        v0w = mw @ e.verts[0].co
+        v1w = mw @ e.verts[1].co
+        p0 = location_3d_to_region_2d(region, rv3d, v0w)
+        p1 = location_3d_to_region_2d(region, rv3d, v1w)
+        if p0 is None or p1 is None:
+            continue
+        ax, ay = p0.x, p0.y
+        bx, by = p1.x, p1.y
+        dx = bx - ax
+        dy = by - ay
+        seg_len_sq = dx * dx + dy * dy
+        if seg_len_sq < 1e-6:
+            continue
+        mx = float(mouse_xy[0])
+        my = float(mouse_xy[1])
+        t = ((mx - ax) * dx + (my - ay) * dy) / seg_len_sq
+        t_clamped = max(0.0, min(1.0, t))
+        cx = ax + t_clamped * dx
+        cy = ay + t_clamped * dy
+        ex = mx - cx
+        ey = my - cy
+        d2 = ex * ex + ey * ey
+        if d2 < best_d2:
+            best_d2 = d2
+            best_edge = e
+            best_t = t_clamped
+    if best_edge is None:
+        return None, None, None
+    return best_edge, best_t, best_d2
+
+
+def working_plane_for_edges(edge_a, edge_b, mw):
+    """4-point coplanar working plane from two BMEdges.
+
+    Returns (origin, normal, u_ax, v_ax) or None if the four endpoints are not
+    coplanar within DRAFT_PLANAR_EPS, or are fully collinear.
+    """
+    pa0 = mw @ edge_a.verts[0].co
+    pa1 = mw @ edge_a.verts[1].co
+    pb0 = mw @ edge_b.verts[0].co
+    pb1 = mw @ edge_b.verts[1].co
+    pts = (pa0, pa1, pb0, pb1)
+    d1 = pa1 - pa0
+    if d1.length_squared < 1e-12:
+        return None
+    normal: Vector | None = None
+    for p in (pb0, pb1):
+        cross = d1.cross(p - pa0)
+        if cross.length_squared > 1e-14:
+            normal = cross.normalized()
+            break
+    if normal is None:
+        return None
+    for p in pts:
+        if abs((p - pa0).dot(normal)) > DRAFT_PLANAR_EPS:
+            return None
+    u_ax = d1.normalized()
+    v_ax = normal.cross(u_ax).normalized()
+    return (pa0.copy(), normal, u_ax, v_ax)
