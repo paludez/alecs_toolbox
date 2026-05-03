@@ -238,6 +238,33 @@ def draw_callback_3d(context):
         center, dir_base, normal, angle, radius = pie_data
         draw_angle_pie(center, dir_base, normal, angle, radius, color=(0.1, 0.6, 1.0, 0.3))
 
+    rb = _draw_data.get('draw_rubber_band')
+    if rb:
+        from .drawing_tools import _draw_simple_lines, _draw_simple_points
+        if len(rb) == 6:
+            last_world, preview_world, is_snap, snap_idx, is_ortho, axis_guide = rb
+        elif len(rb) == 5:
+            last_world, preview_world, is_snap, snap_idx, is_ortho = rb
+            axis_guide = None
+        else:
+            last_world, preview_world, is_snap, snap_idx = rb
+            is_ortho = False
+            axis_guide = None
+        if axis_guide is not None:
+            ag_start, ag_end, ag_color = axis_guide
+            _draw_simple_lines([ag_start, ag_end], ag_color, width=1.5)
+        if preview_world is not None:
+            if is_ortho:
+                color_line = (0.2, 0.8, 1.0, 0.95)
+            elif is_snap:
+                color_line = (0.2, 1.0, 0.4, 0.9)
+            else:
+                color_line = (1.0, 1.0, 1.0, 0.9)
+            color_point = (1.0, 0.6, 0.1, 1.0) if snap_idx == -1 else color_line
+            if last_world is not None:
+                _draw_simple_lines([last_world, preview_world], color_line, width=2.0)
+            _draw_simple_points([preview_world], color_point, size=8.0)
+
 
 def update_dimension_px_handler(context, has_items):
     """Attach or remove the 2D dimension overlay handler."""

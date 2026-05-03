@@ -81,3 +81,27 @@ def draw_mesh_wireframe(world_matrix, coords, normals, edges, offset, color=(0.0
     shader.uniform_float("color", color)
     batch.draw(shader)
     gpu.state.blend_set('NONE')
+
+def _draw_simple_lines(points, color, width=1.0):
+    """Draws straight LINES from a flat list of vertex pairs."""
+    shader = gpu.shader.from_builtin('UNIFORM_COLOR')
+    batch = batch_for_shader(shader, 'LINES', {"pos": points})
+    gpu.state.blend_set('ALPHA')
+    gpu.state.line_width_set(width)
+    shader.bind()
+    shader.uniform_float("color", color)
+    batch.draw(shader)
+    gpu.state.line_width_set(1.0)
+    gpu.state.blend_set('NONE')
+
+def _draw_simple_points(points, color, size=4.0):
+    """Draws GL POINTS at the given world positions."""
+    shader = gpu.shader.from_builtin('UNIFORM_COLOR')
+    batch = batch_for_shader(shader, 'POINTS', {"pos": points})
+    gpu.state.blend_set('ALPHA')
+    gpu.state.point_size_set(size)
+    shader.bind()
+    shader.uniform_float("color", color)
+    batch.draw(shader)
+    gpu.state.point_size_set(1.0)
+    gpu.state.blend_set('NONE')

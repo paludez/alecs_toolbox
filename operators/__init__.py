@@ -18,6 +18,7 @@ from . import light_tools
 from . import viewport_shortcuts
 from . import object_hide_viewport_render
 from . import triplanar_mapping
+from . import draw_mesh_edges
 
 classes = (
     *object_grouping.classes,
@@ -38,6 +39,7 @@ classes = (
     *viewport_shortcuts.classes,
     *object_hide_viewport_render.classes,
     *triplanar_mapping.classes,
+    *draw_mesh_edges.classes,
 )
 
 _app_handlers = []

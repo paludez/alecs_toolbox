@@ -552,15 +552,34 @@ class ALEC_PT_alec_misc_materials(bpy.types.Panel):
         )
 
 
+class ALEC_PT_alec_misc_modeling(bpy.types.Panel):
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "Alec"
+    bl_label = "Modeling"
+    bl_parent_id = "ALEC_PT_alec_misc"
+
+    @classmethod
+    def poll(cls, context):
+        return context.area and context.area.type == "VIEW_3D"
+
+    def draw(self, _context):
+        layout = self.layout
+        col = layout.column(align=True)
+        col.operator("alec.draw_mesh_edges", text="Draw Mesh Edges", icon="GREASEPENCIL")
+
+
 def register():
     _register_transform_ui_dummy_props()
     _register_lights_ui_dummy_props()
     bpy.utils.register_class(ALEC_PT_alec_transform)
     bpy.utils.register_class(ALEC_PT_alec_misc)
     bpy.utils.register_class(ALEC_PT_alec_misc_materials)
+    bpy.utils.register_class(ALEC_PT_alec_misc_modeling)
 
 
 def unregister():
+    bpy.utils.unregister_class(ALEC_PT_alec_misc_modeling)
     bpy.utils.unregister_class(ALEC_PT_alec_misc_materials)
     bpy.utils.unregister_class(ALEC_PT_alec_misc)
     bpy.utils.unregister_class(ALEC_PT_alec_transform)
