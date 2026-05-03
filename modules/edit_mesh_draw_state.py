@@ -113,7 +113,8 @@ def unregister_draw_handler():
 
 
 def has_dim_overlay_data():
-    """True if 2D overlay: mesh edge dims, corner angles, and/or curve point-pair 3D distances."""
+    """True if 2D overlay: mesh edge dims, corner angles, curve point-pair 3D distances,
+    or draw_mesh_edges floating length label."""
     if not _draw_data:
         return False
     if _draw_data.get('edge_indices'):
@@ -127,6 +128,10 @@ def has_dim_overlay_data():
             return True
     cp = _draw_data.get('curve_point_pairs')
     if cp and isinstance(cp, list) and bool(cp):
+        return True
+    if _draw_data.get('draw_rubber_band_label') is not None:
+        return True
+    if _draw_data.get('draw_snap_ring') is not None:
         return True
     return False
 
@@ -221,6 +226,61 @@ def draw_callback_px(context):
                 )
                 blf.draw(font_id, text)
 
+    rb_label = _draw_data.get('draw_rubber_band_label')
+    if rb_label:
+        try:
+            mid_world, text = rb_label
+            pos_2d = location_3d_to_region_2d(region, region_3d, mid_world)
+            if pos_2d:
+                blf.color(font_id, 1.0, 1.0, 0.3, 1.0)
+                w = blf.dimensions(font_id, text)[0]
+                blf.position(font_id, pos_2d.x - w / 2, pos_2d.y + 12, 0)
+                blf.draw(font_id, text)
+                blf.color(font_id, 1.0, 1.0, 1.0, 1.0)
+        except Exception:
+            pass
+
+    snap_ring = _draw_data.get('draw_snap_ring')
+    if snap_ring and len(snap_ring) >= 3:
+        try:
+            import gpu.state as gpu_state
+            from gpu_extras.presets import draw_circle_2d
+
+            cx, cy = float(snap_ring[0]), float(snap_ring[1])
+            rad = float(snap_ring[2])
+            snap_kind = snap_ring[3] if len(snap_ring) >= 4 else None
+            if snap_kind == -1:
+                col = (1.0, 0.55, 0.12, 0.95)
+            elif snap_kind == -2:
+                col = (1.0, 0.9, 0.15, 0.92)
+            elif snap_kind == -3:
+                col = (0.85, 0.35, 1.0, 0.9)
+            else:
+                col = (0.15, 1.0, 0.45, 0.92)
+            gpu_state.blend_set('ALPHA')
+            draw_circle_2d((cx, cy), (*col[:3], min(1.0, col[3] + 0.03)), rad + 2.5, segments=48)
+            draw_circle_2d((cx, cy), (*col[:3], min(1.0, col[3] + 0.08)), max(5.0, rad * 0.42), segments=36)
+            gpu_state.blend_set('NONE')
+            if snap_kind == -2:
+                label = 'Mid'
+            elif snap_kind == -3:
+                label = 'World'
+            elif snap_kind is not None and snap_kind >= 0:
+                label = 'Vtx'
+            elif snap_kind == -1:
+                label = 'Close'
+            else:
+                label = 'Snap'
+            lbl = '[' + label + ']'
+            blf.size(font_id, 11)
+            blf.color(font_id, col[0], col[1], col[2], 1.0)
+            w_label = blf.dimensions(font_id, lbl)[0]
+            blf.position(font_id, cx + rad + 10, cy - font_size / 2, 0)
+            blf.draw(font_id, lbl)
+            blf.color(font_id, 1.0, 1.0, 1.0, 1.0)
+        except Exception:
+            pass
+
 
 def draw_callback_3d(context):
     """Draw handler to display 3D graphics in the Viewport."""
@@ -238,10 +298,42 @@ def draw_callback_3d(context):
         center, dir_base, normal, angle, radius = pie_data
         draw_angle_pie(center, dir_base, normal, angle, radius, color=(0.1, 0.6, 1.0, 0.3))
 
+    cp = _draw_data.get('cursor_plane')
+    if cp:
+        try:
+            from .drawing_tools import _draw_simple_lines
+            center, u, v = cp
+            SIZE = 4.0
+            DIVS = 8
+            half = SIZE * 0.5
+            step = SIZE / DIVS
+            lines = []
+            for i in range(DIVS + 1):
+                offset = -half + i * step
+                lines.append(center + u * (-half) + v * offset)
+                lines.append(center + u * half + v * offset)
+                lines.append(center + u * offset + v * (-half))
+                lines.append(center + u * offset + v * half)
+            _draw_simple_lines(lines, (0.4, 0.6, 1.0, 0.18), width=1.0)
+        except Exception:
+            pass
+
     rb = _draw_data.get('draw_rubber_band')
     if rb:
         from .drawing_tools import _draw_simple_lines, _draw_simple_points
-        if len(rb) == 6:
+
+        snap_anchor_world = None
+        if len(rb) >= 7:
+            (
+                last_world,
+                preview_world,
+                is_snap,
+                snap_idx,
+                is_ortho,
+                axis_guide,
+                snap_anchor_world,
+            ) = rb[:7]
+        elif len(rb) == 6:
             last_world, preview_world, is_snap, snap_idx, is_ortho, axis_guide = rb
         elif len(rb) == 5:
             last_world, preview_world, is_snap, snap_idx, is_ortho = rb
@@ -250,20 +342,40 @@ def draw_callback_3d(context):
             last_world, preview_world, is_snap, snap_idx = rb
             is_ortho = False
             axis_guide = None
+
         if axis_guide is not None:
             ag_start, ag_end, ag_color = axis_guide
             _draw_simple_lines([ag_start, ag_end], ag_color, width=1.5)
         if preview_world is not None:
-            if is_ortho:
+            if snap_anchor_world is not None:
+                da = preview_world - snap_anchor_world
+                if da.length_squared > 5e-7:
+                    _draw_simple_lines(
+                        [snap_anchor_world.copy(), preview_world.copy()],
+                        (1.0, 1.0, 1.0, 0.42),
+                        width=1.25,
+                    )
+                    _draw_simple_points([snap_anchor_world.copy()], (1.0, 1.0, 1.0, 0.55), size=6.0)
+
+            if is_snap:
+                color_line = (0.2, 1.0, 0.45, 0.92)
+            elif is_ortho:
                 color_line = (0.2, 0.8, 1.0, 0.95)
-            elif is_snap:
-                color_line = (0.2, 1.0, 0.4, 0.9)
             else:
                 color_line = (1.0, 1.0, 1.0, 0.9)
-            color_point = (1.0, 0.6, 0.1, 1.0) if snap_idx == -1 else color_line
+            if snap_idx == -1:
+                color_point = (1.0, 0.6, 0.1, 1.0)
+            elif snap_idx == -2:
+                color_point = (1.0, 0.85, 0.0, 1.0)
+            elif snap_idx == -3:
+                color_point = (0.8, 0.2, 1.0, 1.0)
+            elif is_snap:
+                color_point = (0.15, 1.0, 0.52, 1.0)
+            else:
+                color_point = color_line
             if last_world is not None:
-                _draw_simple_lines([last_world, preview_world], color_line, width=2.0)
-            _draw_simple_points([preview_world], color_point, size=8.0)
+                _draw_simple_lines([last_world.copy(), preview_world.copy()], color_line, width=2.0)
+            _draw_simple_points([preview_world.copy()], color_point, size=8.0)
 
 
 def update_dimension_px_handler(context, has_items):

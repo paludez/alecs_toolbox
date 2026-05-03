@@ -1,21 +1,19 @@
-"""Modal operator: draw polylines as real mesh edges with raycast snap and vertex snap."""
+"""Modal operator: draw polylines as real mesh edges on the 3D cursor work plane."""
 import bpy
 import bmesh
 from mathutils import Vector
-from mathutils.bvhtree import BVHTree
 from bpy_extras.view3d_utils import (
     region_2d_to_origin_3d,
     region_2d_to_vector_3d,
-    region_2d_to_location_3d,
     location_3d_to_region_2d,
 )
 
 from ..modules import edit_mesh_draw_state as draw_state
-from ..ui.transform.selection_math import _orientation_matrix_world, _transform_orient_short
+from ..ui.transform.selection_math import _orientation_matrix_world
 
 
 class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
-    """Draw polylines as mesh edges. Raycasts onto surfaces, snaps vertices; [O] ortho auto-axis; [X/Y/Z] lock one orientation axis until next LMB"""
+    """Draw polylines on the 3D cursor work plane. [RMB]/close snap ends session — run again from N-panel for another line. Snaps verts/mids; [Shift] ortho; [X/Y/Z] axis; [V]/[W] snap; [Tab] numeric; [C] close poly; [Enter/Esc] exit."""
     bl_idname = "alec.draw_mesh_edges"
     bl_label = "Draw Mesh Edges"
     bl_options = {'REGISTER', 'UNDO', 'BLOCKING'}
@@ -31,12 +29,14 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
         self._preview_is_snap: bool = False
         self._preview_is_ortho: bool = False
         self._preview_snap_vert_index: int | None = None
-        self._bvh: BVHTree | None = None
-        self._bvh_obj_name: str | None = None
         self._screen_snap_radius_px = 12
         self._created_object = False
         self._ortho_on: bool = False
-        self._axis_lock: str | None = None  # 'X', 'Y', or 'Z' — orientation axes from Transform Orientation slot 0
+        self._axis_lock: str | None = None
+        self._snap_verts_on: bool = True
+        self._snap_other_on: bool = False
+        self._numeric_mode: bool = False
+        self._numeric_str: str = ""
         self._last_event_mouse: tuple[int, int] | None = None
 
         if context.mode == "EDIT_MESH" and context.active_object is not None and context.active_object.type == "MESH":
@@ -55,13 +55,13 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
             self._obj = obj
             self._created_object = True
 
-        self._build_bvh()
-
         draw_state._draw_data['object_name'] = self._obj.name
         draw_state._draw_data['mesh_name'] = self._obj.data.name
         draw_state._draw_data['draw_rubber_band'] = None
         draw_state.register_3d_draw_handler()
+        draw_state.refresh_edit_mesh_px_handler(context)
 
+        self._update_cursor_plane_visual(context)
         self._set_status(context)
 
         context.window_manager.modal_handler_add(self)
@@ -80,40 +80,55 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
             self._refresh_preview(context)
             return {'RUNNING_MODAL'}
 
+        if self._numeric_mode:
+            return self._modal_numeric(context, event)
+
         if event.type == 'LEFTMOUSE' and event.value == 'PRESS':
-            self._on_click(context)
+            if self._on_click(context):
+                self._cleanup(context, cancelled=False)
+                return {'FINISHED'}
             return {'RUNNING_MODAL'}
 
         if event.type == 'RIGHTMOUSE' and event.value == 'PRESS':
             self._end_chain()
-            if self._preview_world_pos is not None:
-                draw_state._draw_data['draw_rubber_band'] = (
-                    None,
-                    self._preview_world_pos,
-                    self._preview_is_snap,
-                    self._preview_snap_vert_index,
-                    False,
-                    None,
-                )
-            else:
-                draw_state._draw_data['draw_rubber_band'] = None
-            if context.area is not None:
-                context.area.tag_redraw()
-            return {'RUNNING_MODAL'}
+            self._cleanup(context, cancelled=False)
+            return {'FINISHED'}
 
         if event.type == 'C' and event.value == 'PRESS':
             if len(self._chain_vert_indices) >= 3:
                 self._close_chain(context)
+                self._cleanup(context, cancelled=False)
+                return {'FINISHED'}
             return {'RUNNING_MODAL'}
 
         if event.type == 'BACK_SPACE' and event.value == 'PRESS':
             self._undo_last_vert(context)
             return {'RUNNING_MODAL'}
 
-        if event.type == 'O' and event.value == 'PRESS':
+        if event.type in {'LEFT_SHIFT', 'RIGHT_SHIFT'} and event.value == 'PRESS':
             self._ortho_on = not self._ortho_on
             self._set_status(context)
             self._refresh_preview(context)
+            return {'RUNNING_MODAL'}
+
+        if event.type == 'V' and event.value == 'PRESS':
+            self._snap_verts_on = not self._snap_verts_on
+            self._set_status(context)
+            self._refresh_preview(context)
+            return {'RUNNING_MODAL'}
+
+        if event.type == 'W' and event.value == 'PRESS':
+            self._snap_other_on = not self._snap_other_on
+            self._set_status(context)
+            self._refresh_preview(context)
+            return {'RUNNING_MODAL'}
+
+        if event.type == 'TAB' and event.value == 'PRESS':
+            if self._chain_vert_indices:
+                self._numeric_mode = True
+                self._numeric_str = ""
+                self._set_status(context)
+                self._refresh_preview(context)
             return {'RUNNING_MODAL'}
 
         if event.type in {'X', 'Y', 'Z'} and event.value == 'PRESS':
@@ -137,17 +152,74 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
 
         return {'RUNNING_MODAL'}
 
+    def _modal_numeric(self, context, event):
+        if event.value != 'PRESS':
+            return {'RUNNING_MODAL'}
+
+        if event.type == 'ESC' or event.type == 'TAB':
+            self._numeric_mode = False
+            self._numeric_str = ""
+            self._set_status(context)
+            self._refresh_preview(context)
+            return {'RUNNING_MODAL'}
+
+        if event.type in {'RET', 'NUMPAD_ENTER'}:
+            applied = self._on_click_numeric(context)
+            self._numeric_mode = False
+            self._numeric_str = ""
+            self._set_status(context)
+            self._refresh_preview(context)
+            if applied:
+                return {'RUNNING_MODAL'}
+            return {'RUNNING_MODAL'}
+
+        if event.type == 'BACK_SPACE':
+            if self._numeric_str:
+                self._numeric_str = self._numeric_str[:-1]
+            self._set_status(context)
+            self._refresh_preview(context)
+            return {'RUNNING_MODAL'}
+
+        digit_keys = {
+            'ZERO': '0', 'ONE': '1', 'TWO': '2', 'THREE': '3', 'FOUR': '4',
+            'FIVE': '5', 'SIX': '6', 'SEVEN': '7', 'EIGHT': '8', 'NINE': '9',
+            'NUMPAD_0': '0', 'NUMPAD_1': '1', 'NUMPAD_2': '2', 'NUMPAD_3': '3',
+            'NUMPAD_4': '4', 'NUMPAD_5': '5', 'NUMPAD_6': '6', 'NUMPAD_7': '7',
+            'NUMPAD_8': '8', 'NUMPAD_9': '9',
+            'PERIOD': '.', 'NUMPAD_PERIOD': '.', 'COMMA': '.',
+            'MINUS': '-', 'NUMPAD_MINUS': '-',
+        }
+        ch = digit_keys.get(event.type)
+        if ch is not None:
+            if ch == '.' and '.' in self._numeric_str:
+                pass
+            elif ch == '-':
+                if self._numeric_str.startswith('-'):
+                    self._numeric_str = self._numeric_str[1:]
+                else:
+                    self._numeric_str = '-' + self._numeric_str
+            else:
+                self._numeric_str += ch
+            self._set_status(context)
+            self._refresh_preview(context)
+            return {'RUNNING_MODAL'}
+
+        return {'RUNNING_MODAL'}
+
     def _set_status(self, context):
         try:
-            orient = _transform_orient_short(context)
-            ortho_part = f"[O] Ortho: {'ON' if self._ortho_on else 'OFF'} ({orient})"
-            lock_part = (
-                f"[X/Y/Z] Axis: {self._axis_lock} ({orient})"
-                if self._axis_lock
-                else "[X/Y/Z] Axis: —"
-            )
+            ortho = "ON" if self._ortho_on else "OFF"
+            v_snap = "ON" if self._snap_verts_on else "OFF"
+            w_snap = "ON" if self._snap_other_on else "OFF"
+            axis = self._axis_lock if self._axis_lock else "—"
+            if self._numeric_mode:
+                num_part = f"[Tab]Num:{self._numeric_str or '_'}"
+            else:
+                num_part = "[Tab]Num"
             context.workspace.status_text_set(
-                f"[LMB] Add  [Bksp] Undo vert  [RMB] End chain  [C] Close chain  {ortho_part}  {lock_part}  [Enter] Exit  [Esc] Exit"
+                f"[LMB]Add [Bksp]Undo [RMB]Finish [C]Close "
+                f"[Shift]Ortho:{ortho} [V]ObjSnap:{v_snap} [W]WorldSnap:{w_snap} "
+                f"[X/Y/Z]Axis:{axis} {num_part} [Enter/Esc]Exit"
             )
         except Exception:
             pass
@@ -155,17 +227,100 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
     def _refresh_preview(self, context):
         if self._last_event_mouse is None or context.region is None or context.region_data is None:
             return
-        pos, is_snap, snap_idx, is_ortho = self._resolve_3d_position(context, self._last_event_mouse)
-        self._preview_world_pos = pos
-        self._preview_is_snap = is_snap
-        self._preview_is_ortho = is_ortho
-        self._preview_snap_vert_index = snap_idx
+
         last_world = self._last_chain_world_pos()
+
+        if self._numeric_mode and last_world is not None:
+            raw_pos, _is_snap, _snap_idx, _is_ortho, _snap_anchor = self._resolve_3d_position(
+                context, self._last_event_mouse
+            )
+            direction = raw_pos - last_world
+            if direction.length_squared > 1e-12:
+                direction = direction.normalized()
+            else:
+                direction = Vector((1.0, 0.0, 0.0))
+            try:
+                dist = float(self._numeric_str) if self._numeric_str not in ("", "-", ".", "-.") else 0.0
+            except ValueError:
+                dist = 0.0
+            pos = last_world + direction * dist
+            self._preview_world_pos = pos
+            self._preview_is_snap = False
+            self._preview_is_ortho = bool(self._ortho_on or self._axis_lock)
+            self._preview_snap_vert_index = None
+            snap_idx_for_draw: int | None = None
+            is_snap_for_draw = False
+            is_ortho_for_draw = self._preview_is_ortho
+        else:
+            pos, is_snap, snap_idx, is_ortho, snap_anchor = self._resolve_3d_position(
+                context, self._last_event_mouse
+            )
+            self._preview_world_pos = pos
+            self._preview_is_snap = is_snap
+            self._preview_is_ortho = is_ortho
+            self._preview_snap_vert_index = snap_idx
+            snap_idx_for_draw = snap_idx
+            is_snap_for_draw = is_snap
+            is_ortho_for_draw = is_ortho
+            snap_anchor_for_draw = snap_anchor
+
         axis_guide = self._compute_axis_guide(context)
-        draw_state._draw_data['draw_rubber_band'] = (last_world, pos, is_snap, snap_idx, is_ortho, axis_guide)
+        draw_state._draw_data['draw_rubber_band'] = (
+            last_world,
+            pos,
+            is_snap_for_draw,
+            snap_idx_for_draw,
+            is_ortho_for_draw,
+            axis_guide,
+            snap_anchor_for_draw if not self._numeric_mode else None,
+        )
+        if (
+            is_snap_for_draw
+            and pos is not None
+            and not self._numeric_mode
+            and context.region is not None
+            and context.region_data is not None
+        ):
+            try:
+                p2 = location_3d_to_region_2d(context.region, context.region_data, pos)
+            except Exception:
+                p2 = None
+            if p2 is not None:
+                draw_state._draw_data['draw_snap_ring'] = (
+                    float(p2.x),
+                    float(p2.y),
+                    float(self._screen_snap_radius_px),
+                    snap_idx_for_draw,
+                )
+            else:
+                draw_state._draw_data.pop('draw_snap_ring', None)
+        else:
+            draw_state._draw_data.pop('draw_snap_ring', None)
+        self._update_length_label(context, last_world, pos)
+        draw_state.refresh_edit_mesh_px_handler(context)
+        self._update_cursor_plane_visual(context)
         self._set_status(context)
         if context.area is not None:
             context.area.tag_redraw()
+
+    def _update_length_label(self, context, last_world: Vector | None, pos: Vector | None):
+        if last_world is None or pos is None:
+            draw_state._draw_data.pop('draw_rubber_band_label', None)
+            return
+        try:
+            length = (pos - last_world).length
+            mid = (last_world + pos) * 0.5
+            if self._numeric_mode:
+                text = f"> {self._numeric_str or ''}"
+            else:
+                unit_system = context.scene.unit_settings.system
+                try:
+                    text = bpy.utils.units.to_string(unit_system, 'LENGTH', length, precision=4)
+                except Exception:
+                    text = f"{length:.4f}"
+            draw_state._draw_data['draw_rubber_band_label'] = (mid, text)
+        except Exception:
+            draw_state._draw_data.pop('draw_rubber_band_label', None)
 
     def _compute_axis_guide(self, context):
         if not self._axis_lock or not self._chain_vert_indices:
@@ -204,61 +359,74 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
         except Exception:
             return None
 
-    def _build_bvh(self):
+    def _cursor_plane_axes(self, context) -> tuple[Vector, Vector, Vector]:
+        """Returns (normal, u, v) axes of the cursor's XY plane (Z normal)."""
+        cursor = context.scene.cursor
+        M3 = cursor.matrix.to_3x3()
+        cx = Vector((M3[0][0], M3[1][0], M3[2][0])).normalized()
+        cy = Vector((M3[0][1], M3[1][1], M3[2][1])).normalized()
+        cz = Vector((M3[0][2], M3[1][2], M3[2][2])).normalized()
+        return (cz, cx, cy)
+
+    def _intersect_cursor_plane(self, context, origin_w: Vector, direction_w: Vector) -> Vector:
+        cursor = context.scene.cursor
+        plane_co = cursor.location
+        normal, _u, _v = self._cursor_plane_axes(context)
+        denom = direction_w.dot(normal)
+        if abs(denom) < 1e-9:
+            return plane_co.copy()
+        t = (plane_co - origin_w).dot(normal) / denom
+        return origin_w + direction_w * t
+
+    def _project_onto_cursor_plane(self, context, world_co: Vector) -> Vector:
+        cursor = context.scene.cursor
+        plane_co = cursor.location
+        normal, _u, _v = self._cursor_plane_axes(context)
+        dist = (world_co - plane_co).dot(normal)
+        return world_co - normal * dist
+
+    def _update_cursor_plane_visual(self, context):
         try:
-            me = self._obj.data
-            bm = bmesh.from_edit_mesh(me)
-            self._bvh = BVHTree.FromBMesh(bm)
-            self._bvh_obj_name = self._obj.name
+            cursor = context.scene.cursor
+            center = cursor.location.copy()
+            _n, u, v = self._cursor_plane_axes(context)
+            draw_state._draw_data['cursor_plane'] = (center, u, v)
         except Exception:
-            self._bvh = None
+            draw_state._draw_data.pop('cursor_plane', None)
 
-    def _ensure_bvh_fresh(self):
-        self._build_bvh()
+    def _resolve_3d_position(
+        self,
+        context,
+        coord,
+    ) -> tuple[Vector, bool, int | None, bool, Vector | None]:
+        """Returns (world_pos, hit_snap, snap_idx, constrained_ortho, snap_anchor_world).
 
-    def _resolve_3d_position(self, context, coord) -> tuple[Vector, bool, int | None, bool]:
+        snap_anchor_world is the raw discrete snap target in world space, or None.
+        Preview may differ after ortho/axis projection; anchor is drawn for feedback."""
         region = context.region
         rv3d = context.region_data
         origin_w = region_2d_to_origin_3d(region, rv3d, coord)
         direction_w = region_2d_to_vector_3d(region, rv3d, coord).normalized()
 
-        snap_pos, snap_idx = self._screen_snap_to_verts(context, coord)
+        snap_pos, snap_idx = self._screen_snap_discrete(context, coord)
         if snap_pos is not None:
-            return snap_pos, True, snap_idx, False
+            anchor = snap_pos.copy()
+            use_auto_ortho = self._ortho_on and self._axis_lock is None
+            use_axis_lock = self._axis_lock is not None
+            if (use_auto_ortho or use_axis_lock) and self._chain_vert_indices:
+                prev_world = self._last_chain_world_pos()
+                if prev_world is not None:
+                    constrained = self._apply_ortho_constraint(
+                        context,
+                        prev_world,
+                        snap_pos,
+                        locked_axis=self._axis_lock if use_axis_lock else None,
+                    )
+                    if constrained is not None:
+                        return constrained, True, None, True, anchor
+            return snap_pos, True, snap_idx, False, anchor
 
-        depsgraph = context.evaluated_depsgraph_get()
-        scene_result = context.scene.ray_cast(depsgraph, origin_w, direction_w)
-        hit_scene = scene_result[0]
-        loc_scene = scene_result[1] if hit_scene else None
-        scene_dist = (loc_scene - origin_w).length if hit_scene else float('inf')
-
-        bvh_loc_w: Vector | None = None
-        bvh_dist = float('inf')
-        if self._bvh is not None:
-            mw = self._obj.matrix_world
-            try:
-                inv = mw.inverted()
-            except Exception:
-                inv = None
-            if inv is not None:
-                origin_l = inv @ origin_w
-                dir_l_raw = inv.to_3x3() @ direction_w
-                if dir_l_raw.length_squared > 1e-12:
-                    direction_l = dir_l_raw.normalized()
-                    bvh_loc_l, _normal, _index, _dist = self._bvh.ray_cast(origin_l, direction_l)
-                    if bvh_loc_l is not None:
-                        bvh_loc_w = mw @ bvh_loc_l
-                        bvh_dist = (bvh_loc_w - origin_w).length
-
-        is_snap = False
-        if bvh_loc_w is not None and bvh_dist < scene_dist:
-            pos = bvh_loc_w
-            is_snap = True
-        elif hit_scene:
-            pos = loc_scene
-            is_snap = True
-        else:
-            pos = region_2d_to_location_3d(region, rv3d, coord, context.scene.cursor.location)
+        pos = self._intersect_cursor_plane(context, origin_w, direction_w)
 
         is_ortho = False
         use_auto_ortho = self._ortho_on and self._axis_lock is None
@@ -276,7 +444,7 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
                     pos = constrained
                     is_ortho = True
 
-        return pos, is_snap, None, is_ortho
+        return pos, False, None, is_ortho, None
 
     def _apply_ortho_constraint(
         self,
@@ -319,52 +487,128 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
             return None
         return prev_world + best_axis * best_proj
 
-    def _screen_snap_to_verts(self, context, coord) -> tuple[Vector | None, int | None]:
-        region = context.region
-        rv3d = context.region_data
-        mw = self._obj.matrix_world
-        me = self._obj.data
-        try:
-            bm = bmesh.from_edit_mesh(me)
-            bm.verts.ensure_lookup_table()
-        except Exception:
+    def _screen_snap_discrete(self, context, coord) -> tuple[Vector | None, int | None]:
+        if not self._snap_verts_on and not self._snap_other_on:
             return None, None
 
+        region = context.region
+        rv3d = context.region_data
         radius_sq = self._screen_snap_radius_px * self._screen_snap_radius_px
         best_d2 = radius_sq
         best_idx: int | None = None
         best_world: Vector | None = None
-        for v in bm.verts:
-            world_co = mw @ v.co
-            p2 = location_3d_to_region_2d(region, rv3d, world_co)
-            if p2 is None:
-                continue
-            dx = p2.x - coord[0]
-            dy = p2.y - coord[1]
-            d2 = dx * dx + dy * dy
-            if d2 < best_d2:
-                best_d2 = d2
-                best_idx = v.index
-                best_world = world_co
+
+        if self._snap_verts_on:
+            mw = self._obj.matrix_world
+            me = self._obj.data
+            try:
+                bm = bmesh.from_edit_mesh(me)
+                bm.verts.ensure_lookup_table()
+                bm.edges.ensure_lookup_table()
+            except Exception:
+                bm = None
+
+            if bm is not None:
+                for v in bm.verts:
+                    world_co = mw @ v.co
+                    p2 = location_3d_to_region_2d(region, rv3d, world_co)
+                    if p2 is None:
+                        continue
+                    dx = p2.x - coord[0]
+                    dy = p2.y - coord[1]
+                    d2 = dx * dx + dy * dy
+                    if d2 < best_d2:
+                        best_d2 = d2
+                        best_idx = v.index
+                        best_world = world_co
+
+                for e in bm.edges:
+                    mid_local = (e.verts[0].co + e.verts[1].co) * 0.5
+                    mid_w = mw @ mid_local
+                    p2 = location_3d_to_region_2d(region, rv3d, mid_w)
+                    if p2 is None:
+                        continue
+                    dx = p2.x - coord[0]
+                    dy = p2.y - coord[1]
+                    d2 = dx * dx + dy * dy
+                    if d2 < best_d2:
+                        best_d2 = d2
+                        best_idx = -2
+                        best_world = mid_w
+
+        if self._snap_other_on:
+            try:
+                depsgraph = context.evaluated_depsgraph_get()
+            except Exception:
+                depsgraph = None
+            if depsgraph is not None:
+                for obj_inst in depsgraph.object_instances:
+                    obj_eval = obj_inst.object
+                    if obj_eval is None or obj_eval.type != 'MESH':
+                        continue
+                    try:
+                        obj_orig = obj_eval.original
+                    except Exception:
+                        obj_orig = obj_eval
+                    if obj_orig is self._obj:
+                        continue
+                    try:
+                        if not obj_orig.visible_get():
+                            continue
+                    except Exception:
+                        pass
+                    inst_mw = obj_inst.matrix_world
+                    try:
+                        eval_mesh = obj_eval.data
+                    except Exception:
+                        continue
+                    if eval_mesh is None:
+                        continue
+                    try:
+                        verts = eval_mesh.vertices
+                    except Exception:
+                        continue
+                    for v in verts:
+                        v_world = inst_mw @ v.co
+                        p2 = location_3d_to_region_2d(region, rv3d, v_world)
+                        if p2 is None:
+                            continue
+                        dx = p2.x - coord[0]
+                        dy = p2.y - coord[1]
+                        d2 = dx * dx + dy * dy
+                        if d2 < best_d2:
+                            best_d2 = d2
+                            best_idx = -3
+                            best_world = self._project_onto_cursor_plane(context, v_world)
 
         if best_idx is None or best_world is None:
             return None, None
-        if self._chain_vert_indices and best_idx == self._chain_vert_indices[0] and len(self._chain_vert_indices) >= 3:
+        if (
+            best_idx >= 0
+            and self._chain_vert_indices
+            and best_idx == self._chain_vert_indices[0]
+            and len(self._chain_vert_indices) >= 3
+            and not self._ortho_on
+            and self._axis_lock is None
+        ):
             return best_world, -1
         return best_world, best_idx
 
-    def _on_click(self, context):
+    def _on_click(self, context) -> bool:
+        """Returns True when the polyline was closed via snap sentinel (operator should exit)."""
         if self._preview_world_pos is None:
-            return
+            return False
         me = self._obj.data
         try:
             bm = bmesh.from_edit_mesh(me)
         except Exception:
-            return
+            return False
         bm.verts.ensure_lookup_table()
         bm.edges.ensure_lookup_table()
 
-        if self._preview_snap_vert_index is not None and self._preview_snap_vert_index == -1:
+        snap_idx = self._preview_snap_vert_index
+
+        if snap_idx == -1:
             if len(self._chain_vert_indices) >= 3:
                 first_idx = self._chain_vert_indices[0]
                 last_idx = self._chain_vert_indices[-1]
@@ -372,21 +616,22 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
                 bmesh.update_edit_mesh(me)
                 me.update_tag()
                 self._end_chain()
-                self._ensure_bvh_fresh()
                 self._axis_lock = None
                 self._refresh_preview(context)
-            return
+                return True
+            return False
 
-        if self._preview_snap_vert_index is not None:
-            idx = self._preview_snap_vert_index
+        reuse_existing = snap_idx is not None and snap_idx >= 0
+        if reuse_existing:
+            idx = snap_idx
             if idx >= len(bm.verts):
-                return
+                return False
             new_vert = bm.verts[idx]
         else:
             try:
                 inv = self._obj.matrix_world.inverted()
             except Exception:
-                return
+                return False
             local = inv @ self._preview_world_pos
             new_vert = bm.verts.new(local)
             bm.verts.index_update()
@@ -402,9 +647,42 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
         self._chain_vert_indices.append(new_vert.index)
         bmesh.update_edit_mesh(me)
         me.update_tag()
-        self._ensure_bvh_fresh()
         self._axis_lock = None
         self._refresh_preview(context)
+        return False
+
+    def _on_click_numeric(self, context) -> bool:
+        if self._preview_world_pos is None or not self._chain_vert_indices:
+            return False
+        try:
+            float(self._numeric_str)
+        except (ValueError, TypeError):
+            return False
+        me = self._obj.data
+        try:
+            bm = bmesh.from_edit_mesh(me)
+        except Exception:
+            return False
+        bm.verts.ensure_lookup_table()
+        bm.edges.ensure_lookup_table()
+        try:
+            inv = self._obj.matrix_world.inverted()
+        except Exception:
+            return False
+        local = inv @ self._preview_world_pos
+        new_vert = bm.verts.new(local)
+        bm.verts.index_update()
+        bm.verts.ensure_lookup_table()
+        prev_idx = self._chain_vert_indices[-1]
+        if prev_idx < len(bm.verts):
+            prev_vert = bm.verts[prev_idx]
+            self._safe_new_edge_objs(bm, prev_vert, new_vert)
+        bm.verts.index_update()
+        self._chain_vert_indices.append(new_vert.index)
+        bmesh.update_edit_mesh(me)
+        me.update_tag()
+        self._axis_lock = None
+        return True
 
     def _safe_new_edge_objs(self, bm, va, vb):
         if va is vb:
@@ -439,7 +717,7 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
         bmesh.update_edit_mesh(me)
         me.update_tag()
         self._end_chain()
-        self._ensure_bvh_fresh()
+        self._axis_lock = None
         self._refresh_preview(context)
 
     def _undo_last_vert(self, context):
@@ -474,7 +752,6 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
                         self._chain_vert_indices.pop()
                         bmesh.update_edit_mesh(me)
                         me.update_tag()
-                        self._ensure_bvh_fresh()
                         self._refresh_preview(context)
                         return
 
@@ -484,11 +761,17 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
         self._chain_vert_indices.pop()
         bmesh.update_edit_mesh(me)
         me.update_tag()
-        self._ensure_bvh_fresh()
         self._refresh_preview(context)
 
     def _cleanup(self, context, cancelled: bool):
         draw_state._draw_data.pop('draw_rubber_band', None)
+        draw_state._draw_data.pop('draw_rubber_band_label', None)
+        draw_state._draw_data.pop('draw_snap_ring', None)
+        draw_state._draw_data.pop('cursor_plane', None)
+        try:
+            draw_state.refresh_edit_mesh_px_handler(context)
+        except Exception:
+            pass
         try:
             context.workspace.status_text_set(None)
         except Exception:

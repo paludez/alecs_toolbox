@@ -556,7 +556,7 @@ class ALEC_PT_alec_misc_modeling(bpy.types.Panel):
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "Alec"
-    bl_label = "Modeling"
+    bl_label = "2D Drafting"
     bl_parent_id = "ALEC_PT_alec_misc"
 
     @classmethod
