@@ -1,5 +1,5 @@
 import bpy
-from mathutils import Vector
+from mathutils import Matrix, Vector
 from .utils import get_bounds_data, apply_align_move, get_bounds_in_space, bbox_world_axis_interval
 
 
@@ -57,8 +57,6 @@ def distribute_objects_positions(objects, axis_dir, ref_point, endpoint_objs=Non
         data.sort(key=lambda x: x[1])
         s_min = data[0][1]
         s_max = data[-1][1]
-        if abs(s_max - s_min) < 1e-12:
-            return False, "All objects project to the same position on this axis"
         n = len(data)
         for i, (obj, s) in enumerate(data):
             new_s = s_min + (s_max - s_min) * i / (n - 1)
@@ -162,6 +160,86 @@ def gaps_spacing_auto_value(objects, axis_dir):
     if n < 2:
         return None
     return (total_span - total_width) / float(n - 1)
+
+
+def gaps_spacing_lower_bound_for_overlap(objects, axis_dir) -> float | None:
+    """
+    Minimum allowed gap (most negative value): -min(slab width on axis_dir).
+
+    Clamping to this avoids “infinite” overlap pulls; past full overlap of the thinnest
+    slab along the axis the layout stops being meaningful for constant-gap packing.
+    """
+    if len(objects) < 2:
+        return None
+    u = axis_dir.normalized()
+    w_min = float("inf")
+    for obj in objects:
+        mn, mx = bbox_axis_interval_world(obj, u)
+        w_min = min(w_min, mx - mn)
+    w_min = max(w_min, 1e-9)
+    return -w_min
+
+
+def _scalar_on_distribute_axis(obj, axis_dir_u: Vector, mode: str, reference_point: str) -> float:
+    """Same 1D coordinate used for Positions (ref) / Gaps (bbox min) distribution."""
+    if mode == "POSITIONS":
+        return reference_projection_on_axis(obj, axis_dir_u, reference_point)
+    return bbox_axis_interval_world(obj, axis_dir_u)[0]
+
+
+def interpolate_rotations_active_to_farthest_slerp(
+    objects: list, axis_dir, mode: str, reference_point: str, active_obj
+) -> bool:
+    """
+    Piecewise world-space quaternion Slerp (full 3D orientation, not one Euler axis).
+
+    Scalar s along the distribute axis only sorts objects; when the active can sit
+    in the middle of the chain:
+
+    - s in [s_min, s_a]: blend from min-extreme object rotation to the active.
+    - s in [s_a, s_max]: blend from the active to max-extreme object rotation.
+    """
+    if active_obj is None or active_obj not in objects or len(objects) < 2:
+        return False
+    bpy.context.view_layer.update()
+    u = axis_dir.normalized()
+    try:
+        snap = {o.as_pointer(): _scalar_on_distribute_axis(o, u, mode, reference_point) for o in objects}
+    except ReferenceError:
+        return False
+    eps = 1e-9
+    o_min = min(objects, key=lambda o: snap[o.as_pointer()])
+    o_max = max(objects, key=lambda o: snap[o.as_pointer()])
+    s_min = snap[o_min.as_pointer()]
+    s_max = snap[o_max.as_pointer()]
+    if s_max - s_min < eps:
+        return False
+    s_a = snap[active_obj.as_pointer()]
+    q_min = o_min.matrix_world.to_3x3().to_quaternion()
+    q_max = o_max.matrix_world.to_3x3().to_quaternion()
+    q_a = active_obj.matrix_world.to_3x3().to_quaternion()
+
+    for obj in objects:
+        s = snap[obj.as_pointer()]
+        if s <= s_a + eps:
+            den = s_a - s_min
+            if den < eps:
+                q_new = q_a
+            else:
+                t = (s - s_min) / den
+                t = max(0.0, min(1.0, t))
+                q_new = q_min.slerp(q_a, t)
+        else:
+            den = s_max - s_a
+            if den < eps:
+                q_new = q_a
+            else:
+                t = (s - s_a) / den
+                t = max(0.0, min(1.0, t))
+                q_new = q_a.slerp(q_max, t)
+        loc, _rot, sca = obj.matrix_world.decompose()
+        obj.matrix_world = Matrix.LocRotScale(loc, q_new, sca)
+    return True
 
 
 def distribute_objects_gaps_fixed_gap(objects, axis_dir, gap, endpoint_objs=None):
@@ -372,3 +450,72 @@ def match_scale(source, target, x=True, y=True, z=True,
         source.scale.y = target.scale.y + offset_y
     if z:
         source.scale.z = target.scale.z + offset_z
+
+
+def distribute_perpendicular_toggle_labels(axis_mode: str) -> tuple[str, str]:
+    """Short labels for perpendicular plane axes (WORLD = world XYZ; LOCAL = active local components)."""
+    if axis_mode in ("WORLD_X", "LOCAL_X"):
+        return "Y", "Z"
+    if axis_mode in ("WORLD_Y", "LOCAL_Y"):
+        return "X", "Z"
+    if axis_mode in ("WORLD_Z", "LOCAL_Z"):
+        return "X", "Y"
+    return "A", "B"
+
+
+def distribute_plane_align_xyz_orient(axis_mode: str, use_first: bool, use_second: bool):
+    """Map plane toggles → (align_x, align_y, align_z, use_active_orient); None if both toggles off."""
+    if not use_first and not use_second:
+        return None
+    if axis_mode == "WORLD_X":
+        ax, ay, az = False, bool(use_first), bool(use_second)
+        return ax, ay, az, False
+    if axis_mode == "WORLD_Y":
+        ax, ay, az = bool(use_first), False, bool(use_second)
+        return ax, ay, az, False
+    if axis_mode == "WORLD_Z":
+        ax, ay, az = bool(use_first), bool(use_second), False
+        return ax, ay, az, False
+    if axis_mode == "LOCAL_X":
+        ax, ay, az = False, bool(use_first), bool(use_second)
+        return ax, ay, az, True
+    if axis_mode == "LOCAL_Y":
+        ax, ay, az = bool(use_first), False, bool(use_second)
+        return ax, ay, az, True
+    if axis_mode == "LOCAL_Z":
+        ax, ay, az = bool(use_first), bool(use_second), False
+        return ax, ay, az, True
+    return None
+
+
+def distribute_plane_align_to_active(
+    objects,
+    axis_mode: str,
+    active,
+    use_first_toggle: bool,
+    use_second_toggle: bool,
+    source_point: str,
+    target_point: str,
+):
+    """Align non-active selection to ``active`` on perpendicular plane(s)."""
+    cfg = distribute_plane_align_xyz_orient(axis_mode, use_first_toggle, use_second_toggle)
+    if cfg is None or active is None:
+        return False, ""
+    align_x, align_y, align_z, use_act = cfg
+    for src in objects:
+        if src is active:
+            continue
+        align_position(
+            src,
+            active,
+            x=align_x,
+            y=align_y,
+            z=align_z,
+            source_point=source_point,
+            target_point=target_point,
+            use_active_orient=use_act,
+            offset_x=0.0,
+            offset_y=0.0,
+            offset_z=0.0,
+        )
+    return True, ""

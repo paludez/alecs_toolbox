@@ -16,12 +16,20 @@ _GAP_LABELS: list[tuple[str, Vector]] = []
 
 _draw_handler = None
 _draw_handler_px = None
-_watch_active = False
 _depsgraph_registered = False
 
 _last_alive_monotonic: float | None = None
-# After Redo folds, operator.draw/check stop ping-ing; stale clears overlay (was 3s → looked like “permanent” traces).
-_STALE_AFTER_SEC = 0.38
+# Tracks last Distribute.execute (Adjust Last Operation) so operator.draw does not resurrect the overlay
+# after Redo folds (draw() callbacks can persist without consistent active_operator).
+_last_distribute_execute_mono: float | None = None
+
+# Redo folds → no heartbeat; allow long idle on Adjust Last without self-closing overlay.
+_STALE_AFTER_SEC = 6.0
+
+DISTRIBUTE_DIALOG_ID = "alec.distribute_objects_dialog"
+
+# Set False in clear_preview — blocks operator.draw from re-filling wires after explicit cleanup.
+_preview_draw_drive_enabled = False
 
 _OVERLAY_COLOR = (0.15, 0.85, 0.45, 0.55)
 _DIM_COLOR = (0.95, 0.95, 1.0, 0.9)
@@ -56,14 +64,34 @@ def _tag_view3d_redraw():
         pass
 
 
-def _deferred_view3d_redraw():
-    _tag_view3d_redraw()
-    return None
-
-
 def mark_alive() -> None:
     global _last_alive_monotonic
     _last_alive_monotonic = time.monotonic()
+
+
+def notify_distribute_execute_tick() -> None:
+    """Call from alec.distribute_objects_dialog.execute after restore (Redo tweak loop)."""
+    global _last_distribute_execute_mono, _preview_draw_drive_enabled
+    _last_distribute_execute_mono = time.monotonic()
+    _preview_draw_drive_enabled = True
+
+
+def recent_distribute_execute_for_overlay_draw(max_age_sec: float = 2.5) -> bool:
+    """True shortly after distribute execute — allows draw() to refresh preview wire without ghosting."""
+    global _last_distribute_execute_mono
+    t = _last_distribute_execute_mono
+    if t is None:
+        return False
+    return time.monotonic() - t <= max_age_sec
+
+
+def allow_preview_draw_drive() -> bool:
+    """False after redo-close cleanup — operator.draw must not resurrect corner geometry."""
+    return _preview_draw_drive_enabled
+
+
+def _preview_has_geometry() -> bool:
+    return bool(_PREVIEW_CORNERS or _GAP_LINE_SEGMENTS or _GAP_LABELS)
 
 
 def _should_clear_preview() -> bool:
@@ -83,9 +111,15 @@ def _should_clear_preview() -> bool:
 
 
 def _depsgraph_tag_redraw(scene):
-    if not _PREVIEW_CORNERS and not _GAP_LINE_SEGMENTS:
-        return
-    _tag_view3d_redraw()
+    """Redraw when depsgraph ticks; stale cleanup here — no bpy.app.timer polling."""
+    try:
+        if _preview_has_geometry() and _should_clear_preview():
+            clear_preview()
+            return
+        if _preview_has_geometry():
+            _tag_view3d_redraw()
+    except Exception:
+        pass
 
 
 def _register_depsgraph():
@@ -107,39 +141,6 @@ def _unregister_depsgraph():
     _depsgraph_registered = False
 
 
-def _stop_watch_timer():
-    global _watch_active
-    if not _watch_active:
-        return
-    try:
-        bpy.app.timers.unregister(_lifecycle_watch)
-    except (RuntimeError, ValueError):
-        pass
-    _watch_active = False
-
-
-def _lifecycle_watch():
-    if not _PREVIEW_CORNERS:
-        _stop_watch_timer()
-        return None
-    try:
-        if _should_clear_preview():
-            clear_preview()
-            return None
-    except Exception:
-        return 0.12
-    _tag_view3d_redraw()
-    return 0.12
-
-
-def _start_watch_timer_if_needed():
-    global _watch_active
-    if _watch_active:
-        return
-    bpy.app.timers.register(_lifecycle_watch, first_interval=0.05)
-    _watch_active = True
-
-
 def _perp_basis(axis_u: Vector) -> tuple[Vector, Vector]:
     axis_u = axis_u.normalized()
     if abs(axis_u.z) < 0.9:
@@ -154,6 +155,13 @@ def _perp_basis(axis_u: Vector) -> tuple[Vector, Vector]:
     return p1, p2
 
 
+def _append_dimension_cross_ticks(p: Vector, perp1: Vector, perp2: Vector, tick_h: float) -> None:
+    """Ticks along perp2 and perp1 (orthogonal, both ⊥ axis u) so bracket reads from plan + top-style views."""
+    _GAP_LINE_SEGMENTS.append((p + perp2 * tick_h, p - perp2 * tick_h))
+    h2 = tick_h * 0.88
+    _GAP_LINE_SEGMENTS.append((p + perp1 * h2, p - perp1 * h2))
+
+
 def _format_length(context, value: float) -> str:
     """Same unit string as operators/draw_mesh_edges (Set edge length overlay)."""
     v = abs(value)
@@ -165,10 +173,17 @@ def _format_length(context, value: float) -> str:
         return f"{v:.4f}"
 
 
+def _format_length_signed(context, value: float) -> str:
+    """Scene length with sign — matches Gap/Spacing float fields (negative gap = overlap)."""
+    if abs(value) < 1e-12:
+        return _format_length(context, 0.0)
+    sign = "-" if value < 0.0 else ""
+    return sign + _format_length(context, value)
+
+
 def _gap_label(context, projected_gap_scalar: float) -> str:
-    if projected_gap_scalar >= -1e-9:
-        return _format_length(context, projected_gap_scalar)
-    return "overlap " + _format_length(context, -projected_gap_scalar)
+    # Must match redo field convention: negative scalar, not “overlap 1.2” vs “-1.2” in RNA.
+    return _format_length_signed(context, projected_gap_scalar)
 
 
 def _rebuild_positions_visual(
@@ -226,9 +241,14 @@ def _rebuild_positions_visual(
     def at_s(s: float) -> Vector:
         return u * (s - k) + line_base
 
-    _GAP_LINE_SEGMENTS.append((at_s(s_min), at_s(s_max)))
+    p_lo = at_s(s_min)
+    p_hi = at_s(s_max)
+    _GAP_LINE_SEGMENTS.append((p_lo, p_hi))
 
     end_tick_h = max(span * 0.1, 0.032)
+
+    _append_dimension_cross_ticks(p_lo, perp1, perp2, end_tick_h)
+    _append_dimension_cross_ticks(p_hi, perp1, perp2, end_tick_h)
 
     for i in range(len(s_sorted) - 1):
         sa = s_sorted[i]
@@ -240,8 +260,8 @@ def _rebuild_positions_visual(
         pb = at_s(sb)
 
         _GAP_LINE_SEGMENTS.append((pa, pb))
-        _GAP_LINE_SEGMENTS.append((pa + perp2 * end_tick_h, pa - perp2 * end_tick_h))
-        _GAP_LINE_SEGMENTS.append((pb + perp2 * end_tick_h, pb - perp2 * end_tick_h))
+        _append_dimension_cross_ticks(pa, perp1, perp2, end_tick_h)
+        _append_dimension_cross_ticks(pb, perp1, perp2, end_tick_h)
 
         mid_pt = at_s(0.5 * (sa + sb))
         label_anchor = mid_pt + perp1 * (offset_mag * 0.28)
@@ -323,8 +343,6 @@ def _rebuild_gap_visual(
         """Point on dimension line whose dot with u equals s (world projection)."""
         return u * (s - k) + line_base
 
-    _GAP_LINE_SEGMENTS.append((at_s(intervals[0][0]), at_s(intervals[-1][1])))
-
     end_tick_h = max(span * 0.1, 0.032)
 
     for i in range(len(intervals) - 1):
@@ -337,9 +355,9 @@ def _rebuild_gap_visual(
         # Segment along projection axis strictly between slab max(prev) … min(next).
         _GAP_LINE_SEGMENTS.append((p_mx, p_mn))
 
-        # Bracket marks exactly at bbox extents on u (avoid reading mid-tick as origin).
-        _GAP_LINE_SEGMENTS.append((p_mx + perp2 * end_tick_h, p_mx - perp2 * end_tick_h))
-        _GAP_LINE_SEGMENTS.append((p_mn + perp2 * end_tick_h, p_mn - perp2 * end_tick_h))
+        # Cross ticks at bbox extents on u (readable from more than one ortho view).
+        _append_dimension_cross_ticks(p_mx, perp1, perp2, end_tick_h)
+        _append_dimension_cross_ticks(p_mn, perp1, perp2, end_tick_h)
 
         mid_pt = at_s(0.5 * (mx_i + mn_next))
         label_anchor = mid_pt + perp1 * (offset_mag * 0.28)
@@ -444,13 +462,14 @@ def set_preview_corner_boxes(
     positions_axis_dir=None,
     positions_ref_point=None,
 ) -> None:
-    global _PREVIEW_CORNERS
+    global _PREVIEW_CORNERS, _preview_draw_drive_enabled
     corners_work = list(box_corners)
     ref_objs = gap_objects if gap_objects is not None else positions_objects
     if ref_objs is not None and corners_work and len(ref_objs) == len(corners_work):
         ref_objs, corners_work = _dedupe_object_corner_pairs(ref_objs, corners_work)
 
     _PREVIEW_CORNERS = [[v.copy() for v in corners] for corners in corners_work]
+    _preview_draw_drive_enabled = True
     mark_alive()
 
     _GAP_LINE_SEGMENTS.clear()
@@ -485,25 +504,23 @@ def set_preview_corner_boxes(
 
     _ensure_handler()
     _register_depsgraph()
-    _start_watch_timer_if_needed()
     _tag_view3d_redraw()
 
 
 def clear_preview() -> None:
-    global _PREVIEW_CORNERS, _last_alive_monotonic
-    _stop_watch_timer()
+    global _PREVIEW_CORNERS, _last_alive_monotonic, _last_distribute_execute_mono
+    global _preview_draw_drive_enabled
+
     _unregister_depsgraph()
     _PREVIEW_CORNERS.clear()
     _GAP_LINE_SEGMENTS.clear()
     _GAP_LABELS.clear()
     _last_alive_monotonic = None
+    _last_distribute_execute_mono = None
+    _preview_draw_drive_enabled = False
     _remove_handler()
     _remove_px_handler()
     _tag_view3d_redraw()
-    try:
-        bpy.app.timers.register(_deferred_view3d_redraw, first_interval=0.0)
-    except Exception:
-        pass
 
 
 def unregister_preview() -> None:
