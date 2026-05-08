@@ -135,6 +135,136 @@ def bbox_world_axis_interval(obj, axis_dir):
     return mn, mx
 
 
+def _world_aabb_from_bound_box_world(mw, bound_box) -> tuple[Vector, Vector]:
+    corners = [mw @ Vector(c) for c in bound_box]
+    xs = [c.x for c in corners]
+    ys = [c.y for c in corners]
+    zs = [c.z for c in corners]
+    return (
+        Vector((min(xs), min(ys), min(zs))),
+        Vector((max(xs), max(ys), max(zs))),
+    )
+
+
+def world_aabb_evaluated_bounds(obj) -> tuple[Vector, Vector]:
+    """
+    World-space AABB corners (min, max) for evaluated geometry.
+    Matches the vertex set implied by bbox_world_axis_interval / gap distribution.
+    """
+    bpy.context.view_layer.update()
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    obj_eval = obj.evaluated_get(depsgraph)
+    try:
+        mesh_eval = obj_eval.to_mesh()
+    except RuntimeError:
+        return _world_aabb_from_bound_box_world(obj.matrix_world, obj.bound_box)
+
+    verts_count = len(mesh_eval.vertices)
+    if verts_count == 0:
+        obj_eval.to_mesh_clear()
+        return _world_aabb_from_bound_box_world(obj.matrix_world, obj.bound_box)
+
+    coords = np.empty(verts_count * 3, dtype=np.float32)
+    mesh_eval.vertices.foreach_get("co", coords)
+    coords.shape = (verts_count, 3)
+    matrix = np.array(obj_eval.matrix_world)
+    world_coords = np.dot(coords, matrix[:3, :3].T) + matrix[:3, 3]
+    wm = world_coords.min(axis=0)
+    wx = world_coords.max(axis=0)
+    obj_eval.to_mesh_clear()
+    return (
+        Vector((float(wm[0]), float(wm[1]), float(wm[2]))),
+        Vector((float(wx[0]), float(wx[1]), float(wx[2]))),
+    )
+
+
+def eight_corners_world_aabb(mn: Vector, mx: Vector) -> list[Vector]:
+    """World-space axis-aligned box: eight corners (same winding as gap overlay)."""
+    return [
+        Vector((mn.x, mn.y, mn.z)),
+        Vector((mx.x, mn.y, mn.z)),
+        Vector((mx.x, mx.y, mn.z)),
+        Vector((mn.x, mx.y, mn.z)),
+        Vector((mn.x, mn.y, mx.z)),
+        Vector((mx.x, mn.y, mx.z)),
+        Vector((mx.x, mx.y, mx.z)),
+        Vector((mn.x, mx.y, mx.z)),
+    ]
+
+
+def world_aabb_evaluated_corner_vectors(obj) -> list[Vector]:
+    """Evaluated mesh world AABB as eight world corners (for viewport wire)."""
+    mn, mx = world_aabb_evaluated_bounds(obj)
+    return eight_corners_world_aabb(mn, mx)
+
+
+def _obb_world_corners_from_active_local_minmax(mw_active, mn_l: Vector, mx_l: Vector) -> list[Vector]:
+    loc = eight_corners_world_aabb(mn_l, mx_l)
+    return [mw_active @ c for c in loc]
+
+
+def _points_minmax_in_active_local(inv_active, world_xyz: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """world_xyz: (N,3) → min/max per axis in active local space."""
+    n = world_xyz.shape[0]
+    if n == 0:
+        z = np.zeros(3, dtype=np.float64)
+        return z.copy(), z.copy()
+    inv = np.array(inv_active, dtype=np.float64)
+    ones = np.ones((n, 1), dtype=np.float64)
+    hw = np.hstack([world_xyz.astype(np.float64), ones])
+    loc_h = inv @ hw.T
+    loc = loc_h[:3, :].T
+    return loc.min(axis=0), loc.max(axis=0)
+
+
+def world_obb_evaluated_corners_wrt_active(active, obj) -> list[Vector]:
+    """
+    Eight world corners of the evaluated mesh bounds, axis-aligned in *active* local space
+    (edges parallel to active local X/Y/Z). Matches LOCAL_* distribute axis frame.
+    """
+    bpy.context.view_layer.update()
+    inv_a = active.matrix_world.inverted()
+    mw_a = active.matrix_world
+
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    obj_eval = obj.evaluated_get(depsgraph)
+    try:
+        mesh_eval = obj_eval.to_mesh()
+    except RuntimeError:
+        corners_w = np.array([[*(obj.matrix_world @ Vector(c))] for c in obj.bound_box], dtype=np.float64)
+        lmin, lmax = _points_minmax_in_active_local(inv_a, corners_w)
+        return _obb_world_corners_from_active_local_minmax(
+            mw_a,
+            Vector((float(lmin[0]), float(lmin[1]), float(lmin[2]))),
+            Vector((float(lmax[0]), float(lmax[1]), float(lmax[2]))),
+        )
+
+    verts_count = len(mesh_eval.vertices)
+    if verts_count == 0:
+        obj_eval.to_mesh_clear()
+        corners_w = np.array([[*(obj.matrix_world @ Vector(c))] for c in obj.bound_box], dtype=np.float64)
+        lmin, lmax = _points_minmax_in_active_local(inv_a, corners_w)
+        return _obb_world_corners_from_active_local_minmax(
+            mw_a,
+            Vector((float(lmin[0]), float(lmin[1]), float(lmin[2]))),
+            Vector((float(lmax[0]), float(lmax[1]), float(lmax[2]))),
+        )
+
+    coords = np.empty(verts_count * 3, dtype=np.float32)
+    mesh_eval.vertices.foreach_get("co", coords)
+    coords.shape = (verts_count, 3)
+    matrix = np.array(obj_eval.matrix_world)
+    world_coords = np.dot(coords, matrix[:3, :3].T) + matrix[:3, 3]
+    obj_eval.to_mesh_clear()
+
+    lmin, lmax = _points_minmax_in_active_local(inv_a, world_coords)
+    return _obb_world_corners_from_active_local_minmax(
+        mw_a,
+        Vector((float(lmin[0]), float(lmin[1]), float(lmin[2]))),
+        Vector((float(lmax[0]), float(lmax[1]), float(lmax[2]))),
+    )
+
+
 def apply_align_move(obj, delta_world):
     """Applies movement directly to the global matrix."""
     obj.matrix_world.translation += delta_world

@@ -61,6 +61,9 @@ def register():
     _app_handlers.append((bpy.app.handlers.depsgraph_update_post, depsgraph_handler))
 
 def unregister():
+    from ..modules import distribute_gaps_overlay
+
+    distribute_gaps_overlay.unregister_preview()
     edit_mesh.unregister_draw_handler()
     auto_linked_mode._exit_auto_linked()
     batch_materials.post_unregister()

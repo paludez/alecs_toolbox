@@ -2,6 +2,8 @@ import bpy
 from mathutils import Vector
 
 from ..modules import align_tools
+from ..modules import distribute_gaps_overlay
+from ..modules.utils import world_aabb_evaluated_corner_vectors, world_obb_evaluated_corners_wrt_active
 
 
 def _axis_direction_from_enum(context, axis_mode):
@@ -387,9 +389,22 @@ class ALEC_OT_distribute_objects_dialog(bpy.types.Operator):
                     obj.scale = state["scale"]
 
     def cancel(self, context):
+        distribute_gaps_overlay.clear_preview()
         self._restore_state()
 
+    def _gap_preview_corner_boxes(self, context, objs: list) -> list[list[Vector]]:
+        if self.axis.startswith("LOCAL_"):
+            act = context.active_object
+            if act is not None:
+                return [world_obb_evaluated_corners_wrt_active(act, o) for o in objs]
+        return [world_aabb_evaluated_corner_vectors(o) for o in objs]
+
     def draw(self, context):
+        if self.mode == "GAPS" and len(context.selected_objects) >= 2:
+            distribute_gaps_overlay.mark_alive()
+            context.view_layer.update()
+            objs = list(context.selected_objects)
+            distribute_gaps_overlay.set_preview_corner_boxes(self._gap_preview_corner_boxes(context, objs))
         layout = self.layout
         layout.prop(self, "mode", expand=True)
         axis_box = layout.column(align=True)
@@ -417,19 +432,28 @@ class ALEC_OT_distribute_objects_dialog(bpy.types.Operator):
         self._restore_state()
         axis_dir = _axis_direction_from_enum(context, self.axis)
         if axis_dir is None:
+            distribute_gaps_overlay.clear_preview()
             self.report({"WARNING"}, "Need an active object for local axes")
             return {"CANCELLED"}
 
         objects = list(context.selected_objects)
 
         if self.mode == "POSITIONS":
+            distribute_gaps_overlay.clear_preview()
             ok, msg = align_tools.distribute_objects_positions(
                 objects, axis_dir, self.reference_point, endpoint_objs=None
             )
         else:
+            distribute_gaps_overlay.mark_alive()
             ok, msg = align_tools.distribute_objects_gaps(objects, axis_dir, endpoint_objs=None)
+            if ok:
+                context.view_layer.update()
+                distribute_gaps_overlay.set_preview_corner_boxes(
+                    self._gap_preview_corner_boxes(context, objects)
+                )
 
         if not ok:
+            distribute_gaps_overlay.clear_preview()
             self.report({"WARNING"}, msg)
             return {"CANCELLED"}
         return {"FINISHED"}
