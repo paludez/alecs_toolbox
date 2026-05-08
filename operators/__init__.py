@@ -60,10 +60,6 @@ def register():
     bpy.app.handlers.depsgraph_update_post.append(depsgraph_handler)
     _app_handlers.append((bpy.app.handlers.depsgraph_update_post, depsgraph_handler))
 
-    align_handler = align._track_active_object_handler
-    bpy.app.handlers.depsgraph_update_post.append(align_handler)
-    _app_handlers.append((bpy.app.handlers.depsgraph_update_post, align_handler))
-
 def unregister():
     edit_mesh.unregister_draw_handler()
     auto_linked_mode._exit_auto_linked()

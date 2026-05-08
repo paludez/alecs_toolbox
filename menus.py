@@ -401,8 +401,12 @@ class ALEC_MT_object_menu(bpy.types.Menu):
         )
         row_align.operator_context = prev_ctx
 
-        # Keep distribute close to BBox/Align actions, but out of the compact Align row.
-        box_bbox.operator("alec.distribute_objects_dialog", text="Distribute...", icon='ALIGN_JUSTIFY')
+        row_distrib = box_align.row(align=True)
+        row_distrib.operator(
+            "alec.distribute_objects_dialog",
+            text="Distribute...",
+            icon="ALIGN_JUSTIFY",
+        )
 
         # --- Slice 2 (Right): Modifiers ---
         col_right = pie.column()

@@ -4,40 +4,6 @@ from mathutils import Vector
 from ..modules import align_tools
 
 
-# Active object names (last 2 distinct); used by Distribute endpoints.
-_active_history: list[str] = []
-_last_seen_active: str | None = None
-
-
-def _track_active_object_handler(scene, depsgraph):
-    global _last_seen_active
-    try:
-        obj = bpy.context.active_object
-    except Exception:
-        return
-    if obj is None:
-        return
-    name = obj.name
-    if name == _last_seen_active:
-        return
-    _last_seen_active = name
-    if _active_history and _active_history[-1] == name:
-        return
-    if len(_active_history) >= 2:
-        _active_history.pop(0)
-    _active_history.append(name)
-
-
-def get_last_two_active_objects():
-    """(penultimate_active, last_active) or (None, None)."""
-    if len(_active_history) < 2:
-        return None, None
-    return (
-        bpy.data.objects.get(_active_history[-2]),
-        bpy.data.objects.get(_active_history[-1]),
-    )
-
-
 def _axis_direction_from_enum(context, axis_mode):
     """Unit vector for WORLD_* / LOCAL_* (local needs active object)."""
     if axis_mode == "WORLD_X":
@@ -351,14 +317,13 @@ class ALEC_OT_quick_pivot_rot(AlignBase, bpy.types.Operator):
 
 
 class ALEC_OT_distribute_objects_dialog(bpy.types.Operator):
-    """Distribute selected objects along an axis."""
+    """Distribute selected objects along an axis (redo panel, like Align dialog)."""
 
     bl_idname = "alec.distribute_objects_dialog"
     bl_label = "Distribute Objects"
     bl_description = (
-        "Positions: space reference points evenly. Gaps: equal space between evaluated bbox projections. "
-        "Endpoints: shift-click two objects last (penultimate + active); "
-        "otherwise uses left/right extremes on axis"
+        "Positions: space reference points evenly along the chosen axis between the selection extremes. "
+        "Gaps: equal space between bbox projections along the axis between extremes."
     )
     bl_options = {"REGISTER", "UNDO"}
 
@@ -396,38 +361,73 @@ class ALEC_OT_distribute_objects_dialog(bpy.types.Operator):
         default="PIVOT",
     )  # type: ignore
 
+    _initial_state = {}
+    _is_modal = False
+
     @classmethod
     def poll(cls, context):
         return context.mode == "OBJECT" and len(context.selected_objects) >= 2
 
+    def _capture_selection_snapshot(self, context):
+        self._initial_state = {}
+        for obj in context.selected_objects:
+            self._initial_state[obj.name] = {
+                "location": obj.location.copy(),
+                "rotation_euler": obj.rotation_euler.copy(),
+                "scale": obj.scale.copy(),
+            }
+
+    def _restore_state(self):
+        if getattr(self, "_is_modal", False) and self._initial_state:
+            for name, state in self._initial_state.items():
+                obj = bpy.data.objects.get(name)
+                if obj:
+                    obj.location = state["location"]
+                    obj.rotation_euler = state["rotation_euler"]
+                    obj.scale = state["scale"]
+
+    def cancel(self, context):
+        self._restore_state()
+
     def draw(self, context):
         layout = self.layout
         layout.prop(self, "mode", expand=True)
-        layout.prop(self, "axis", text="Axis")
+        axis_box = layout.column(align=True)
+        axis_box.label(text="Axis")
+        row_w = axis_box.row(align=True)
+        for axis_val in ("WORLD_X", "WORLD_Y", "WORLD_Z"):
+            row_w.prop_enum(self, "axis", axis_val)
+        row_l = axis_box.row(align=True)
+        for axis_val in ("LOCAL_X", "LOCAL_Y", "LOCAL_Z"):
+            row_l.prop_enum(self, "axis", axis_val)
         sub = layout.column()
         sub.prop(self, "reference_point", expand=True)
         sub.enabled = self.mode == "POSITIONS"
 
     def invoke(self, context, event):
-        return context.window_manager.invoke_props_dialog(self, width=400)
+        self._is_modal = True
+        self._capture_selection_snapshot(context)
+        return self.execute(context)
+
+    def check(self, context):
+        self.execute(context)
+        return True
 
     def execute(self, context):
+        self._restore_state()
         axis_dir = _axis_direction_from_enum(context, self.axis)
         if axis_dir is None:
             self.report({"WARNING"}, "Need an active object for local axes")
             return {"CANCELLED"}
 
         objects = list(context.selected_objects)
-        ep_prev, ep_last = get_last_two_active_objects()
-        sel = set(objects)
-        endpoints = (ep_prev, ep_last) if ep_prev in sel and ep_last in sel else None
 
         if self.mode == "POSITIONS":
             ok, msg = align_tools.distribute_objects_positions(
-                objects, axis_dir, self.reference_point, endpoint_objs=endpoints
+                objects, axis_dir, self.reference_point, endpoint_objs=None
             )
         else:
-            ok, msg = align_tools.distribute_objects_gaps(objects, axis_dir, endpoint_objs=endpoints)
+            ok, msg = align_tools.distribute_objects_gaps(objects, axis_dir, endpoint_objs=None)
 
         if not ok:
             self.report({"WARNING"}, msg)
