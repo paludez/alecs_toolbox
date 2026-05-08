@@ -17,44 +17,6 @@ class ALEC_OT_menu_dispatcher(bpy.types.Operator):
         return {'FINISHED'}
 
 
-class ALEC_OT_align_centers_smart(bpy.types.Operator):
-    """Align centers; Alt-click also aligns rotation."""
-
-    bl_idname = "alec.align_centers_smart"
-    bl_label = "Align Centers (Smart)"
-    bl_options = {"REGISTER", "UNDO"}
-
-    def invoke(self, context, event):
-        try:
-            if getattr(event, "alt", False):
-                ret = bpy.ops.alec.quick_center_rot("EXEC_DEFAULT")
-            else:
-                ret = bpy.ops.alec.quick_center("EXEC_DEFAULT")
-        except RuntimeError as exc:
-            self.report({"WARNING"}, f"Align centers failed: {exc}")
-            return {"CANCELLED"}
-        return ret if ret else {"FINISHED"}
-
-
-class ALEC_OT_align_origins_smart(bpy.types.Operator):
-    """Align origins; Alt-click also aligns rotation."""
-
-    bl_idname = "alec.align_origins_smart"
-    bl_label = "Align Origins (Smart)"
-    bl_options = {"REGISTER", "UNDO"}
-
-    def invoke(self, context, event):
-        try:
-            if getattr(event, "alt", False):
-                ret = bpy.ops.alec.quick_pivot_rot("EXEC_DEFAULT")
-            else:
-                ret = bpy.ops.view3d.snap_selected_to_active("EXEC_DEFAULT")
-        except RuntimeError as exc:
-            self.report({"WARNING"}, f"Align origins failed: {exc}")
-            return {"CANCELLED"}
-        return ret if ret else {"FINISHED"}
-
-
 class ALEC_OT_set_area_view3d_under_mouse(bpy.types.Operator):
     """Set the editor under mouse to 3D View"""
     bl_idname = "alec.set_area_view3d_under_mouse"
@@ -350,8 +312,6 @@ class ALEC_OT_open_alec_panel(bpy.types.Operator):
 
 classes = [
     ALEC_OT_menu_dispatcher,
-    ALEC_OT_align_centers_smart,
-    ALEC_OT_align_origins_smart,
     ALEC_OT_set_area_view3d_under_mouse,
     ALEC_OT_set_area_shader_under_mouse,
     ALEC_OT_set_area_uv_under_mouse,

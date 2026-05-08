@@ -171,23 +171,28 @@ def align_position(source, target, x=True, y=True, z=True,
     
     apply_align_move(source, delta_world)
 
-def align_orientation(source, target, x=True, y=True, z=True):
+def align_orientation(source, target, x=True, y=True, z=True,
+                      offset_x=0.0, offset_y=0.0, offset_z=0.0):
+    """Match target Euler per axis when enabled; offsets are radians (added after match)."""
     src_euler = source.rotation_euler.copy()
     tgt_euler = target.rotation_euler.copy()
-    
+
     if x:
-        src_euler.x = tgt_euler.x
+        src_euler.x = tgt_euler.x + offset_x
     if y:
-        src_euler.y = tgt_euler.y
+        src_euler.y = tgt_euler.y + offset_y
     if z:
-        src_euler.z = tgt_euler.z
-    
-    source.rotation_euler = src_euler 
-    
-def match_scale(source, target, x=True, y=True, z=True):
+        src_euler.z = tgt_euler.z + offset_z
+
+    source.rotation_euler = src_euler
+
+
+def match_scale(source, target, x=True, y=True, z=True,
+                offset_x=0.0, offset_y=0.0, offset_z=0.0):
+    """Match target scale per axis when enabled; offsets added to matched components."""
     if x:
-        source.scale.x = target.scale.x
+        source.scale.x = target.scale.x + offset_x
     if y:
-        source.scale.y = target.scale.y
+        source.scale.y = target.scale.y + offset_y
     if z:
-        source.scale.z = target.scale.z
+        source.scale.z = target.scale.z + offset_z

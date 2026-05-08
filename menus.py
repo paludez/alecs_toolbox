@@ -390,12 +390,12 @@ class ALEC_MT_object_menu(bpy.types.Menu):
         prev_ctx = row_align.operator_context
         row_align.operator_context = "INVOKE_DEFAULT"
         row_align.operator(
-            "alec.align_centers_smart",
+            "alec.align_preset_centers",
             text="",
             icon="PIVOT_BOUNDBOX",
         )
         row_align.operator(
-            "alec.align_origins_smart",
+            "alec.align_preset_origins",
             text="",
             icon="OBJECT_ORIGIN",
         )

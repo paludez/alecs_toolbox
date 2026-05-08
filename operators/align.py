@@ -70,8 +70,8 @@ class AlignBase:
         description="Point on the current object to align from",
         items=[
             ('MIN', "Minimum", "Align from the bounding box minimum"),
-            ('CENTER', "Center", "Align from the bounding box center"),
-            ('PIVOT', "Pivot Point", "Align from the object's origin"),
+            ('CENTER', "Center (Geo)", "Align from the bounding box center"),
+            ('PIVOT', "Origins", "Align from the object's origin"),
             ('MAX', "Maximum", "Align from the bounding box maximum"),
         ],
         default='PIVOT') #type: ignore
@@ -81,8 +81,8 @@ class AlignBase:
         description="Point on the target object to align to",
         items=[
             ('MIN', "Minimum", "Align to the bounding box minimum"),
-            ('CENTER', "Center", "Align to the bounding box center"),
-            ('PIVOT', "Pivot Point", "Align to the object's origin"),
+            ('CENTER', "Center (Geo)", "Align to the bounding box center"),
+            ('PIVOT', "Origins", "Align to the object's origin"),
             ('MAX', "Maximum", "Align to the bounding box maximum"),
         ],
         default='PIVOT') #type: ignore
@@ -105,7 +105,31 @@ class AlignBase:
     offset_y: bpy.props.FloatProperty(name="Offset Y", default=0.0, unit='LENGTH') #type: ignore
     offset_z: bpy.props.FloatProperty(name="Offset Z", default=0.0, unit='LENGTH') #type: ignore
 
-    reset_requested: bpy.props.BoolProperty(name="Reset", description="Reset to defaults") #type: ignore
+    orient_offset_x: bpy.props.FloatProperty(
+        name="Rot offset X",
+        default=0.0,
+        subtype='ANGLE',
+    ) # type: ignore
+    orient_offset_y: bpy.props.FloatProperty(
+        name="Rot offset Y",
+        default=0.0,
+        subtype='ANGLE',
+    ) # type: ignore
+    orient_offset_z: bpy.props.FloatProperty(
+        name="Rot offset Z",
+        default=0.0,
+        subtype='ANGLE',
+    ) # type: ignore
+
+    scale_offset_x: bpy.props.FloatProperty(name="Scale offset X", default=0.0) #type: ignore
+    scale_offset_y: bpy.props.FloatProperty(name="Scale offset Y", default=0.0) #type: ignore
+    scale_offset_z: bpy.props.FloatProperty(name="Scale offset Z", default=0.0) #type: ignore
+
+    reset_requested: bpy.props.BoolProperty(
+        name="Reset defaults",
+        description="Reset Align: position X/Y/Z on, Current/Target = Origins, clear rotation/scale and all offsets",
+        default=False,
+    ) # type: ignore
 
     _initial_state = {}
     _is_modal = False
@@ -113,32 +137,77 @@ class AlignBase:
     def draw(self, context):
         layout = self.layout
 
-        row = layout.row(align=True)
-        row.prop(self, "reset_requested", toggle=True, icon='FILE_REFRESH', text="Reset")
+        box_top = layout.box()
+        row = box_top.row(align=True)
+        row.prop(
+            self,
+            "reset_requested",
+            toggle=True,
+            icon='FILE_REFRESH',
+            text="Reset",
+        )
+        box_top.prop(self, "use_active_orient")
+
+        layout.separator(factor=2.0)
 
         row = layout.row(align=True)
-        row.label(text="POS")
+        row.label(text="", icon='ORIENTATION_GLOBAL')
         row.prop(self, "align_x", toggle=True)
         row.prop(self, "align_y", toggle=True)
         row.prop(self, "align_z", toggle=True)
-        layout.prop(self, "use_active_orient")
 
         row = layout.row(align=True)
-        row.label(text="Offset")
-        
+        row.label(text="", icon='DRIVER_DISTANCE')
         sub = row.column(align=True)
         sub.prop(self, "offset_x", text="X")
         sub.enabled = self.align_x
-        
         sub = row.column(align=True)
         sub.prop(self, "offset_y", text="Y")
         sub.enabled = self.align_y
-        
         sub = row.column(align=True)
         sub.prop(self, "offset_z", text="Z")
         sub.enabled = self.align_z
 
         row = layout.row(align=True)
+        row.label(text="", icon='DRIVER_ROTATIONAL_DIFFERENCE')
+        row.prop(self, "orient_x", toggle=True)
+        row.prop(self, "orient_y", toggle=True)
+        row.prop(self, "orient_z", toggle=True)
+
+        row = layout.row(align=True)
+        row.label(text="", icon='DRIVER_DISTANCE')
+        sub = row.column(align=True)
+        sub.prop(self, "orient_offset_x", text="X")
+        sub.enabled = self.orient_x
+        sub = row.column(align=True)
+        sub.prop(self, "orient_offset_y", text="Y")
+        sub.enabled = self.orient_y
+        sub = row.column(align=True)
+        sub.prop(self, "orient_offset_z", text="Z")
+        sub.enabled = self.orient_z
+
+        row = layout.row(align=True)
+        row.label(text="", icon='CON_SIZELIKE')
+        row.prop(self, "scale_x", toggle=True)
+        row.prop(self, "scale_y", toggle=True)
+        row.prop(self, "scale_z", toggle=True)
+
+        row = layout.row(align=True)
+        row.label(text="", icon='DRIVER_DISTANCE')
+        sub = row.column(align=True)
+        sub.prop(self, "scale_offset_x", text="X")
+        sub.enabled = self.scale_x
+        sub = row.column(align=True)
+        sub.prop(self, "scale_offset_y", text="Y")
+        sub.enabled = self.scale_y
+        sub = row.column(align=True)
+        sub.prop(self, "scale_offset_z", text="Z")
+        sub.enabled = self.scale_z
+
+        layout.separator(factor=2.0)
+
+        box_pts = layout.box()
+        row = box_pts.row(align=True)
         col = row.column(align=True)
         col.label(text="Current Object:")
         col.prop(self, "source_point", expand=True)
@@ -146,23 +215,11 @@ class AlignBase:
         col.label(text="Target Object:")
         col.prop(self, "target_point", expand=True)
 
-        row = layout.row(align=True)
-        row.label(text="ORI")
-        row.prop(self, "orient_x", toggle=True)
-        row.prop(self, "orient_y", toggle=True)
-        row.prop(self, "orient_z", toggle=True)
-
-        row = layout.row(align=True)
-        row.label(text="SCL")
-        row.prop(self, "scale_x", toggle=True)
-        row.prop(self, "scale_y", toggle=True)
-        row.prop(self, "scale_z", toggle=True)
-
     def check(self, context):
         if self.reset_requested:
-            self.align_x = False
-            self.align_y = False
-            self.align_z = False
+            self.align_x = True
+            self.align_y = True
+            self.align_z = True
             self.source_point = 'PIVOT'
             self.target_point = 'PIVOT'
             self.orient_x = False
@@ -175,6 +232,12 @@ class AlignBase:
             self.offset_x = 0.0
             self.offset_y = 0.0
             self.offset_z = 0.0
+            self.orient_offset_x = 0.0
+            self.orient_offset_y = 0.0
+            self.orient_offset_z = 0.0
+            self.scale_offset_x = 0.0
+            self.scale_offset_y = 0.0
+            self.scale_offset_z = 0.0
             self.reset_requested = False
 
         self.execute(context)
@@ -198,10 +261,26 @@ class AlignBase:
         target = context.active_object
         sources = [o for o in context.selected_objects if o != target]
         for source in sources:
-            align_tools.align_orientation(source, target,
-                x=self.orient_x, y=self.orient_y, z=self.orient_z)
-            align_tools.match_scale(source, target,
-                x=self.scale_x, y=self.scale_y, z=self.scale_z)
+            align_tools.align_orientation(
+                source,
+                target,
+                x=self.orient_x,
+                y=self.orient_y,
+                z=self.orient_z,
+                offset_x=self.orient_offset_x,
+                offset_y=self.orient_offset_y,
+                offset_z=self.orient_offset_z,
+            )
+            align_tools.match_scale(
+                source,
+                target,
+                x=self.scale_x,
+                y=self.scale_y,
+                z=self.scale_z,
+                offset_x=self.scale_offset_x,
+                offset_y=self.scale_offset_y,
+                offset_z=self.scale_offset_z,
+            )
             
             align_tools.align_position(source, target,
                 x=self.align_x, y=self.align_y, z=self.align_z,
@@ -234,6 +313,68 @@ class ALEC_OT_align_dialog(AlignBase, bpy.types.Operator):
         # This avoids centered modal dialogs/popups entirely.
         self.execute(context)
         return {'FINISHED'}
+
+
+class ALEC_OT_align_preset_centers(AlignBase, bpy.types.Operator):
+    """Align preset: Centers (Alt = also match rotation)."""
+
+    bl_idname = "alec.align_preset_centers"
+    bl_label = "Align (Centers)"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def invoke(self, context, event):
+        self._is_modal = True
+        self._initial_state = {}
+
+        target = context.active_object
+        sources = [o for o in context.selected_objects if o != target]
+        for obj in sources:
+            self._initial_state[obj.name] = {
+                "location": obj.location.copy(),
+                "rotation_euler": obj.rotation_euler.copy(),
+                "scale": obj.scale.copy(),
+            }
+
+        self.source_point = "CENTER"
+        self.target_point = "CENTER"
+        want_rot = bool(getattr(event, "alt", False))
+        self.orient_x = want_rot
+        self.orient_y = want_rot
+        self.orient_z = want_rot
+
+        self.execute(context)
+        return {"FINISHED"}
+
+
+class ALEC_OT_align_preset_origins(AlignBase, bpy.types.Operator):
+    """Align preset: Origins (Alt = also match rotation)."""
+
+    bl_idname = "alec.align_preset_origins"
+    bl_label = "Align (Origins)"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def invoke(self, context, event):
+        self._is_modal = True
+        self._initial_state = {}
+
+        target = context.active_object
+        sources = [o for o in context.selected_objects if o != target]
+        for obj in sources:
+            self._initial_state[obj.name] = {
+                "location": obj.location.copy(),
+                "rotation_euler": obj.rotation_euler.copy(),
+                "scale": obj.scale.copy(),
+            }
+
+        self.source_point = "PIVOT"
+        self.target_point = "PIVOT"
+        want_rot = bool(getattr(event, "alt", False))
+        self.orient_x = want_rot
+        self.orient_y = want_rot
+        self.orient_z = want_rot
+
+        self.execute(context)
+        return {"FINISHED"}
 
 class ALEC_OT_quick_center(AlignBase, bpy.types.Operator):
     """Align selected objects to active object's bounding box center"""
@@ -367,6 +508,8 @@ class ALEC_OT_distribute_objects_dialog(bpy.types.Operator):
 
 classes = [
     ALEC_OT_align_dialog,
+    ALEC_OT_align_preset_centers,
+    ALEC_OT_align_preset_origins,
     ALEC_OT_quick_center,
     ALEC_OT_quick_center_rot,
     ALEC_OT_quick_pivot_rot,
