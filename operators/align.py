@@ -6,6 +6,19 @@ from ..modules import distribute_gaps_overlay
 from ..modules.utils import world_aabb_evaluated_corner_vectors, world_obb_evaluated_corners_wrt_active
 
 
+def _format_spacing_hint(context, length: float) -> str:
+    v = float(length)
+    sign = "-" if v < -1e-20 else ""
+    av = abs(v)
+    try:
+        body = bpy.utils.units.to_string(
+            context.scene.unit_settings.system, "LENGTH", av, precision=4
+        )
+    except Exception:
+        body = f"{av:.4g}"
+    return sign + body
+
+
 def _axis_direction_from_enum(context, axis_mode):
     """Unit vector for WORLD_* / LOCAL_* (local needs active object)."""
     if axis_mode == "WORLD_X":
@@ -332,7 +345,7 @@ class ALEC_OT_distribute_objects_dialog(bpy.types.Operator):
     mode: bpy.props.EnumProperty(
         name="Mode",
         items=[
-            ("POSITIONS", "Positions", "Even spacing between reference points (min/center/pivot/max)"),
+            ("POSITIONS", "Positions", "Even spacing between reference points along the axis"),
             ("GAPS", "Gaps", "Equal space between bounding boxes along the axis"),
         ],
         default="POSITIONS",
@@ -355,12 +368,45 @@ class ALEC_OT_distribute_objects_dialog(bpy.types.Operator):
         name="Reference",
         description="Reference point on each object (Positions mode only)",
         items=[
-            ("MIN", "Minimum", ""),
-            ("CENTER", "Center", ""),
-            ("PIVOT", "Pivot", ""),
-            ("MAX", "Maximum", ""),
+            ("MIN", "Minimum", "BBox minimum along the spacing axis"),
+            ("CENTER", "Centers (Geo)", "BBox center (evaluated geometry)"),
+            ("PIVOT", "Origins", "Object origins"),
+            ("MAX", "Maximum", "BBox maximum along the spacing axis"),
         ],
         default="PIVOT",
+    )  # type: ignore
+
+    positions_spacing: bpy.props.FloatProperty(
+        name="Spacing",
+        description=(
+            "Manual: step between references (after sort); active object does not move. "
+            "Automatic: full range is used equally"
+        ),
+        default=0.0,
+        min=0.0,
+        subtype="DISTANCE",
+    )  # type: ignore
+
+    positions_spacing_auto: bpy.props.BoolProperty(
+        name="Spacing automatic",
+        description="Spread evenly between the extreme references along the axis; Spacing shows the computed value",
+        default=True,
+    )  # type: ignore
+
+    gaps_spacing: bpy.props.FloatProperty(
+        name="Gap",
+        description=(
+            "Manual: fixed gap between bbox projections; active object stays put. "
+            "Negative values squeeze into overlap. Automatic: span is shared equally"
+        ),
+        default=0.0,
+        subtype="DISTANCE",
+    )  # type: ignore
+
+    gaps_spacing_auto: bpy.props.BoolProperty(
+        name="Gap automatic",
+        description="Share remaining span equally between slats along the axis; Gap shows the computed value",
+        default=True,
     )  # type: ignore
 
     _initial_state = {}
@@ -392,6 +438,27 @@ class ALEC_OT_distribute_objects_dialog(bpy.types.Operator):
         distribute_gaps_overlay.clear_preview()
         self._restore_state()
 
+    def _store_initial_spacing_hints(self, context):
+        """Snapshot auto spacing/gap numbers from geometry when the operator begins (Redo reference)."""
+        self._initial_positions_spacing = None
+        self._initial_gaps_spacing = None
+        objs = list(context.selected_objects)
+        ad = _axis_direction_from_enum(context, self.axis)
+        if ad is None or len(objs) < 2:
+            return
+        context.view_layer.update()
+        self._initial_positions_spacing = align_tools.positions_spacing_auto_value(
+            objs, ad, self.reference_point
+        )
+        self._initial_gaps_spacing = align_tools.gaps_spacing_auto_value(objs, ad)
+
+        if self.mode == "POSITIONS":
+            if self._initial_positions_spacing is not None and self.positions_spacing_auto:
+                self.positions_spacing = self._initial_positions_spacing
+        else:
+            if self._initial_gaps_spacing is not None and self.gaps_spacing_auto:
+                self.gaps_spacing = self._initial_gaps_spacing
+
     def _gap_preview_corner_boxes(self, context, objs: list) -> list[list[Vector]]:
         if self.axis.startswith("LOCAL_"):
             act = context.active_object
@@ -400,18 +467,31 @@ class ALEC_OT_distribute_objects_dialog(bpy.types.Operator):
         return [world_aabb_evaluated_corner_vectors(o) for o in objs]
 
     def draw(self, context):
-        if self.mode == "GAPS" and len(context.selected_objects) >= 2:
-            distribute_gaps_overlay.mark_alive()
-            context.view_layer.update()
+        if len(context.selected_objects) >= 2:
             objs = list(context.selected_objects)
             axis_dir = _axis_direction_from_enum(context, self.axis)
-            if axis_dir is not None:
-                boxes = self._gap_preview_corner_boxes(context, objs)
+            distribute_gaps_overlay.mark_alive()
+            context.view_layer.update()
+            boxes = self._gap_preview_corner_boxes(context, objs)
+            if self.mode == "GAPS" and axis_dir is not None:
                 distribute_gaps_overlay.set_preview_corner_boxes(
                     boxes,
                     context=context,
                     gap_objects=objs,
                     gap_axis_dir=axis_dir,
+                )
+            elif self.mode == "POSITIONS" and axis_dir is not None:
+                distribute_gaps_overlay.set_preview_corner_boxes(
+                    boxes,
+                    context=context,
+                    positions_objects=objs,
+                    positions_axis_dir=axis_dir,
+                    positions_ref_point=self.reference_point,
+                )
+            else:
+                distribute_gaps_overlay.set_preview_corner_boxes(
+                    boxes,
+                    context=context,
                 )
         layout = self.layout
         layout.prop(self, "mode", expand=True)
@@ -427,9 +507,31 @@ class ALEC_OT_distribute_objects_dialog(bpy.types.Operator):
         sub.prop(self, "reference_point", expand=True)
         sub.enabled = self.mode == "POSITIONS"
 
+        init_ps = getattr(self, "_initial_positions_spacing", None)
+        init_gp = getattr(self, "_initial_gaps_spacing", None)
+
+        if self.mode == "POSITIONS":
+            spc = layout.column(align=True)
+            if init_ps is not None:
+                spc.label(
+                    text=f"Initial spacing: {_format_spacing_hint(context, init_ps)}",
+                )
+            spc.prop(self, "positions_spacing_auto", text="Automatic")
+            spd = spc.column()
+            spd.enabled = not self.positions_spacing_auto
+            spd.prop(self, "positions_spacing")
+
+        if self.mode == "GAPS":
+            gcol = layout.column(align=True)
+            gcol.prop(self, "gaps_spacing_auto", text="Automatic")
+            gpw = gcol.column()
+            gpw.enabled = not self.gaps_spacing_auto
+            gpw.prop(self, "gaps_spacing")
+
     def invoke(self, context, event):
         self._is_modal = True
         self._capture_selection_snapshot(context)
+        self._store_initial_spacing_hints(context)
         return self.execute(context)
 
     def check(self, context):
@@ -445,17 +547,57 @@ class ALEC_OT_distribute_objects_dialog(bpy.types.Operator):
             return {"CANCELLED"}
 
         objects = list(context.selected_objects)
+        active = context.active_object
 
         if self.mode == "POSITIONS":
-            distribute_gaps_overlay.clear_preview()
-            ok, msg = align_tools.distribute_objects_positions(
-                objects, axis_dir, self.reference_point, endpoint_objs=None
-            )
-        else:
             distribute_gaps_overlay.mark_alive()
-            ok, msg = align_tools.distribute_objects_gaps(objects, axis_dir, endpoint_objs=None)
+            if self.positions_spacing_auto:
+                ok, msg = align_tools.distribute_objects_positions(
+                    objects, axis_dir, self.reference_point, endpoint_objs=None
+                )
+            else:
+                if active is None or active not in objects:
+                    ok, msg = False, "Select an active object in the selection"
+                else:
+                    ok, msg = align_tools.distribute_objects_positions_fixed_step_anchor_active(
+                        objects,
+                        axis_dir,
+                        self.reference_point,
+                        self.positions_spacing,
+                        active,
+                    )
             if ok:
                 context.view_layer.update()
+                if self.positions_spacing_auto:
+                    ps = align_tools.positions_spacing_auto_value(
+                        objects, axis_dir, self.reference_point
+                    )
+                    if ps is not None:
+                        self.positions_spacing = ps
+                distribute_gaps_overlay.set_preview_corner_boxes(
+                    self._gap_preview_corner_boxes(context, objects),
+                    context=context,
+                    positions_objects=objects,
+                    positions_axis_dir=axis_dir,
+                    positions_ref_point=self.reference_point,
+                )
+        else:
+            distribute_gaps_overlay.mark_alive()
+            if self.gaps_spacing_auto:
+                ok, msg = align_tools.distribute_objects_gaps(objects, axis_dir, endpoint_objs=None)
+            else:
+                if active is None or active not in objects:
+                    ok, msg = False, "Select an active object in the selection"
+                else:
+                    ok, msg = align_tools.distribute_objects_gaps_fixed_gap_anchor_active(
+                        objects, axis_dir, self.gaps_spacing, active
+                    )
+            if ok:
+                context.view_layer.update()
+                if self.gaps_spacing_auto:
+                    gs = align_tools.gaps_spacing_auto_value(objects, axis_dir)
+                    if gs is not None:
+                        self.gaps_spacing = gs
                 distribute_gaps_overlay.set_preview_corner_boxes(
                     self._gap_preview_corner_boxes(context, objects),
                     context=context,

@@ -1,4 +1,4 @@
-"""Viewport overlay for Gaps-mode Distribute: OBB/AABB wire + dimension line + gap labels."""
+"""Distribute viewport overlay: OBB/AABB wires + gap cotes and/or Positions spacing readout."""
 
 import time
 
@@ -169,6 +169,83 @@ def _gap_label(context, projected_gap_scalar: float) -> str:
     if projected_gap_scalar >= -1e-9:
         return _format_length(context, projected_gap_scalar)
     return "overlap " + _format_length(context, -projected_gap_scalar)
+
+
+def _rebuild_positions_visual(
+    context,
+    objects: list,
+    axis_dir: Vector,
+    ref_point: str,
+    corner_boxes: list[list[Vector]],
+) -> None:
+    """Same gesture as gap cotes: baseline + per-interval line, brackets, BLF length (sorted ref projections)."""
+    global _GAP_LINE_SEGMENTS, _GAP_LABELS
+
+    _GAP_LINE_SEGMENTS.clear()
+    _GAP_LABELS.clear()
+
+    bpy.context.view_layer.update()
+    u = axis_dir.normalized()
+
+    projections: list[tuple[float, object]] = [
+        (align_tools.reference_projection_on_axis(o, u, ref_point), o) for o in objects
+    ]
+    projections.sort(key=lambda x: x[0])
+    s_sorted = [p[0] for p in projections]
+    if len(s_sorted) < 2:
+        return
+
+    s_min, s_max = s_sorted[0], s_sorted[-1]
+    if abs(s_max - s_min) < 1e-12:
+        return
+
+    perp1, perp2 = _perp_basis(u)
+    cen = Vector((0.0, 0.0, 0.0))
+    ncorner = 0
+    for box in corner_boxes:
+        for c in box:
+            cen += c
+            ncorner += 1
+    if ncorner > 0:
+        cen /= float(ncorner)
+    else:
+        for obj in objects:
+            cen += obj.matrix_world.translation
+        cen /= max(len(objects), 1)
+
+    span = 0.05
+    for box in corner_boxes:
+        for c in box:
+            span = max(span, abs((c - cen).dot(perp1)))
+    span = max(span, 1e-4)
+
+    offset_mag = span * 0.4 + 0.025
+    line_base = cen + perp1 * offset_mag
+    k = line_base.dot(u)
+
+    def at_s(s: float) -> Vector:
+        return u * (s - k) + line_base
+
+    _GAP_LINE_SEGMENTS.append((at_s(s_min), at_s(s_max)))
+
+    end_tick_h = max(span * 0.1, 0.032)
+
+    for i in range(len(s_sorted) - 1):
+        sa = s_sorted[i]
+        sb = s_sorted[i + 1]
+        delta = sb - sa
+        if abs(delta) < 1e-12:
+            continue
+        pa = at_s(sa)
+        pb = at_s(sb)
+
+        _GAP_LINE_SEGMENTS.append((pa, pb))
+        _GAP_LINE_SEGMENTS.append((pa + perp2 * end_tick_h, pa - perp2 * end_tick_h))
+        _GAP_LINE_SEGMENTS.append((pb + perp2 * end_tick_h, pb - perp2 * end_tick_h))
+
+        mid_pt = at_s(0.5 * (sa + sb))
+        label_anchor = mid_pt + perp1 * (offset_mag * 0.28)
+        _GAP_LABELS.append((_gap_label(context, delta), label_anchor))
 
 
 def _dedupe_object_corner_pairs(
@@ -363,23 +440,48 @@ def set_preview_corner_boxes(
     context=None,
     gap_objects=None,
     gap_axis_dir=None,
+    positions_objects=None,
+    positions_axis_dir=None,
+    positions_ref_point=None,
 ) -> None:
     global _PREVIEW_CORNERS
-    objs_g = gap_objects
-    corners_g = box_corners
-    if objs_g is not None and corners_g and len(objs_g) == len(corners_g):
-        objs_g, corners_g = _dedupe_object_corner_pairs(objs_g, corners_g)
+    corners_work = list(box_corners)
+    ref_objs = gap_objects if gap_objects is not None else positions_objects
+    if ref_objs is not None and corners_work and len(ref_objs) == len(corners_work):
+        ref_objs, corners_work = _dedupe_object_corner_pairs(ref_objs, corners_work)
 
-    _PREVIEW_CORNERS = [[v.copy() for v in corners] for corners in corners_g]
+    _PREVIEW_CORNERS = [[v.copy() for v in corners] for corners in corners_work]
     mark_alive()
 
-    if context and objs_g is not None and gap_axis_dir is not None and len(objs_g) >= 2:
-        _rebuild_gap_visual(context, objs_g, gap_axis_dir, _PREVIEW_CORNERS)
+    _GAP_LINE_SEGMENTS.clear()
+    _GAP_LABELS.clear()
+    _remove_px_handler()
+
+    if (
+        context
+        and gap_objects is not None
+        and gap_axis_dir is not None
+        and ref_objs is not None
+        and len(ref_objs) >= 2
+    ):
+        _rebuild_gap_visual(context, ref_objs, gap_axis_dir, _PREVIEW_CORNERS)
         _ensure_px_handler()
-    else:
-        _GAP_LINE_SEGMENTS.clear()
-        _GAP_LABELS.clear()
-        _remove_px_handler()
+    elif (
+        context
+        and positions_objects is not None
+        and positions_axis_dir is not None
+        and positions_ref_point is not None
+        and ref_objs is not None
+        and len(ref_objs) >= 2
+    ):
+        _rebuild_positions_visual(
+            context,
+            list(ref_objs),
+            positions_axis_dir,
+            positions_ref_point,
+            _PREVIEW_CORNERS,
+        )
+        _ensure_px_handler()
 
     _ensure_handler()
     _register_depsgraph()

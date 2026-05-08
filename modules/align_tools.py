@@ -8,18 +8,18 @@ def bbox_axis_interval_world(obj, axis_dir):
     return bbox_world_axis_interval(obj, axis_dir)
 
 
-def _ref_scalar(obj, axis_dir, ref_point):
-    """Scalar position of ref_point on axis_dir for one object."""
-    if ref_point == 'PIVOT':
+def reference_projection_on_axis(obj, axis_dir, ref_point):
+    """Scalar coordinate of MIN/CENTER/PIVOT/MAX on normalized axis_dir (world)."""
+    if ref_point == "PIVOT":
         return obj.matrix_world.translation @ axis_dir
-    if ref_point == 'CENTER':
-        return get_bounds_data(obj, 'CENTER', space='WORLD') @ axis_dir
+    if ref_point == "CENTER":
+        return get_bounds_data(obj, "CENTER", space="WORLD") @ axis_dir
     mn, mx = bbox_axis_interval_world(obj, axis_dir)
-    if ref_point == 'MIN':
+    if ref_point == "MIN":
         return mn
-    if ref_point == 'MAX':
+    if ref_point == "MAX":
         return mx
-    return get_bounds_data(obj, 'CENTER', space='WORLD') @ axis_dir  # fallback
+    return get_bounds_data(obj, "CENTER", space="WORLD") @ axis_dir  # fallback
 
 
 def distribute_objects_positions(objects, axis_dir, ref_point, endpoint_objs=None):
@@ -34,12 +34,12 @@ def distribute_objects_positions(objects, axis_dir, ref_point, endpoint_objs=Non
     if len(objects) < 2:
         return False, "Select at least 2 objects"
 
-    data = [(obj, _ref_scalar(obj, axis_dir, ref_point)) for obj in objects]
+    data = [(obj, reference_projection_on_axis(obj, axis_dir, ref_point)) for obj in objects]
 
     if endpoint_objs and len(endpoint_objs) == 2:
         ep_a, ep_b = endpoint_objs
-        s_a = _ref_scalar(ep_a, axis_dir, ref_point)
-        s_b = _ref_scalar(ep_b, axis_dir, ref_point)
+        s_a = reference_projection_on_axis(ep_a, axis_dir, ref_point)
+        s_b = reference_projection_on_axis(ep_b, axis_dir, ref_point)
         if s_a > s_b:
             s_a, s_b = s_b, s_a
             ep_a, ep_b = ep_b, ep_a
@@ -51,7 +51,7 @@ def distribute_objects_positions(objects, axis_dir, ref_point, endpoint_objs=Non
         n = len(interior) + 1
         for i, (obj, _) in enumerate(interior, start=1):
             new_s = s_a + (s_b - s_a) * i / n
-            delta_s = new_s - _ref_scalar(obj, axis_dir, ref_point)
+            delta_s = new_s - reference_projection_on_axis(obj, axis_dir, ref_point)
             apply_align_move(obj, axis_dir * delta_s)
     else:
         data.sort(key=lambda x: x[1])
@@ -63,6 +63,182 @@ def distribute_objects_positions(objects, axis_dir, ref_point, endpoint_objs=Non
         for i, (obj, s) in enumerate(data):
             new_s = s_min + (s_max - s_min) * i / (n - 1)
             apply_align_move(obj, axis_dir * (new_s - s))
+
+    return True, ""
+
+
+def positions_spacing_auto_value(objects, axis_dir, ref_point):
+    """Equal subdivision step (last−first)/(n−1) on sorted ref projections; None if degenerate."""
+    axis_dir = axis_dir.normalized()
+    if len(objects) < 2:
+        return None
+    scalars = sorted(reference_projection_on_axis(o, axis_dir, ref_point) for o in objects)
+    span = scalars[-1] - scalars[0]
+    if abs(span) < 1e-12:
+        return None
+    return span / float(len(objects) - 1)
+
+
+def distribute_objects_positions_fixed_step(objects, axis_dir, ref_point, spacing, endpoint_objs=None):
+    """
+    Place references at s0, s0+spacing, s0+2*spacing, … along axis_dir (s0 = lowest sorted projection).
+    Returns (success, message).
+    """
+    if endpoint_objs:
+        return False, "Custom spacing is not supported with fixed endpoints"
+    bpy.context.view_layer.update()
+    axis_dir = axis_dir.normalized()
+    if len(objects) < 2:
+        return False, "Select at least 2 objects"
+    if spacing < 0.0:
+        return False, "Spacing cannot be negative"
+
+    data = [(obj, reference_projection_on_axis(obj, axis_dir, ref_point)) for obj in objects]
+    data.sort(key=lambda x: x[1])
+    s0 = data[0][1]
+
+    for i, (obj, _) in enumerate(data):
+        new_s = s0 + spacing * float(i)
+        delta_s = new_s - reference_projection_on_axis(obj, axis_dir, ref_point)
+        apply_align_move(obj, axis_dir * delta_s)
+
+    return True, ""
+
+
+def distribute_objects_positions_fixed_step_anchor_active(
+    objects, axis_dir, ref_point, spacing, active_obj
+):
+    """
+    Same step between consecutive references after sort, but the active object's reference stays put.
+    Targets: s_k = s_active + (k - i_act) * spacing for k in sorted order.
+    """
+    bpy.context.view_layer.update()
+    axis_dir = axis_dir.normalized()
+    if active_obj not in objects:
+        return False, "Active object must be part of the selection"
+    if len(objects) < 2:
+        return False, "Select at least 2 objects"
+    if spacing < 0.0:
+        return False, "Spacing cannot be negative"
+
+    snapshots = [
+        (obj, reference_projection_on_axis(obj, axis_dir, ref_point)) for obj in objects
+    ]
+    snapshots.sort(key=lambda x: x[1])
+
+    ia = None
+    for idx, (obj, _) in enumerate(snapshots):
+        if obj is active_obj:
+            ia = idx
+            break
+    if ia is None:
+        return False, "Active object must be part of the selection"
+
+    s_act = snapshots[ia][1]
+    targets = [s_act + (k - ia) * spacing for k in range(len(snapshots))]
+
+    for (obj, s_snap), new_s in zip(snapshots, targets):
+        delta_s = new_s - s_snap
+        apply_align_move(obj, axis_dir * delta_s)
+
+    return True, ""
+
+
+def gaps_spacing_auto_value(objects, axis_dir):
+    """Equal gap `(span − widths)/(n−1)` like distribute_objects_gaps; None if n<2."""
+    axis_dir = axis_dir.normalized()
+    if len(objects) < 2:
+        return None
+    data = []
+    for obj in objects:
+        mn, mx = bbox_axis_interval_world(obj, axis_dir)
+        data.append((mn, mx, mx - mn))
+    data.sort(key=lambda x: x[0])
+    min_first = data[0][0]
+    max_last = data[-1][1]
+    total_span = max_last - min_first
+    total_width = sum(d[2] for d in data)
+    n = len(data)
+    if n < 2:
+        return None
+    return (total_span - total_width) / float(n - 1)
+
+
+def distribute_objects_gaps_fixed_gap(objects, axis_dir, gap, endpoint_objs=None):
+    """
+    Same stacking as distribute_objects_gaps but with a caller-chosen gap (can be negative = overlap).
+    """
+    if endpoint_objs:
+        return False, "Custom gap is not supported with fixed endpoints"
+    bpy.context.view_layer.update()
+    axis_dir = axis_dir.normalized()
+    if len(objects) < 2:
+        return False, "Select at least 2 objects"
+
+    data = []
+    for obj in objects:
+        mn, mx = bbox_axis_interval_world(obj, axis_dir)
+        data.append((mn, mx, mx - mn, obj))
+
+    data.sort(key=lambda x: x[0])
+    current = data[0][0]
+    for mn, mx, w, obj in data:
+        delta_s = current - mn
+        apply_align_move(obj, axis_dir * delta_s)
+        current += w + gap
+
+    return True, ""
+
+
+def distribute_objects_gaps_fixed_gap_anchor_active(objects, axis_dir, gap, active_obj):
+    """
+    Fixed gap stacking along axis while the active object's bbox projection stays unmoved on that axis:
+    slab order is by bbox min (mn); objects left of active pack backward, objects right pack forward.
+    """
+    bpy.context.view_layer.update()
+    axis_dir = axis_dir.normalized()
+    if active_obj not in objects:
+        return False, "Active object must be part of the selection"
+    if len(objects) < 2:
+        return False, "Select at least 2 objects"
+
+    data = []
+    for obj in objects:
+        mn, mx = bbox_axis_interval_world(obj, axis_dir)
+        data.append((mn, mx, mx - mn, obj))
+
+    data.sort(key=lambda x: x[0])
+
+    ia = None
+    for idx, row in enumerate(data):
+        if row[3] is active_obj:
+            ia = idx
+            break
+    if ia is None:
+        return False, "Active object must be part of the selection"
+
+    mn_active, _, _, _ = data[ia]
+
+    # Pack toward smaller mn: keep mx_j + gap == mn of slab to the right.
+    next_right_mn = mn_active
+    for j in range(ia - 1, -1, -1):
+        mn_j, mx_j, _w_unused, obj_j = data[j]
+        mx_target = next_right_mn - gap
+        delta_s = mx_target - mx_j
+        apply_align_move(obj_j, axis_dir * delta_s)
+        next_right_mn = mn_j + delta_s
+
+    bpy.context.view_layer.update()
+
+    mn_a2, mx_a2 = bbox_axis_interval_world(active_obj, axis_dir)
+    current = mx_a2 + gap
+    for j in range(ia + 1, len(data)):
+        obj_j = data[j][3]
+        mn_j, mx_j = bbox_axis_interval_world(obj_j, axis_dir)
+        w_j = mx_j - mn_j
+        delta_s = current - mn_j
+        apply_align_move(obj_j, axis_dir * delta_s)
+        current += w_j + gap
 
     return True, ""
 
