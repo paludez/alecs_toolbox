@@ -404,7 +404,15 @@ class ALEC_OT_distribute_objects_dialog(bpy.types.Operator):
             distribute_gaps_overlay.mark_alive()
             context.view_layer.update()
             objs = list(context.selected_objects)
-            distribute_gaps_overlay.set_preview_corner_boxes(self._gap_preview_corner_boxes(context, objs))
+            axis_dir = _axis_direction_from_enum(context, self.axis)
+            if axis_dir is not None:
+                boxes = self._gap_preview_corner_boxes(context, objs)
+                distribute_gaps_overlay.set_preview_corner_boxes(
+                    boxes,
+                    context=context,
+                    gap_objects=objs,
+                    gap_axis_dir=axis_dir,
+                )
         layout = self.layout
         layout.prop(self, "mode", expand=True)
         axis_box = layout.column(align=True)
@@ -449,7 +457,10 @@ class ALEC_OT_distribute_objects_dialog(bpy.types.Operator):
             if ok:
                 context.view_layer.update()
                 distribute_gaps_overlay.set_preview_corner_boxes(
-                    self._gap_preview_corner_boxes(context, objects)
+                    self._gap_preview_corner_boxes(context, objects),
+                    context=context,
+                    gap_objects=objects,
+                    gap_axis_dir=axis_dir,
                 )
 
         if not ok:
