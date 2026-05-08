@@ -1,9 +1,10 @@
 import bpy
 from mathutils import Vector
+
 from ..modules import align_tools
 
 
-# ── Active-object history (last 2 distinct active names) ─────────────────────
+# Active object names (last 2 distinct); used by Distribute endpoints.
 _active_history: list[str] = []
 _last_seen_active: str | None = None
 
@@ -28,236 +29,208 @@ def _track_active_object_handler(scene, depsgraph):
 
 
 def get_last_two_active_objects():
-    """Return (penultimate_active, last_active) or (None, None) if not enough history."""
+    """(penultimate_active, last_active) or (None, None)."""
     if len(_active_history) < 2:
         return None, None
     return (
         bpy.data.objects.get(_active_history[-2]),
         bpy.data.objects.get(_active_history[-1]),
     )
-# ─────────────────────────────────────────────────────────────────────────────
 
 
 def _axis_direction_from_enum(context, axis_mode):
-    """World-space unit vector for enum WORLD_* / LOCAL_* (LOCAL uses active object)."""
-    if axis_mode == 'WORLD_X':
+    """Unit vector for WORLD_* / LOCAL_* (local needs active object)."""
+    if axis_mode == "WORLD_X":
         return Vector((1.0, 0.0, 0.0))
-    if axis_mode == 'WORLD_Y':
+    if axis_mode == "WORLD_Y":
         return Vector((0.0, 1.0, 0.0))
-    if axis_mode == 'WORLD_Z':
+    if axis_mode == "WORLD_Z":
         return Vector((0.0, 0.0, 1.0))
     active = context.active_object
     if active is None:
         return None
     rot = active.matrix_world.to_3x3()
-    if axis_mode == 'LOCAL_X':
+    if axis_mode == "LOCAL_X":
         return rot.col[0].normalized()
-    if axis_mode == 'LOCAL_Y':
+    if axis_mode == "LOCAL_Y":
         return rot.col[1].normalized()
-    if axis_mode == 'LOCAL_Z':
+    if axis_mode == "LOCAL_Z":
         return rot.col[2].normalized()
     return Vector((1.0, 0.0, 0.0))
 
+
 class AlignBase:
-    """Base mixin class for alignment operators containing properties and logic"""
-    
-    align_x: bpy.props.BoolProperty(name="X", default=True, description="Align on X axis") #type: ignore
-    align_y: bpy.props.BoolProperty(name="Y", default=True, description="Align on Y axis") #type: ignore
-    align_z: bpy.props.BoolProperty(name="Z", default=True, description="Align on Z axis") #type: ignore
+    """Shared RNA, redo UI and execute() for Alec align operators."""
+
+    align_x: bpy.props.BoolProperty(name="X", default=True, description="Align on X axis")  # type: ignore
+    align_y: bpy.props.BoolProperty(name="Y", default=True, description="Align on Y axis")  # type: ignore
+    align_z: bpy.props.BoolProperty(name="Z", default=True, description="Align on Z axis")  # type: ignore
 
     source_point: bpy.props.EnumProperty(
         name="Current Object",
         description="Point on the current object to align from",
         items=[
-            ('MIN', "Minimum", "Align from the bounding box minimum"),
-            ('CENTER', "Center (Geo)", "Align from the bounding box center"),
-            ('PIVOT', "Origins", "Align from the object's origin"),
-            ('MAX', "Maximum", "Align from the bounding box maximum"),
+            ("MIN", "Minimum", "Align from the bounding box minimum"),
+            ("CENTER", "Center (Geo)", "Align from the bounding box center"),
+            ("PIVOT", "Origins", "Align from the object's origin"),
+            ("MAX", "Maximum", "Align from the bounding box maximum"),
         ],
-        default='PIVOT') #type: ignore
+        default="PIVOT",
+    )  # type: ignore
 
     target_point: bpy.props.EnumProperty(
         name="Target Object",
         description="Point on the target object to align to",
         items=[
-            ('MIN', "Minimum", "Align to the bounding box minimum"),
-            ('CENTER', "Center (Geo)", "Align to the bounding box center"),
-            ('PIVOT', "Origins", "Align to the object's origin"),
-            ('MAX', "Maximum", "Align to the bounding box maximum"),
+            ("MIN", "Minimum", "Align to the bounding box minimum"),
+            ("CENTER", "Center (Geo)", "Align to the bounding box center"),
+            ("PIVOT", "Origins", "Align to the object's origin"),
+            ("MAX", "Maximum", "Align to the bounding box maximum"),
         ],
-        default='PIVOT') #type: ignore
+        default="PIVOT",
+    )  # type: ignore
 
-    orient_x: bpy.props.BoolProperty(name="X", default=False, description="Match orientation on X axis") #type: ignore
-    orient_y: bpy.props.BoolProperty(name="Y", default=False, description="Match orientation on Y axis") #type: ignore
-    orient_z: bpy.props.BoolProperty(name="Z", default=False, description="Match orientation on Z axis") #type: ignore
+    orient_x: bpy.props.BoolProperty(name="X", default=False, description="Match orientation on X axis")  # type: ignore
+    orient_y: bpy.props.BoolProperty(name="Y", default=False, description="Match orientation on Y axis")  # type: ignore
+    orient_z: bpy.props.BoolProperty(name="Z", default=False, description="Match orientation on Z axis")  # type: ignore
 
-    scale_x: bpy.props.BoolProperty(name="X", default=False, description="Match scale on X axis") #type: ignore
-    scale_y: bpy.props.BoolProperty(name="Y", default=False, description="Match scale on Y axis") #type: ignore
-    scale_z: bpy.props.BoolProperty(name="Z", default=False, description="Match scale on Z axis") #type: ignore
+    scale_x: bpy.props.BoolProperty(name="X", default=False, description="Match scale on X axis")  # type: ignore
+    scale_y: bpy.props.BoolProperty(name="Y", default=False, description="Match scale on Y axis")  # type: ignore
+    scale_z: bpy.props.BoolProperty(name="Z", default=False, description="Match scale on Z axis")  # type: ignore
 
     use_active_orient: bpy.props.BoolProperty(
-        name="Local (Active)", 
-        default=False, 
-        description="Align along the active object's local axes instead of world axes"
-    ) #type: ignore
+        name="Local (Active)",
+        default=False,
+        description="Align along the active object's local axes instead of world axes",
+    )  # type: ignore
 
-    offset_x: bpy.props.FloatProperty(name="Offset X", default=0.0, unit='LENGTH') #type: ignore
-    offset_y: bpy.props.FloatProperty(name="Offset Y", default=0.0, unit='LENGTH') #type: ignore
-    offset_z: bpy.props.FloatProperty(name="Offset Z", default=0.0, unit='LENGTH') #type: ignore
+    offset_x: bpy.props.FloatProperty(name="Offset X", default=0.0, unit="LENGTH")  # type: ignore
+    offset_y: bpy.props.FloatProperty(name="Offset Y", default=0.0, unit="LENGTH")  # type: ignore
+    offset_z: bpy.props.FloatProperty(name="Offset Z", default=0.0, unit="LENGTH")  # type: ignore
 
     orient_offset_x: bpy.props.FloatProperty(
-        name="Rot offset X",
-        default=0.0,
-        subtype='ANGLE',
-    ) # type: ignore
+        name="Rot offset X", default=0.0, subtype="ANGLE"
+    )  # type: ignore
     orient_offset_y: bpy.props.FloatProperty(
-        name="Rot offset Y",
-        default=0.0,
-        subtype='ANGLE',
-    ) # type: ignore
+        name="Rot offset Y", default=0.0, subtype="ANGLE"
+    )  # type: ignore
     orient_offset_z: bpy.props.FloatProperty(
-        name="Rot offset Z",
-        default=0.0,
-        subtype='ANGLE',
-    ) # type: ignore
+        name="Rot offset Z", default=0.0, subtype="ANGLE"
+    )  # type: ignore
 
-    scale_offset_x: bpy.props.FloatProperty(name="Scale offset X", default=0.0) #type: ignore
-    scale_offset_y: bpy.props.FloatProperty(name="Scale offset Y", default=0.0) #type: ignore
-    scale_offset_z: bpy.props.FloatProperty(name="Scale offset Z", default=0.0) #type: ignore
+    scale_offset_x: bpy.props.FloatProperty(name="Scale offset X", default=0.0)  # type: ignore
+    scale_offset_y: bpy.props.FloatProperty(name="Scale offset Y", default=0.0)  # type: ignore
+    scale_offset_z: bpy.props.FloatProperty(name="Scale offset Z", default=0.0)  # type: ignore
 
     reset_requested: bpy.props.BoolProperty(
         name="Reset defaults",
-        description="Reset Align: position X/Y/Z on, Current/Target = Origins, clear rotation/scale and all offsets",
+        description=(
+            "Reset Align: position X/Y/Z on, Current/Target = Origins, "
+            "clear rotation/scale and all offsets"
+        ),
         default=False,
-    ) # type: ignore
+    )  # type: ignore
 
     _initial_state = {}
     _is_modal = False
 
+    _ICON_COL_W = 0.12  # Same split for icon row + empty gutter on offset row (alignment).
+    _SEP_MAIN = 2.0
+    _SEP_BLOCK = 0.55
+
+    _AX_POS = ("align_x", "align_y", "align_z")
+    _OFF_POS = (("align_x", "offset_x"), ("align_y", "offset_y"), ("align_z", "offset_z"))
+    _AX_ROT = ("orient_x", "orient_y", "orient_z")
+    _OFF_ROT = (("orient_x", "orient_offset_x"), ("orient_y", "orient_offset_y"), ("orient_z", "orient_offset_z"))
+    _AX_SCL = ("scale_x", "scale_y", "scale_z")
+    _OFF_SCL = (
+        ("scale_x", "scale_offset_x"),
+        ("scale_y", "scale_offset_y"),
+        ("scale_z", "scale_offset_z"),
+    )
+
+    def _draw_axis_block(self, layout, section_icon: str, toggles: tuple[str, str, str], off_pairs):
+        spl = layout.split(factor=self._ICON_COL_W, align=True)
+        spl.label(text="", icon=section_icon)
+        row = spl.row(align=True)
+        for key in toggles:
+            row.prop(self, key, toggle=True)
+
+        spl = layout.split(factor=self._ICON_COL_W, align=True)
+        spl.label(text="")
+        row = spl.row(align=True)
+        for tk, ok in off_pairs:
+            col = row.column(align=True)
+            col.prop(self, ok, text="")
+            col.enabled = bool(getattr(self, tk))
+
+    def _capture_selection_snapshot(self, context):
+        self._initial_state = {}
+        target = context.active_object
+        for obj in context.selected_objects:
+            if obj != target:
+                self._initial_state[obj.name] = {
+                    "location": obj.location.copy(),
+                    "rotation_euler": obj.rotation_euler.copy(),
+                    "scale": obj.scale.copy(),
+                }
+
     def draw(self, context):
         layout = self.layout
 
-        box_top = layout.box()
-        row = box_top.row(align=True)
-        row.prop(
-            self,
-            "reset_requested",
-            toggle=True,
-            icon='FILE_REFRESH',
-            text="Reset",
+        top = layout.box()
+        top.row(align=True).prop(
+            self, "reset_requested", toggle=True, icon="FILE_REFRESH", text="Reset"
         )
-        box_top.prop(self, "use_active_orient")
+        top.prop(self, "use_active_orient")
 
-        layout.separator(factor=2.0)
+        layout.separator(factor=self._SEP_MAIN)
 
-        row = layout.row(align=True)
-        row.label(text="", icon='ORIENTATION_GLOBAL')
-        row.prop(self, "align_x", toggle=True)
-        row.prop(self, "align_y", toggle=True)
-        row.prop(self, "align_z", toggle=True)
+        self._draw_axis_block(layout, "ORIENTATION_GLOBAL", self._AX_POS, self._OFF_POS)
+        layout.separator(factor=self._SEP_BLOCK)
+        self._draw_axis_block(layout, "DRIVER_ROTATIONAL_DIFFERENCE", self._AX_ROT, self._OFF_ROT)
+        layout.separator(factor=self._SEP_BLOCK)
+        self._draw_axis_block(layout, "CON_SIZELIKE", self._AX_SCL, self._OFF_SCL)
 
-        row = layout.row(align=True)
-        row.label(text="", icon='DRIVER_DISTANCE')
-        sub = row.column(align=True)
-        sub.prop(self, "offset_x", text="X")
-        sub.enabled = self.align_x
-        sub = row.column(align=True)
-        sub.prop(self, "offset_y", text="Y")
-        sub.enabled = self.align_y
-        sub = row.column(align=True)
-        sub.prop(self, "offset_z", text="Z")
-        sub.enabled = self.align_z
+        layout.separator(factor=self._SEP_MAIN)
 
-        row = layout.row(align=True)
-        row.label(text="", icon='DRIVER_ROTATIONAL_DIFFERENCE')
-        row.prop(self, "orient_x", toggle=True)
-        row.prop(self, "orient_y", toggle=True)
-        row.prop(self, "orient_z", toggle=True)
-
-        row = layout.row(align=True)
-        row.label(text="", icon='DRIVER_DISTANCE')
-        sub = row.column(align=True)
-        sub.prop(self, "orient_offset_x", text="X")
-        sub.enabled = self.orient_x
-        sub = row.column(align=True)
-        sub.prop(self, "orient_offset_y", text="Y")
-        sub.enabled = self.orient_y
-        sub = row.column(align=True)
-        sub.prop(self, "orient_offset_z", text="Z")
-        sub.enabled = self.orient_z
-
-        row = layout.row(align=True)
-        row.label(text="", icon='CON_SIZELIKE')
-        row.prop(self, "scale_x", toggle=True)
-        row.prop(self, "scale_y", toggle=True)
-        row.prop(self, "scale_z", toggle=True)
-
-        row = layout.row(align=True)
-        row.label(text="", icon='DRIVER_DISTANCE')
-        sub = row.column(align=True)
-        sub.prop(self, "scale_offset_x", text="X")
-        sub.enabled = self.scale_x
-        sub = row.column(align=True)
-        sub.prop(self, "scale_offset_y", text="Y")
-        sub.enabled = self.scale_y
-        sub = row.column(align=True)
-        sub.prop(self, "scale_offset_z", text="Z")
-        sub.enabled = self.scale_z
-
-        layout.separator(factor=2.0)
-
-        box_pts = layout.box()
-        row = box_pts.row(align=True)
-        col = row.column(align=True)
-        col.label(text="Current Object:")
-        col.prop(self, "source_point", expand=True)
-        col = row.column(align=True)
-        col.label(text="Target Object:")
-        col.prop(self, "target_point", expand=True)
+        refs = layout.box()
+        row = refs.row(align=True)
+        a = row.column(align=True)
+        a.label(text="Current Object:")
+        a.prop(self, "source_point", expand=True)
+        b = row.column(align=True)
+        b.label(text="Target Object:")
+        b.prop(self, "target_point", expand=True)
 
     def check(self, context):
         if self.reset_requested:
-            self.align_x = True
-            self.align_y = True
-            self.align_z = True
-            self.source_point = 'PIVOT'
-            self.target_point = 'PIVOT'
-            self.orient_x = False
-            self.orient_y = False
-            self.orient_z = False
-            self.scale_x = False
-            self.scale_y = False
-            self.scale_z = False
+            self.align_x = self.align_y = self.align_z = True
+            self.source_point = self.target_point = "PIVOT"
+            self.orient_x = self.orient_y = self.orient_z = False
+            self.scale_x = self.scale_y = self.scale_z = False
             self.use_active_orient = False
-            self.offset_x = 0.0
-            self.offset_y = 0.0
-            self.offset_z = 0.0
-            self.orient_offset_x = 0.0
-            self.orient_offset_y = 0.0
-            self.orient_offset_z = 0.0
-            self.scale_offset_x = 0.0
-            self.scale_offset_y = 0.0
-            self.scale_offset_z = 0.0
+            self.offset_x = self.offset_y = self.offset_z = 0.0
+            self.orient_offset_x = self.orient_offset_y = self.orient_offset_z = 0.0
+            self.scale_offset_x = self.scale_offset_y = self.scale_offset_z = 0.0
             self.reset_requested = False
-
         self.execute(context)
         return True
 
     def _restore_state(self):
-        if getattr(self, '_is_modal', False) and self._initial_state:
+        if getattr(self, "_is_modal", False) and self._initial_state:
             for name, state in self._initial_state.items():
                 obj = bpy.data.objects.get(name)
                 if obj:
-                    obj.location = state['location']
-                    obj.rotation_euler = state['rotation_euler']
-                    obj.scale = state['scale']
+                    obj.location = state["location"]
+                    obj.rotation_euler = state["rotation_euler"]
+                    obj.scale = state["scale"]
 
     def cancel(self, context):
         self._restore_state()
 
     def execute(self, context):
         self._restore_state()
-
         target = context.active_object
         sources = [o for o in context.selected_objects if o != target]
         for source in sources:
@@ -281,42 +254,38 @@ class AlignBase:
                 offset_y=self.scale_offset_y,
                 offset_z=self.scale_offset_z,
             )
-            
-            align_tools.align_position(source, target,
-                x=self.align_x, y=self.align_y, z=self.align_z,
+            align_tools.align_position(
+                source,
+                target,
+                x=self.align_x,
+                y=self.align_y,
+                z=self.align_z,
                 source_point=self.source_point,
                 target_point=self.target_point,
                 use_active_orient=self.use_active_orient,
-                offset_x=self.offset_x, offset_y=self.offset_y, offset_z=self.offset_z)
-        return {'FINISHED'}
+                offset_x=self.offset_x,
+                offset_y=self.offset_y,
+                offset_z=self.offset_z,
+            )
+        return {"FINISHED"}
+
 
 class ALEC_OT_align_dialog(AlignBase, bpy.types.Operator):
-    """Align Dialog 3ds Max style"""
+    """Align via redo panel (no centered modal)."""
+
     bl_idname = "alec.align_dialog"
     bl_label = "Align"
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_options = {"REGISTER", "UNDO"}
 
     def invoke(self, context, event):
         self._is_modal = True
-        self._initial_state = {}
-        target = context.active_object
-        sources = [o for o in context.selected_objects if o != target]
-
-        for obj in sources:
-            self._initial_state[obj.name] = {
-                'location': obj.location.copy(),
-                'rotation_euler': obj.rotation_euler.copy(),
-                'scale': obj.scale.copy()
-            }
-
-        # Run once and rely on Blender's "Last Operator" redo panel (bottom-left).
-        # This avoids centered modal dialogs/popups entirely.
+        self._capture_selection_snapshot(context)
         self.execute(context)
-        return {'FINISHED'}
+        return {"FINISHED"}
 
 
 class ALEC_OT_align_preset_centers(AlignBase, bpy.types.Operator):
-    """Align preset: Centers (Alt = also match rotation)."""
+    """Preset: bbox centers; Alt also matches rotation."""
 
     bl_idname = "alec.align_preset_centers"
     bl_label = "Align (Centers)"
@@ -324,30 +293,16 @@ class ALEC_OT_align_preset_centers(AlignBase, bpy.types.Operator):
 
     def invoke(self, context, event):
         self._is_modal = True
-        self._initial_state = {}
-
-        target = context.active_object
-        sources = [o for o in context.selected_objects if o != target]
-        for obj in sources:
-            self._initial_state[obj.name] = {
-                "location": obj.location.copy(),
-                "rotation_euler": obj.rotation_euler.copy(),
-                "scale": obj.scale.copy(),
-            }
-
-        self.source_point = "CENTER"
-        self.target_point = "CENTER"
+        self._capture_selection_snapshot(context)
+        self.source_point = self.target_point = "CENTER"
         want_rot = bool(getattr(event, "alt", False))
-        self.orient_x = want_rot
-        self.orient_y = want_rot
-        self.orient_z = want_rot
-
+        self.orient_x = self.orient_y = self.orient_z = want_rot
         self.execute(context)
         return {"FINISHED"}
 
 
 class ALEC_OT_align_preset_origins(AlignBase, bpy.types.Operator):
-    """Align preset: Origins (Alt = also match rotation)."""
+    """Preset: origins; Alt also matches rotation."""
 
     bl_idname = "alec.align_preset_origins"
     bl_label = "Align (Origins)"
@@ -355,117 +310,95 @@ class ALEC_OT_align_preset_origins(AlignBase, bpy.types.Operator):
 
     def invoke(self, context, event):
         self._is_modal = True
-        self._initial_state = {}
-
-        target = context.active_object
-        sources = [o for o in context.selected_objects if o != target]
-        for obj in sources:
-            self._initial_state[obj.name] = {
-                "location": obj.location.copy(),
-                "rotation_euler": obj.rotation_euler.copy(),
-                "scale": obj.scale.copy(),
-            }
-
-        self.source_point = "PIVOT"
-        self.target_point = "PIVOT"
+        self._capture_selection_snapshot(context)
+        self.source_point = self.target_point = "PIVOT"
         want_rot = bool(getattr(event, "alt", False))
-        self.orient_x = want_rot
-        self.orient_y = want_rot
-        self.orient_z = want_rot
-
+        self.orient_x = self.orient_y = self.orient_z = want_rot
         self.execute(context)
         return {"FINISHED"}
 
+
 class ALEC_OT_quick_center(AlignBase, bpy.types.Operator):
-    """Align selected objects to active object's bounding box center"""
     bl_idname = "alec.quick_center"
     bl_label = "Quick Center"
-    bl_options = {'REGISTER', 'UNDO'}
-    
+    bl_options = {"REGISTER", "UNDO"}
+
     def invoke(self, context, event):
-        self.source_point = 'CENTER'
-        self.target_point = 'CENTER'
+        self.source_point = self.target_point = "CENTER"
         return self.execute(context)
+
 
 class ALEC_OT_quick_center_rot(AlignBase, bpy.types.Operator):
-    """Align selected objects to active bbox center and match rotation"""
     bl_idname = "alec.quick_center_rot"
     bl_label = "Quick Center (Rot)"
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_options = {"REGISTER", "UNDO"}
 
     def invoke(self, context, event):
-        self.source_point = 'CENTER'
-        self.target_point = 'CENTER'
-        self.orient_x = True
-        self.orient_y = True
-        self.orient_z = True
+        self.source_point = self.target_point = "CENTER"
+        self.orient_x = self.orient_y = self.orient_z = True
         return self.execute(context)
 
+
 class ALEC_OT_quick_pivot_rot(AlignBase, bpy.types.Operator):
-    """Align selected objects to active pivot and match rotation"""
     bl_idname = "alec.quick_pivot_rot"
     bl_label = "Quick Pivot (Rot)"
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_options = {"REGISTER", "UNDO"}
 
     def invoke(self, context, event):
-        self.source_point = 'PIVOT'
-        self.target_point = 'PIVOT'
-        self.orient_x = True
-        self.orient_y = True
-        self.orient_z = True
+        self.source_point = self.target_point = "PIVOT"
+        self.orient_x = self.orient_y = self.orient_z = True
         return self.execute(context)
 
 
 class ALEC_OT_distribute_objects_dialog(bpy.types.Operator):
-    """Distribute selected objects along an axis (even positions or equal bbox gaps)"""
+    """Distribute selected objects along an axis."""
+
     bl_idname = "alec.distribute_objects_dialog"
     bl_label = "Distribute Objects"
     bl_description = (
         "Positions: space reference points evenly. Gaps: equal space between evaluated bbox projections. "
-        "Endpoints: shift-click two objects last (penultimate + active); otherwise uses left/right extremes on axis"
+        "Endpoints: shift-click two objects last (penultimate + active); "
+        "otherwise uses left/right extremes on axis"
     )
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_options = {"REGISTER", "UNDO"}
 
     mode: bpy.props.EnumProperty(
         name="Mode",
         items=[
-            ('POSITIONS', "Positions", "Even spacing between reference points (min/center/pivot/max)"),
-            ('GAPS', "Gaps", "Equal space between bounding boxes along the axis"),
+            ("POSITIONS", "Positions", "Even spacing between reference points (min/center/pivot/max)"),
+            ("GAPS", "Gaps", "Equal space between bounding boxes along the axis"),
         ],
-        default='POSITIONS',
-    ) # type: ignore
+        default="POSITIONS",
+    )  # type: ignore
 
     axis: bpy.props.EnumProperty(
         name="Axis",
         items=[
-            ('WORLD_X', "World X", ""),
-            ('WORLD_Y', "World Y", ""),
-            ('WORLD_Z', "World Z", ""),
-            ('LOCAL_X', "Local X (Active)", ""),
-            ('LOCAL_Y', "Local Y (Active)", ""),
-            ('LOCAL_Z', "Local Z (Active)", ""),
+            ("WORLD_X", "World X", ""),
+            ("WORLD_Y", "World Y", ""),
+            ("WORLD_Z", "World Z", ""),
+            ("LOCAL_X", "Local X (Active)", ""),
+            ("LOCAL_Y", "Local Y (Active)", ""),
+            ("LOCAL_Z", "Local Z (Active)", ""),
         ],
-        default='WORLD_X',
-    ) # type: ignore
+        default="WORLD_X",
+    )  # type: ignore
 
     reference_point: bpy.props.EnumProperty(
         name="Reference",
         description="Reference point on each object (Positions mode only)",
         items=[
-            ('MIN', "Minimum", ""),
-            ('CENTER', "Center", ""),
-            ('PIVOT', "Pivot", ""),
-            ('MAX', "Maximum", ""),
+            ("MIN", "Minimum", ""),
+            ("CENTER", "Center", ""),
+            ("PIVOT", "Pivot", ""),
+            ("MAX", "Maximum", ""),
         ],
-        default='PIVOT',
-    ) # type: ignore
+        default="PIVOT",
+    )  # type: ignore
 
     @classmethod
     def poll(cls, context):
-        return (
-            context.mode == 'OBJECT'
-            and len(context.selected_objects) >= 2
-        )
+        return context.mode == "OBJECT" and len(context.selected_objects) >= 2
 
     def draw(self, context):
         layout = self.layout
@@ -473,7 +406,7 @@ class ALEC_OT_distribute_objects_dialog(bpy.types.Operator):
         layout.prop(self, "axis", text="Axis")
         sub = layout.column()
         sub.prop(self, "reference_point", expand=True)
-        sub.enabled = self.mode == 'POSITIONS'
+        sub.enabled = self.mode == "POSITIONS"
 
     def invoke(self, context, event):
         return context.window_manager.invoke_props_dialog(self, width=400)
@@ -481,29 +414,25 @@ class ALEC_OT_distribute_objects_dialog(bpy.types.Operator):
     def execute(self, context):
         axis_dir = _axis_direction_from_enum(context, self.axis)
         if axis_dir is None:
-            self.report({'WARNING'}, "Need an active object for local axes")
-            return {'CANCELLED'}
+            self.report({"WARNING"}, "Need an active object for local axes")
+            return {"CANCELLED"}
 
         objects = list(context.selected_objects)
-
         ep_prev, ep_last = get_last_two_active_objects()
-        sel_set = set(objects)
-        if ep_prev in sel_set and ep_last in sel_set:
-            endpoints = (ep_prev, ep_last)
-        else:
-            endpoints = None
+        sel = set(objects)
+        endpoints = (ep_prev, ep_last) if ep_prev in sel and ep_last in sel else None
 
-        if self.mode == 'POSITIONS':
+        if self.mode == "POSITIONS":
             ok, msg = align_tools.distribute_objects_positions(
-                objects, axis_dir, self.reference_point, endpoint_objs=endpoints)
+                objects, axis_dir, self.reference_point, endpoint_objs=endpoints
+            )
         else:
-            ok, msg = align_tools.distribute_objects_gaps(
-                objects, axis_dir, endpoint_objs=endpoints)
+            ok, msg = align_tools.distribute_objects_gaps(objects, axis_dir, endpoint_objs=endpoints)
 
         if not ok:
-            self.report({'WARNING'}, msg)
-            return {'CANCELLED'}
-        return {'FINISHED'}
+            self.report({"WARNING"}, msg)
+            return {"CANCELLED"}
+        return {"FINISHED"}
 
 
 classes = [
