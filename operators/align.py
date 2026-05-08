@@ -230,11 +230,10 @@ class ALEC_OT_align_dialog(AlignBase, bpy.types.Operator):
                 'scale': obj.scale.copy()
             }
 
-        if context.window:
-            context.window.cursor_warp(context.window.width // 2, int(context.window.height * 0.4))
-
+        # Run once and rely on Blender's "Last Operator" redo panel (bottom-left).
+        # This avoids centered modal dialogs/popups entirely.
         self.execute(context)
-        return context.window_manager.invoke_props_dialog(self, width=400)
+        return {'FINISHED'}
 
 class ALEC_OT_quick_center(AlignBase, bpy.types.Operator):
     """Align selected objects to active object's bounding box center"""

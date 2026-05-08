@@ -382,13 +382,27 @@ class ALEC_MT_object_menu(bpy.types.Menu):
         col_a = row.column()
         box_align = col_a.box()
         box_align.label(text="Align", icon='LIGHTPROBE_VOLUME')
-        col_inner = box_align.column(align=True)
-        col_inner.operator("alec.quick_center", text="Align_Centers")
-        col_inner.operator("alec.quick_center_rot", text="Align_Centers(Rot)")
-        col_inner.operator("view3d.snap_selected_to_active", text="Align_Origins")
-        col_inner.operator("alec.quick_pivot_rot", text="Align_Origins(Rot)")
-        col_inner.operator("alec.align_dialog", text="Align Dialog")
-        col_inner.operator("alec.distribute_objects_dialog", text="Distribute...", icon='ALIGN_JUSTIFY')
+        row_align = box_align.row(align=True)
+        row_align.operator("alec.align_dialog", text="Align", icon="LIGHTPROBE_VOLUME")
+
+        row_align.separator(factor=0.35)
+
+        prev_ctx = row_align.operator_context
+        row_align.operator_context = "INVOKE_DEFAULT"
+        row_align.operator(
+            "alec.align_centers_smart",
+            text="",
+            icon="PIVOT_BOUNDBOX",
+        )
+        row_align.operator(
+            "alec.align_origins_smart",
+            text="",
+            icon="OBJECT_ORIGIN",
+        )
+        row_align.operator_context = prev_ctx
+
+        # Keep distribute close to BBox/Align actions, but out of the compact Align row.
+        box_bbox.operator("alec.distribute_objects_dialog", text="Distribute...", icon='ALIGN_JUSTIFY')
 
         # --- Slice 2 (Right): Modifiers ---
         col_right = pie.column()
