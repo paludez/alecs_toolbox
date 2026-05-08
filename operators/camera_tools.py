@@ -1,7 +1,177 @@
+import math
+
 import bpy
 from mathutils import Matrix, Vector
 
 _ALEC_TARGET_CON_NAME = "Alec Target"
+
+_CAM_RIG_UPDATING = False
+_CAM_SPHERE_PROP_NAMES = (
+    "alec_cam_distance",
+    "alec_cam_angle",
+    "alec_cam_elevation",
+)
+
+
+def _object_in_view_layer(obj, context) -> bool:
+    return obj is not None and obj.name in context.view_layer.objects
+
+
+def camera_sphere_track_target(cam, context):
+    """Empty (or object) targeted by camera's Alec Track To constraint, or None."""
+    if cam is None or getattr(cam, "type", None) != "CAMERA":
+        return None
+    con = cam.constraints.get(_ALEC_TARGET_CON_NAME)
+    if con is None or con.type != "TRACK_TO":
+        return None
+    tgt = con.target
+    if tgt is None or not _object_in_view_layer(tgt, context):
+        return None
+    return tgt
+
+
+def camera_orbit_pivot_world(cam, context) -> Vector:
+    """Sphere orbit center: Alec Target if set, otherwise 3D Cursor location (world)."""
+    tgt = camera_sphere_track_target(cam, context)
+    if tgt is not None:
+        return tgt.matrix_world.translation.copy()
+    return context.scene.cursor.location.copy()
+
+
+def camera_rig_world_position(cam_obj, context):
+    """Camera origin on world-Z spherical orbit around pivot (target empty or 3D cursor)."""
+    tw = camera_orbit_pivot_world(cam_obj, context)
+    dist = max(1e-4, float(getattr(cam_obj, "alec_cam_distance", 5.0)))
+    az = float(getattr(cam_obj, "alec_cam_angle", 0.0))
+    el = float(getattr(cam_obj, "alec_cam_elevation", 0.0))
+    c_el = math.cos(el)
+    ox = c_el * math.cos(az)
+    oy = c_el * math.sin(az)
+    oz = math.sin(el)
+    u = Vector((ox, oy, oz)).normalized()
+    return tw + u * dist
+
+
+def _camera_orient_world_toward_point(cam_obj, cam_world_pos: Vector, pivot_w: Vector) -> None:
+    """Set camera matrix_world so local -Z aims at pivot_w (Blender camera forward)."""
+    delta = pivot_w - cam_world_pos
+    if delta.length_squared < 1e-20:
+        return
+    d = delta.normalized()
+    try:
+        q = d.to_track_quat("-Z", "Y")
+    except ValueError:
+        return
+    sca = cam_obj.matrix_world.to_scale()
+    cam_obj.matrix_world = Matrix.LocRotScale(cam_world_pos.copy(), q, sca)
+
+
+def _apply_camera_sphere_props(cam_obj, context):
+    global _CAM_RIG_UPDATING
+    if _CAM_RIG_UPDATING:
+        return
+    if cam_obj is None or cam_obj.type != "CAMERA":
+        return
+    pos = camera_rig_world_position(cam_obj, context)
+    pivot_w = camera_orbit_pivot_world(cam_obj, context)
+    _CAM_RIG_UPDATING = True
+    try:
+        if camera_sphere_track_target(cam_obj, context) is not None:
+            # Track To constraint aims at target; only move along orbit radius.
+            if cam_obj.parent is None:
+                cam_obj.location = pos
+            else:
+                mw = cam_obj.matrix_world.copy()
+                mw.translation = pos
+                cam_obj.matrix_world = mw
+        else:
+            # No Alec target: orbit around 3D cursor and look at it (same axis as Track To would use).
+            _camera_orient_world_toward_point(cam_obj, pos, pivot_w)
+    finally:
+        _CAM_RIG_UPDATING = False
+
+
+def _sync_camera_sphere_props_from_world(cam_obj, context):
+    """Dist / Az / El from camera vs pivot (target or 3D cursor) — does not move the camera."""
+    global _CAM_RIG_UPDATING
+    if _CAM_RIG_UPDATING:
+        return
+    cw = cam_obj.matrix_world.translation
+    tw = camera_orbit_pivot_world(cam_obj, context)
+    delta = cw - tw
+    dsq = delta.length_squared
+    if dsq < 1e-20:
+        return
+    vz = delta.normalized()
+    zn = max(-1.0, min(1.0, vz.z))
+    elev = math.asin(zn)
+    horiz = math.cos(elev)
+    azim = (
+        math.atan2(vz.y, vz.x)
+        if abs(horiz) > 1e-6
+        else float(getattr(cam_obj, "alec_cam_angle", 0.0))
+    )
+    dist = math.sqrt(dsq)
+    _CAM_RIG_UPDATING = True
+    try:
+        cam_obj.alec_cam_distance = dist
+        cam_obj.alec_cam_angle = azim
+        cam_obj.alec_cam_elevation = elev
+    finally:
+        _CAM_RIG_UPDATING = False
+
+
+def _alec_cam_distance_update(cam_obj, context):
+    _apply_camera_sphere_props(cam_obj, context)
+
+
+def _alec_cam_angle_update(cam_obj, context):
+    _apply_camera_sphere_props(cam_obj, context)
+
+
+def _alec_cam_elevation_update(cam_obj, context):
+    _apply_camera_sphere_props(cam_obj, context)
+
+
+def register_camera_sphere_object_props() -> None:
+    for name in _CAM_SPHERE_PROP_NAMES:
+        if hasattr(bpy.types.Object, name):
+            try:
+                delattr(bpy.types.Object, name)
+            except Exception:
+                pass
+    bpy.types.Object.alec_cam_distance = bpy.props.FloatProperty(
+        name="Cam orbit distance",
+        description="Distance from orbit pivot (Alec Target if set, else 3D Cursor) along world spherical orbit",
+        default=5.0,
+        min=0.01,
+        soft_max=5000.0,
+        unit="LENGTH",
+        update=_alec_cam_distance_update,
+    )
+    bpy.types.Object.alec_cam_angle = bpy.props.FloatProperty(
+        name="Cam azimuth",
+        description="Azimuth around world Z from +X; pivot is Alec Target or 3D Cursor",
+        default=0.0,
+        subtype="ANGLE",
+        update=_alec_cam_angle_update,
+    )
+    bpy.types.Object.alec_cam_elevation = bpy.props.FloatProperty(
+        name="Cam elevation",
+        description="Elevation from world XY toward +Z; pivot is Alec Target or 3D Cursor",
+        default=0.0,
+        subtype="ANGLE",
+        update=_alec_cam_elevation_update,
+    )
+
+
+def unregister_camera_sphere_object_props() -> None:
+    for name in _CAM_SPHERE_PROP_NAMES:
+        if hasattr(bpy.types.Object, name):
+            try:
+                delattr(bpy.types.Object, name)
+            except Exception:
+                pass
 
 # ---------------------------------------------------------------------------
 # Focal length UI + dolly compensation
@@ -211,6 +381,7 @@ def _ensure_empty_and_camera_track_to(context, cam, loc: Vector) -> None:
     con.track_axis = "TRACK_NEGATIVE_Z"
     con.up_axis = "UP_Y"
     context.view_layer.update()
+    _sync_camera_sphere_props_from_world(cam, context)
 
 
 def _view3d_window_region(context):
@@ -270,17 +441,7 @@ def _camera_data_from_context(context):
 def _scene_camera_alec_track_target(context):
     """Object targeted by scene camera's Alec Track To constraint, or None."""
     cam = context.scene.camera
-    if cam is None or cam.type != "CAMERA":
-        return None
-    con = cam.constraints.get(_ALEC_TARGET_CON_NAME)
-    if con is None or con.type != "TRACK_TO":
-        return None
-    tgt = con.target
-    if tgt is None:
-        return None
-    if tgt.name not in context.view_layer.objects:
-        return None
-    return tgt
+    return camera_sphere_track_target(cam, context)
 
 
 class ALEC_OT_camera_passepartout(bpy.types.Operator):
@@ -443,8 +604,33 @@ class ALEC_OT_camera_target_obj(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class ALEC_OT_camera_target_cursor(bpy.types.Operator):
+    """Empty at 3D Cursor; scene camera Track To → empty."""
+
+    bl_idname = "alec.camera_target_cursor"
+    bl_label = "Target.Curs"
+    bl_description = (
+        "Place or move <camera name>_Target empty at the 3D Cursor; "
+        "same collection(s) as the scene camera; Track To on scene camera"
+    )
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        cam = context.scene.camera
+        return cam is not None and cam.type == "CAMERA"
+
+    def execute(self, context):
+        cam = context.scene.camera
+        if cam is None or cam.type != "CAMERA":
+            return {"CANCELLED"}
+        loc = context.scene.cursor.location.copy()
+        _ensure_empty_and_camera_track_to(context, cam, loc)
+        return {"FINISHED"}
+
+
 class ALEC_OT_camera_select_track_target(bpy.types.Operator):
-    """Select the scene camera's Alec track target (empty from Targ.Dist / Target.Obj)."""
+    """Select the scene camera's Alec track target (empty from target buttons)."""
 
     bl_idname = "alec.camera_select_track_target"
     bl_label = "Select camera target"
@@ -645,15 +831,41 @@ class ALEC_OT_cameras_bind_selected_to_end(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class ALEC_OT_camera_rig_read_sphere(bpy.types.Operator):
+    """Set Dist/Az./El from scene camera vs orbit pivot (target or 3D cursor); camera does not move."""
+
+    bl_idname = "alec.camera_rig_read_sphere"
+    bl_label = "Sync cam orbit"
+    bl_description = (
+        "Recompute Distance, Azimuth, Elevation from the scene camera vs Alec Target "
+        "(if present) or vs 3D Cursor"
+    )
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        cam = context.scene.camera
+        return cam is not None and cam.type == "CAMERA"
+
+    def execute(self, context):
+        cam = context.scene.camera
+        if cam is None or cam.type != "CAMERA":
+            return {"CANCELLED"}
+        _sync_camera_sphere_props_from_world(cam, context)
+        return {"FINISHED"}
+
+
 classes = (
     ALEC_OT_camera_passepartout,
     ALEC_OT_toggle_lock_camera,
     ALEC_OT_view_center_camera,
     ALEC_OT_camera_target_dist,
     ALEC_OT_camera_target_obj,
+    ALEC_OT_camera_target_cursor,
     ALEC_OT_camera_select_track_target,
     ALEC_OT_select_scene_camera,
     ALEC_OT_new_camera_to_view,
     ALEC_OT_cameras_bind_all_to_timeline,
     ALEC_OT_cameras_bind_selected_to_end,
+    ALEC_OT_camera_rig_read_sphere,
 )

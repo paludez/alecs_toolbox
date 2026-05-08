@@ -133,6 +133,8 @@ def has_dim_overlay_data():
         return True
     if _draw_data.get('draw_snap_ring') is not None:
         return True
+    if _draw_data.get('draw_snap_source_screen') is not None:
+        return True
     return False
 
 
@@ -278,6 +280,21 @@ def draw_callback_px(context):
             blf.position(font_id, cx + rad + 10, cy - font_size / 2, 0)
             blf.draw(font_id, lbl)
             blf.color(font_id, 1.0, 1.0, 1.0, 1.0)
+        except Exception:
+            pass
+
+    src_xy = _draw_data.get('draw_snap_source_screen')
+    if isinstance(src_xy, (tuple, list)) and len(src_xy) >= 2:
+        try:
+            import gpu.state as gpu_state
+            from gpu_extras.presets import draw_circle_2d
+
+            sx, sy = float(src_xy[0]), float(src_xy[1])
+            col_src = (0.95, 0.92, 0.25, 0.92)
+            gpu_state.blend_set('ALPHA')
+            draw_circle_2d((sx, sy), (*col_src[:3], min(1.0, col_src[3] + 0.05)), 5.8, segments=28)
+            draw_circle_2d((sx, sy), (0.1, 0.1, 0.06, 0.35), 2.9, segments=28)
+            gpu_state.blend_set('NONE')
         except Exception:
             pass
 

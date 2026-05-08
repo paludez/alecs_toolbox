@@ -54,6 +54,7 @@ def register():
     batch_materials.post_register()
     triplanar_mapping.post_register()
     camera_tools.register_focal_lens_scene_props()
+    camera_tools.register_camera_sphere_object_props()
     light_tools.register_light_rig_object_props()
 
     depsgraph_handler = edit_mesh.depsgraph_update_handler
@@ -68,6 +69,7 @@ def unregister():
     auto_linked_mode._exit_auto_linked()
     batch_materials.post_unregister()
     camera_tools.unregister_focal_lens_scene_props()
+    camera_tools.unregister_camera_sphere_object_props()
     light_tools.unregister_light_rig_object_props()
 
     for cls in reversed(classes):

@@ -16,6 +16,8 @@ from ..ui.transform.selection_math import _orientation_matrix_world
 
 class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
     """Draw polylines on the 3D cursor work plane. Snaps verts/mids; [Shift] ortho;
+    [Q] toggles free 3D preview (viewport ray vs mesh, else depth through chain, else plane).
+    Outside X-ray / wire shading, snaps skip geometry behind first viewport-ray hit (opaque depth).
     [X/Y/Z] axis; [V]/[W] snap; type length like edge-length (mouse when no digits,
     digits + Enter commits); [C] close; [Bksp] undoes vert or clears typing; [RMB]
     / close snap finishes; plain [Enter] exits; [Esc] clears typing or exits."""
@@ -40,6 +42,7 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
         self._axis_lock: str | None = None
         self._snap_verts_on: bool = True
         self._snap_other_on: bool = False
+        self._ignore_draw_plane: bool = False
         self.number_input = modal_handler.ModalNumberInput()
         self._last_event_mouse: tuple[int, int] | None = (
             event.mouse_region_x,
@@ -78,7 +81,31 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
         return {'RUNNING_MODAL'}
 
     def modal(self, context, event):
-        if event.type in {'MIDDLEMOUSE', 'WHEELUPMOUSE', 'WHEELDOWNMOUSE'}:
+        _nav_pass_types = {
+            'MIDDLEMOUSE',
+            'WHEELUPMOUSE',
+            'WHEELDOWNMOUSE',
+            'TRACKPADPAN',
+            'TRACKPADZOOM',
+            'TRACKPADSCROLL',
+        }
+        if event.type in _nav_pass_types:
+            refresh_after_nav = False
+            if event.type == 'MIDDLEMOUSE' and event.value == 'RELEASE':
+                refresh_after_nav = True
+            elif (
+                event.type in {'WHEELUPMOUSE', 'WHEELDOWNMOUSE'}
+                and event.value == 'PRESS'
+            ):
+                refresh_after_nav = True
+            elif event.type == 'TRACKPADSCROLL' and event.value == 'PRESS':
+                refresh_after_nav = True
+            elif event.type == 'TRACKPADPAN' and event.value == 'RELEASE':
+                refresh_after_nav = True
+            elif event.type == 'TRACKPADZOOM' and event.value == 'RELEASE':
+                refresh_after_nav = True
+            if refresh_after_nav and self._last_event_mouse is not None:
+                self._refresh_preview(context)
             return {'PASS_THROUGH'}
 
         if event.type == 'ESC' and event.value == 'PRESS':
@@ -138,12 +165,16 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
             'C',
             'V',
             'W',
+            'Q',
             'X',
             'Y',
             'Z',
             'MIDDLEMOUSE',
             'WHEELUPMOUSE',
             'WHEELDOWNMOUSE',
+            'TRACKPADPAN',
+            'TRACKPADZOOM',
+            'TRACKPADSCROLL',
             'MOUSEMOVE',
             'TAB',
             'INBETWEEN_MOUSEMOVE',
@@ -161,6 +192,9 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
                 return {'RUNNING_MODAL'}
 
         if event.type == 'LEFTMOUSE' and event.value == 'PRESS':
+            if context.region is not None and context.region_data is not None:
+                self._last_event_mouse = (event.mouse_region_x, event.mouse_region_y)
+                self._refresh_preview(context)
             if self._on_click(context):
                 self._cleanup(context, cancelled=False)
                 return {'FINISHED'}
@@ -192,6 +226,13 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
 
         if event.type == 'W' and event.value == 'PRESS':
             self._snap_other_on = not self._snap_other_on
+            self._set_status(context)
+            self._refresh_preview(context)
+            return {'RUNNING_MODAL'}
+
+        if event.type == 'Q' and event.value == 'PRESS':
+            self._ignore_draw_plane = not self._ignore_draw_plane
+            self._update_cursor_plane_visual(context)
             self._set_status(context)
             self._refresh_preview(context)
             return {'RUNNING_MODAL'}
@@ -319,6 +360,7 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
             ortho = "ON" if self._ortho_on else "OFF"
             v_snap = "ON" if self._snap_verts_on else "OFF"
             w_snap = "ON" if self._snap_other_on else "OFF"
+            plc = '3D' if self._ignore_draw_plane else 'Plane'
             axis = self._axis_lock if self._axis_lock else "—"
             if self._chain_vert_indices and self.number_input.has_value():
                 num_part = "typing length"
@@ -330,7 +372,8 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
             context.workspace.status_text_set(
                 f"[LMB]Add [Bksp]Undo/buffer [RMB]Finish [C]Close "
                 f"[Shift]Ortho:{ortho} [V]ObjSnap:{v_snap} [W]WorldSnap:{w_snap} "
-                f"[X/Y/Z]Axis:{axis}{sep}{num_part} [Enter/Esc]Exit"
+                f"[Q]{plc}"
+                f" [X/Y/Z]Axis:{axis}{sep}{num_part} [Enter/Esc]Exit"
             )
         except Exception:
             pass
@@ -406,10 +449,28 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
                     float(self._screen_snap_radius_px),
                     snap_idx_for_draw,
                 )
+                if snap_idx_for_draw == -3 and snap_anchor_for_draw is not None:
+                    p_src = location_3d_to_region_2d(
+                        context.region, context.region_data, snap_anchor_for_draw
+                    )
+                    dx = float(p_src.x - p2.x) if p_src else 0.0
+                    dy = float(p_src.y - p2.y) if p_src else 0.0
+                    # Second marker only when projected snap point separates from vtx on screen.
+                    if p_src is not None and (dx * dx + dy * dy) > 225.0:
+                        draw_state._draw_data['draw_snap_source_screen'] = (
+                            float(p_src.x),
+                            float(p_src.y),
+                        )
+                    else:
+                        draw_state._draw_data.pop('draw_snap_source_screen', None)
+                else:
+                    draw_state._draw_data.pop('draw_snap_source_screen', None)
             else:
                 draw_state._draw_data.pop('draw_snap_ring', None)
+                draw_state._draw_data.pop('draw_snap_source_screen', None)
         else:
             draw_state._draw_data.pop('draw_snap_ring', None)
+            draw_state._draw_data.pop('draw_snap_source_screen', None)
         self._update_length_label(context, last_world, pos)
         draw_state.refresh_edit_mesh_px_handler(context)
         self._update_cursor_plane_visual(context)
@@ -480,6 +541,9 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
             return None
 
     def _update_cursor_plane_visual(self, context):
+        if getattr(self, '_ignore_draw_plane', False):
+            draw_state._draw_data.pop('cursor_plane', None)
+            return
         try:
             cursor = context.scene.cursor
             center = cursor.location.copy()
@@ -495,16 +559,36 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
     ) -> tuple[Vector, bool, int | None, bool, Vector | None]:
         """Returns (world_pos, hit_snap, snap_idx, constrained_ortho, snap_anchor_world).
 
-        snap_anchor_world is the raw discrete snap target in world space, or None.
-        Preview may differ after ortho/axis projection; anchor is drawn for feedback."""
+        snap_anchor_world is the snapped point in world space for feedback (same as preview
+        for on-plane snaps; for WorldSnap (-3), the vertex before projection onto the plane)."""
         region = context.region
         rv3d = context.region_data
         origin_w = region_2d_to_origin_3d(region, rv3d, coord)
         direction_w = region_2d_to_vector_3d(region, rv3d, coord).normalized()
 
-        snap_pos, snap_idx = self._screen_snap_discrete(context, coord)
+        depsgraph_rp = None
+        try:
+            depsgraph_rp = context.evaluated_depsgraph_get()
+        except Exception:
+            depsgraph_rp = None
+        ray_t, ray_hit_world = self._viewport_ray_pick(
+            context, depsgraph_rp, origin_w, direction_w
+        )
+        occlusion_t = (
+            ray_t
+            if self._viewport_snap_respects_opaque_depth(context)
+            else None
+        )
+
+        snap_pos, snap_idx, snap_raw_world = self._screen_snap_discrete(
+            context, coord, occlusion_t, origin_w, direction_w
+        )
         if snap_pos is not None:
-            anchor = snap_pos.copy()
+            anchor = (
+                snap_raw_world.copy()
+                if snap_raw_world is not None
+                else snap_pos.copy()
+            )
             use_auto_ortho = self._ortho_on and self._axis_lock is None
             use_axis_lock = self._axis_lock is not None
             if (use_auto_ortho or use_axis_lock) and self._chain_vert_indices:
@@ -520,7 +604,10 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
                         return constrained, True, None, True, anchor
             return snap_pos, True, snap_idx, False, anchor
 
-        pos = cp.intersect_cursor_plane(context, origin_w, direction_w)
+        if self._ignore_draw_plane:
+            pos = self._free_preview_world(origin_w, direction_w, ray_hit_world, context)
+        else:
+            pos = cp.intersect_cursor_plane(context, origin_w, direction_w)
 
         is_ortho = False
         use_auto_ortho = self._ortho_on and self._axis_lock is None
@@ -581,16 +668,101 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
             return None
         return prev_world + best_axis * best_proj
 
-    def _screen_snap_discrete(self, context, coord) -> tuple[Vector | None, int | None]:
-        if not self._snap_verts_on and not self._snap_other_on:
+    def _viewport_snap_respects_opaque_depth(self, context) -> bool:
+        """When False, snapping uses screen-distance only (sees verts through solid meshes)."""
+        space = getattr(context, 'space_data', None)
+        if space is None or getattr(space, 'type', '') != 'VIEW_3D':
+            return False
+        shading = getattr(space, 'shading', None)
+        if shading is None:
+            return False
+        if getattr(shading, 'show_xray', False):
+            return False
+        if getattr(shading, 'type', '') == 'WIREFRAME':
+            return False
+        return True
+
+    def _viewport_ray_pick(
+        self,
+        context,
+        depsgraph,
+        origin_w: Vector,
+        dir_w: Vector,
+    ) -> tuple[float | None, Vector | None]:
+        """First depsgraph ray hit depth (along dir) and world location; ignores shading mode."""
+        if depsgraph is None:
             return None, None
+        try:
+            rc = context.scene.ray_cast(depsgraph, origin_w, dir_w)
+        except Exception:
+            return None, None
+        if rc is None or not rc[0]:
+            return None, None
+        hit_loc = rc[1]
+        if not isinstance(hit_loc, Vector):
+            hit_loc = Vector(hit_loc)
+        t_ray = (hit_loc - origin_w).dot(dir_w)
+        return t_ray, hit_loc
+
+    def _free_preview_world(
+        self,
+        origin_w: Vector,
+        dir_w: Vector,
+        ray_hit_world: Vector | None,
+        context,
+    ) -> Vector:
+        """3D placement when not locked to cursor plane: mesh hit → depth through chain → plane."""
+        if ray_hit_world is not None:
+            return ray_hit_world.copy()
+        last_w = self._last_chain_world_pos()
+        if last_w is not None:
+            td = (last_w - origin_w).dot(dir_w)
+            if td > 1e-12:
+                return origin_w + dir_w * td
+        return cp.intersect_cursor_plane(context, origin_w, dir_w)
+
+    def _snap_occludes_candidate(
+        self,
+        occlusion_t: float | None,
+        origin_w: Vector,
+        dir_w: Vector,
+        world_co: Vector,
+        context,
+    ) -> bool:
+        """True if world_co is farther along the viewport ray than the first surface hit (+ slack)."""
+        if occlusion_t is None:
+            return False
+        t = (world_co - origin_w).dot(dir_w)
+        scl = getattr(context.scene.unit_settings, 'scale_length', 1.0) or 1.0
+        slack = max(scl * 1e-4, 1e-5, abs(occlusion_t) * 1e-6 + abs(t) * 1e-6)
+        return t > occlusion_t + slack
+
+    def _screen_snap_discrete(
+        self,
+        context,
+        coord,
+        occlusion_t: float | None,
+        origin_w: Vector,
+        dir_w: Vector,
+    ) -> tuple[Vector | None, int | None, Vector | None]:
+        """Projected plane hit, sentinel index, optional raw snap point (world) for projected snaps."""
+        if not self._snap_verts_on and not self._snap_other_on:
+            return None, None, None
 
         region = context.region
         rv3d = context.region_data
+
+        depsgraph = None
+        try:
+            depsgraph = context.evaluated_depsgraph_get()
+        except Exception:
+            depsgraph = None
+
         radius_sq = self._screen_snap_radius_px * self._screen_snap_radius_px
         best_d2 = radius_sq
         best_idx: int | None = None
         best_world: Vector | None = None
+        raw_snap_world: Vector | None = None
 
         if self._snap_verts_on:
             mw = self._obj.matrix_world
@@ -605,6 +777,8 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
             if bm is not None:
                 for v in bm.verts:
                     world_co = mw @ v.co
+                    if self._snap_occludes_candidate(occlusion_t, origin_w, dir_w, world_co, context):
+                        continue
                     p2 = location_3d_to_region_2d(region, rv3d, world_co)
                     if p2 is None:
                         continue
@@ -615,10 +789,13 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
                         best_d2 = d2
                         best_idx = v.index
                         best_world = world_co
+                        raw_snap_world = None
 
                 for e in bm.edges:
                     mid_local = (e.verts[0].co + e.verts[1].co) * 0.5
                     mid_w = mw @ mid_local
+                    if self._snap_occludes_candidate(occlusion_t, origin_w, dir_w, mid_w, context):
+                        continue
                     p2 = location_3d_to_region_2d(region, rv3d, mid_w)
                     if p2 is None:
                         continue
@@ -629,12 +806,9 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
                         best_d2 = d2
                         best_idx = -2
                         best_world = mid_w
+                        raw_snap_world = None
 
         if self._snap_other_on:
-            try:
-                depsgraph = context.evaluated_depsgraph_get()
-            except Exception:
-                depsgraph = None
             if depsgraph is not None:
                 for obj_inst in depsgraph.object_instances:
                     obj_eval = obj_inst.object
@@ -647,7 +821,15 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
                     if obj_orig is self._obj:
                         continue
                     try:
-                        if not obj_orig.visible_get():
+                        vl = getattr(context, 'view_layer', None)
+                        if vl is None:
+                            vis_ok = obj_orig.visible_get()
+                        else:
+                            try:
+                                vis_ok = obj_orig.visible_get(view_layer=vl)
+                            except TypeError:
+                                vis_ok = obj_orig.visible_get()
+                        if not vis_ok:
                             continue
                     except Exception:
                         pass
@@ -664,6 +846,10 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
                         continue
                     for v in verts:
                         v_world = inst_mw @ v.co
+                        if self._snap_occludes_candidate(
+                            occlusion_t, origin_w, dir_w, v_world, context
+                        ):
+                            continue
                         p2 = location_3d_to_region_2d(region, rv3d, v_world)
                         if p2 is None:
                             continue
@@ -673,10 +859,15 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
                         if d2 < best_d2:
                             best_d2 = d2
                             best_idx = -3
-                            best_world = cp.project_onto_cursor_plane(context, v_world)
+                            if self._ignore_draw_plane:
+                                best_world = v_world.copy()
+                                raw_snap_world = None
+                            else:
+                                best_world = cp.project_onto_cursor_plane(context, v_world)
+                                raw_snap_world = v_world.copy()
 
         if best_idx is None or best_world is None:
-            return None, None
+            return None, None, None
         if (
             best_idx >= 0
             and self._chain_vert_indices
@@ -685,8 +876,8 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
             and not self._ortho_on
             and self._axis_lock is None
         ):
-            return best_world, -1
-        return best_world, best_idx
+            return best_world, -1, None
+        return best_world, best_idx, raw_snap_world
 
     def _on_click(self, context) -> bool:
         """Returns True when the polyline was closed via snap sentinel (operator should exit)."""
@@ -831,6 +1022,7 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
         draw_state._draw_data.pop('draw_rubber_band', None)
         draw_state._draw_data.pop('draw_rubber_band_label', None)
         draw_state._draw_data.pop('draw_snap_ring', None)
+        draw_state._draw_data.pop('draw_snap_source_screen', None)
         draw_state._draw_data.pop('cursor_plane', None)
         try:
             draw_state.refresh_edit_mesh_px_handler(context)

@@ -6,6 +6,37 @@ from ..operators import camera_tools as _camera_tools_mod
 from ..operators.camera_tools import _camera_data_from_context, scene_persp_camera
 from .transform import selection_math as sm
 
+# Blender 5+: cannot write Scene RNA during panel draw(); defer focal mirror sync.
+_pending_focal_lens_mirror_timer = False
+
+
+def _deferred_focal_lens_mirror_sync():
+    """Apply alec_focal_lens_ui mirror outside draw context (Blender 5 restriction)."""
+    global _pending_focal_lens_mirror_timer
+    _pending_focal_lens_mirror_timer = False
+    try:
+        scene = bpy.context.scene
+        cam = scene_persp_camera(scene)
+        if cam is None:
+            return None
+        cur_lens = float(cam.data.lens)
+        mirror_lens = float(getattr(scene, "alec_focal_lens_ui", cur_lens))
+        if abs(mirror_lens - cur_lens) <= 1e-4:
+            return None
+        _camera_tools_mod._lens_sync_busy = True
+        try:
+            scene.alec_focal_lens_ui = cur_lens
+        finally:
+            _camera_tools_mod._lens_sync_busy = False
+        for window in bpy.context.window_manager.windows:
+            for area in window.screen.areas:
+                if area.type == "VIEW_3D":
+                    area.tag_redraw()
+    except Exception:
+        pass
+    return None
+
+
 _TRANSFORM_UI_DUMMY_PROPS = {
     "alec_transform_ui_dummy_loc": bpy.props.FloatVectorProperty(
         name="Location",
@@ -285,6 +316,7 @@ def _draw_object_transform(layout, context, obj):
 
 
 def _draw_camera_tools(layout, context):
+    global _pending_focal_lens_mirror_timer
     layout.use_property_split = False
     layout.use_property_decorate = False
     layout.separator()
@@ -332,6 +364,7 @@ def _draw_camera_tools(layout, context):
     row_tgt = col.row(align=True)
     row_tgt.operator("alec.camera_target_dist", text="Targ.Dist")
     row_tgt.operator("alec.camera_target_obj", text="Target.Obj")
+    row_tgt.operator("alec.camera_target_cursor", text="Target.Curs")
     row_tgt.operator(
         "alec.camera_select_track_target",
         text="",
@@ -339,17 +372,25 @@ def _draw_camera_tools(layout, context):
     )
 
     scene = context.scene
+    cam_scene = getattr(scene, "camera", None)
+    if cam_scene is not None and cam_scene.type == "CAMERA":
+        row_sp = col.row(align=True)
+        row_sp.prop(cam_scene, "alec_cam_distance", text="Dist")
+        row_sp.prop(cam_scene, "alec_cam_angle", text="Az")
+        row_sp.prop(cam_scene, "alec_cam_elevation", text="El")
+        row_sp.operator(
+            "alec.camera_rig_read_sphere",
+            text="",
+            icon="FILE_REFRESH",
+        )
+
     cam = scene_persp_camera(scene)
     if cam is not None:
-        # Sync mirror from cam.data.lens if edited elsewhere (no dolly).
         cur_lens = float(cam.data.lens)
         mirror_lens = float(getattr(scene, "alec_focal_lens_ui", cur_lens))
-        if abs(mirror_lens - cur_lens) > 1e-4:
-            _camera_tools_mod._lens_sync_busy = True
-            try:
-                scene.alec_focal_lens_ui = cur_lens
-            finally:
-                _camera_tools_mod._lens_sync_busy = False
+        if abs(mirror_lens - cur_lens) > 1e-4 and not _pending_focal_lens_mirror_timer:
+            _pending_focal_lens_mirror_timer = True
+            bpy.app.timers.register(_deferred_focal_lens_mirror_sync, first_interval=0.0)
 
     col.separator()
     focal_block = col.column(align=True)
@@ -418,6 +459,10 @@ def _draw_lights_tools(layout, context):
         )
         op.light_type = lt
 
+    row_lt_tgt = col.row(align=True)
+    row_lt_tgt.operator("alec.light_target_obj", text="Target.Obj")
+    row_lt_tgt.operator("alec.light_target_cursor", text="Target.Curs")
+
     scene = context.scene
     area_light_ok = light_data is not None and light_data.type == "AREA"
     cur_area_shape = (
@@ -431,8 +476,12 @@ def _draw_lights_tools(layout, context):
     sz = row_area.row(align=True)
     sz.ui_units_x = 12
     if area_light_ok:
+        # size_y aplică la RECTANGLE și ELLIPSE; la SQUARE / DISK e ignorat în Light data.
+        _area_uses_second_dim = cur_area_shape in {"RECTANGLE", "ELLIPSE"}
         sz.prop(light_data, "size", text="")
-        sz.prop(light_data, "size_y", text="")
+        ry = sz.row(align=True)
+        ry.enabled = _area_uses_second_dim
+        ry.prop(light_data, "size_y", text="")
     else:
         sz.prop(scene, "alec_lights_ui_dummy_area_size", text="")
         sz.prop(scene, "alec_lights_ui_dummy_area_size_y", text="")
@@ -456,6 +505,11 @@ def _draw_lights_tools(layout, context):
         row_rig.prop(obj, "alec_lt_distance", text="Dist")
         row_rig.prop(obj, "alec_lt_angle", text="Az")
         row_rig.prop(obj, "alec_lt_elevation", text="El")
+        row_rig.operator(
+            "alec.light_rig_read_sphere",
+            text="",
+            icon="FILE_REFRESH",
+        )
     else:
         row_rig.prop(scene, "alec_lights_ui_dummy_lt_distance", text="Dist")
         row_rig.prop(scene, "alec_lights_ui_dummy_lt_angle", text="Az")

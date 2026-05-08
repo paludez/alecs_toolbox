@@ -373,11 +373,13 @@ class ALEC_MT_object_menu(bpy.types.Menu):
 
         col_b = row.column()
         box_bbox = col_b.box()
-        box_bbox.label(text="BBox", icon='MESH_CUBE')
-        col_inner = box_bbox.column(align=True)
-        col_inner.operator("alec.bbox_local", text="BBox Local")
-        col_inner.operator("alec.bbox_world", text="BBox World")
-        col_inner.operator("alec.bbox_offset_modal", text="BBox Offset")
+        box_bbox.label(text="BBox", icon="MESH_CUBE")
+        row_bbox = box_bbox.row(align=True)
+        row_bbox.operator(
+            "alec.bbox_dialog",
+            text="BBox…",
+            icon="MESH_CUBE",
+        )
 
         col_a = row.column()
         box_align = col_a.box()
