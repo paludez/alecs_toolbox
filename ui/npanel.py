@@ -109,15 +109,20 @@ def _unregister_lights_ui_dummy_props() -> None:
             delattr(bpy.types.Scene, name)
 
 
-def _draw_transform_dialog_button(layout, context):
-    layout.use_property_split = False
-    layout.use_property_decorate = False
-    row = layout.row(align=True)
-    row.operator(
-        "alec.transform_dialog",
-        text="Transform",
-        icon="OBJECT_DATA",
-    )
+def _draw_transform_panel_fields(layout, context):
+    """Object.location only — same RNA as Item panel; no addon data on objects."""
+    col = layout.column()
+    col.use_property_split = True
+    col.use_property_decorate = False
+    col.separator()
+
+    obj = context.active_object if context.mode == "OBJECT" else None
+    if obj is None:
+        col.label(text="OBJECT mode — select an object.", icon="INFO")
+        return
+
+    col.label(text="Location", icon="EMPTY_AXIS")
+    col.prop(obj, "location", text="")
 
 
 def _draw_camera_tools(layout, context):
@@ -379,7 +384,7 @@ class ALEC_PT_alec_transform(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-        _draw_transform_dialog_button(layout, context)
+        _draw_transform_panel_fields(layout, context)
         _draw_camera_tools(layout, context)
         _draw_lights_tools(layout, context)
         _draw_2d_drafting(layout, context)

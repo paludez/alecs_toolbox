@@ -474,21 +474,19 @@ class ALEC_MT_object_menu(bpy.types.Menu):
         col_up = pie.column()
 
         box_parent = col_up.box()
-        box_parent.label(text="Parenting", icon='ORIENTATION_PARENT')
+        box_parent.label(text="Parenting/constraints", icon='ORIENTATION_PARENT')
         col_inner = box_parent.grid_flow(columns=2, align=True)
         safe_operator_props(
-            col_inner.operator("object.parent_set", text="Parent", icon='LINKED'),
-            type='OBJECT',
+            col_inner.operator("object.parent_no_inverse_set", text="Parent", icon='LINKED'),
             keep_transform=True,
+            confirm=False,
         )
         safe_operator_props(
-            col_inner.operator("object.parent_clear", text="Clear Parent", icon='X'),
-            type='CLEAR',
-        )
-        safe_operator_props(
-            col_inner.operator("object.parent_clear", text="Keep Tran.", icon='UNLINKED'),
+            col_inner.operator("object.parent_clear", text="Clear Parent", icon='UNLINKED'),
             type='CLEAR_KEEP_TRANSFORM',
         )
+        box_parent.separator()
+        box_parent.operator("alec.track_to_active", text="Track To", icon='CON_TRACKTO')
 
 classes = [
     ALEC_OT_viewport_show_common_types,

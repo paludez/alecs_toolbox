@@ -21,7 +21,7 @@ from . import triplanar_mapping
 from . import draw_mesh_edges
 from . import trim_extend
 from . import fillet_chamfer
-from . import transform_dialog
+from . import object_constraints
 
 classes = (
     *object_grouping.classes,
@@ -45,7 +45,7 @@ classes = (
     *draw_mesh_edges.classes,
     *trim_extend.classes,
     *fillet_chamfer.classes,
-    *transform_dialog.classes,
+    *object_constraints.classes,
 )
 
 _app_handlers = []
