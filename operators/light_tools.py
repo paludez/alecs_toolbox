@@ -7,12 +7,15 @@ from .camera_tools import _object_bbox_center_world
 
 _LIGHT_RIG_UPDATING = False
 _ALEC_LT_CON_NAME = "Alec Track Target"
+_LIGHT_TRACK_CON_TYPES_FROZEN = frozenset({"DAMPED_TRACK", "TRACK_TO"})
 
 _LIGHT_RIG_PROP_NAMES = (
     "alec_lt_distance",
     "alec_lt_angle",
     "alec_lt_elevation",
 )
+
+_ID_ALEC_LT_MANAGED_TRACK_EMPTY = "alec_lt_track_target"
 
 
 def _object_in_view_layer(obj, context) -> bool:
@@ -158,6 +161,57 @@ def _light_track_target_empty_base_name(light) -> str:
     return f"{light.name}_Target"
 
 
+_ALEC_NEW_LIGHT_RIG_EMPTY_BASE = "AlecLightTarget"
+
+
+def _tag_alec_light_track_target_empty(empty) -> None:
+    """Mark empty as created for Alec Track Target — clear uses this instead of guessing by name."""
+    if empty is not None:
+        empty[_ID_ALEC_LT_MANAGED_TRACK_EMPTY] = True
+
+
+def _is_idprop_alec_managed_light_track_target(obj) -> bool:
+    """True if this EMPTY was wired by our tools for Alec Track Target (persisted ID prop)."""
+    if obj is None or getattr(obj, "type", None) != "EMPTY":
+        return False
+    try:
+        v = obj.get(_ID_ALEC_LT_MANAGED_TRACK_EMPTY)
+    except AttributeError:
+        return False
+    return bool(v)
+
+
+def _should_delete_light_constraint_target_empty(light, tgt_obj) -> bool:
+    """Unsafe to drop every con.target EMPTY — only strips ours (tagged) or legacy name patterns."""
+    if tgt_obj is None or getattr(tgt_obj, "type", None) != "EMPTY":
+        return False
+    if _is_idprop_alec_managed_light_track_target(tgt_obj):
+        return True
+    return _is_alec_managed_light_target_empty(light, tgt_obj) or _is_alec_new_light_rig_target_empty(
+        tgt_obj
+    )
+
+
+def _is_alec_managed_light_target_empty(light, obj) -> bool:
+    """True for LightName_Target / LightName_Target.001 empties from Alec light tools."""
+    if obj is None or getattr(obj, "type", None) != "EMPTY":
+        return False
+    base = _light_track_target_empty_base_name(light)
+    if obj.name == base:
+        return True
+    return obj.name.startswith(base + ".")
+
+
+def _is_alec_new_light_rig_target_empty(obj) -> bool:
+    """True for empties named AlecLightTarget from alec.new_light_rig (incl. .001 duplicates)."""
+    if obj is None or getattr(obj, "type", None) != "EMPTY":
+        return False
+    base = _ALEC_NEW_LIGHT_RIG_EMPTY_BASE
+    if obj.name == base:
+        return True
+    return obj.name.startswith(base + ".")
+
+
 def _ensure_empty_and_light_damped_track(
     context,
     light_obj,
@@ -203,6 +257,7 @@ def _ensure_empty_and_light_damped_track(
     con.target = empty
     con.track_axis = "TRACK_NEGATIVE_Z"
     con.influence = 1.0
+    _tag_alec_light_track_target_empty(empty)
     context.view_layer.update()
     if apply_sphere_orbit:
         _apply_light_rig_props(light_obj, context)
@@ -381,7 +436,7 @@ class ALEC_OT_new_light_rig(bpy.types.Operator):
         empty = context.active_object
         if empty is None or empty.type != "EMPTY":
             return {"CANCELLED"}
-        empty.name = "AlecLightTarget"
+        empty.name = _ALEC_NEW_LIGHT_RIG_EMPTY_BASE
 
         bpy.ops.object.select_all(action="DESELECT")
         bpy.ops.object.light_add(type="AREA", align="WORLD", location=loc)
@@ -395,6 +450,8 @@ class ALEC_OT_new_light_rig(bpy.types.Operator):
         con.target = empty
         con.track_axis = "TRACK_NEGATIVE_Z"
         con.influence = 1.0
+
+        _tag_alec_light_track_target_empty(empty)
 
         light.alec_lt_distance = 3.0
         light.alec_lt_angle = 0.0
@@ -503,11 +560,89 @@ class ALEC_OT_light_rig_read_sphere(bpy.types.Operator):
         return {"FINISHED"}
 
 
+def _light_track_constraints_to_clear(light):
+    """All damped/track constraints on lamp (same types Alec orbit uses — not keyed by constraint name)."""
+    return [c for c in light.constraints if c.type in _LIGHT_TRACK_CON_TYPES_FROZEN]
+
+
+class ALEC_OT_light_clear_track_target(bpy.types.Operator):
+    """Remove track aim constraints on lamp; freeze pose; delete managed target empties."""
+
+    bl_idname = "alec.light_clear_track_target"
+    bl_label = "Clear target"
+    bl_description = (
+        "Remove every Damped Track / Track To on active lamp (not by name); transform stays put; "
+        "removes Alec-created targets (tagged) or legacy empty names LightName_Target / AlecLightTarget"
+    )
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        if context.mode != "OBJECT":
+            return False
+        obj = context.active_object
+        if obj is None or obj.type != "LIGHT":
+            return False
+        return len(_light_track_constraints_to_clear(obj)) > 0
+
+    def execute(self, context):
+        light = context.active_object
+        if light is None or light.type != "LIGHT":
+            return {"CANCELLED"}
+        to_clear = _light_track_constraints_to_clear(light)
+        if not to_clear:
+            return {"CANCELLED"}
+        uniq_targets = []
+        seen = set()
+        for con in to_clear:
+            t = getattr(con, "target", None)
+            if t is not None and t not in seen:
+                seen.add(t)
+                uniq_targets.append(t)
+
+        try:
+            context.view_layer.update()
+        except Exception:
+            pass
+
+        depsgraph = None
+        try:
+            depsgraph = context.evaluated_depsgraph_get()
+        except Exception:
+            pass
+        if depsgraph is not None:
+            try:
+                mw = light.evaluated_get(depsgraph).matrix_world.copy()
+            except ReferenceError:
+                mw = light.matrix_world.copy()
+        else:
+            mw = light.matrix_world.copy()
+
+        for con in to_clear:
+            light.constraints.remove(con)
+        light.matrix_world = mw
+
+        try:
+            context.view_layer.update()
+        except Exception:
+            pass
+
+        for tgt_obj in uniq_targets:
+            if _should_delete_light_constraint_target_empty(light, tgt_obj):
+                try:
+                    bpy.data.objects.remove(tgt_obj, do_unlink=True)
+                except Exception:
+                    pass
+
+        return {"FINISHED"}
+
+
 classes = (
     ALEC_OT_light_add,
     ALEC_OT_light_area_shape,
     ALEC_OT_new_light_rig,
     ALEC_OT_light_target_obj,
     ALEC_OT_light_target_cursor,
+    ALEC_OT_light_clear_track_target,
     ALEC_OT_light_rig_read_sphere,
 )

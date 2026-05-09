@@ -1,9 +1,13 @@
-"""N-panel Alec tab: Transform + Camera Tools + Lights Tools (același panel)."""
+"""N-panel Alec tab: Transform panel = transform + Camera Tools + Lights + 2D Drafting + Misc submenu."""
 
 import bpy
 
 from ..operators import camera_tools as _camera_tools_mod
-from ..operators.camera_tools import _camera_data_from_context, scene_persp_camera
+from ..operators.camera_tools import (
+    _camera_data_from_context,
+    camera_sphere_track_target,
+    scene_persp_camera,
+)
 from .transform import selection_math as sm
 
 # Blender 5+: cannot write Scene RNA during panel draw(); defer focal mirror sync.
@@ -366,6 +370,11 @@ def _draw_camera_tools(layout, context):
     row_tgt.operator("alec.camera_target_obj", text="Target.Obj")
     row_tgt.operator("alec.camera_target_cursor", text="Target.Curs")
     row_tgt.operator(
+        "alec.camera_clear_track_target",
+        text="",
+        icon="UNLINKED",
+    )
+    row_tgt.operator(
         "alec.camera_select_track_target",
         text="",
         icon="RESTRICT_SELECT_OFF",
@@ -374,7 +383,9 @@ def _draw_camera_tools(layout, context):
     scene = context.scene
     cam_scene = getattr(scene, "camera", None)
     if cam_scene is not None and cam_scene.type == "CAMERA":
+        orbit_ok = camera_sphere_track_target(cam_scene, context) is not None
         row_sp = col.row(align=True)
+        row_sp.enabled = orbit_ok
         row_sp.prop(cam_scene, "alec_cam_distance", text="Dist")
         row_sp.prop(cam_scene, "alec_cam_angle", text="Az")
         row_sp.prop(cam_scene, "alec_cam_elevation", text="El")
@@ -394,22 +405,25 @@ def _draw_camera_tools(layout, context):
 
     col.separator()
     focal_block = col.column(align=True)
-    focal_block.enabled = cam is not None
     row_focal = focal_block.row(align=True)
-    row_focal.prop(scene, "alec_focal_lens_ui", text="Focal mm")
+    sub_ld = row_focal.row(align=True)
+    sub_ld.enabled = cam is not None
+    sub_ld.prop(scene, "alec_focal_lens_ui", text="Focal mm")
     dolly_on = bool(scene.alec_focal_dolly_compensate)
     tgt = context.active_object
     pivot_ok = cam is not None and tgt is not None and tgt is not cam
     toggle_icon = "CON_CAMERASOLVER" if dolly_on else "CAMERA_DATA"
-    sub = row_focal.row(align=True)
-    sub.alert = bool(cam is not None and dolly_on and not pivot_ok)
-    sub.prop(
+    dolly_wrap = sub_ld.row(align=True)
+    dolly_wrap.alert = bool(cam is not None and dolly_on and not pivot_ok)
+    dolly_wrap.prop(
         scene,
         "alec_focal_dolly_compensate",
         text="",
         icon=toggle_icon,
         toggle=True,
     )
+    if cam is not None:
+        sub_ld.prop(cam.data, "shift_y", text="Y shift")
 
     col.separator()
     row_tl = col.row(align=True)
@@ -462,6 +476,11 @@ def _draw_lights_tools(layout, context):
     row_lt_tgt = col.row(align=True)
     row_lt_tgt.operator("alec.light_target_obj", text="Target.Obj")
     row_lt_tgt.operator("alec.light_target_cursor", text="Target.Curs")
+    row_lt_tgt.operator(
+        "alec.light_clear_track_target",
+        text="",
+        icon="UNLINKED",
+    )
 
     scene = context.scene
     area_light_ok = light_data is not None and light_data.type == "AREA"
@@ -531,6 +550,17 @@ def _draw_lights_tools(layout, context):
         sub.prop(scene, "alec_lights_ui_dummy_color", text="")
 
 
+def _draw_2d_drafting(layout, _context):
+    layout.use_property_split = False
+    layout.use_property_decorate = False
+    layout.separator()
+    layout.label(text="2D Drafting", icon="GREASEPENCIL")
+    col = layout.column(align=True)
+    col.operator("alec.draw_mesh_edges", text="Draw Mesh Edges", icon="GREASEPENCIL")
+    col.operator("alec.trim_extend_edges", text="Trim / Extend", icon="UV_EDGESEL")
+    col.operator("alec.fillet_edges", text="Fillet / Chamfer", icon="MOD_BEVEL")
+
+
 class ALEC_PT_alec_transform(bpy.types.Panel):
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
@@ -564,6 +594,7 @@ class ALEC_PT_alec_transform(bpy.types.Panel):
         _draw_object_transform(layout, context, obj)
         _draw_camera_tools(layout, context)
         _draw_lights_tools(layout, context)
+        _draw_2d_drafting(layout, context)
 
 
 class ALEC_PT_alec_misc(bpy.types.Panel):
@@ -606,36 +637,15 @@ class ALEC_PT_alec_misc_materials(bpy.types.Panel):
         )
 
 
-class ALEC_PT_alec_misc_modeling(bpy.types.Panel):
-    bl_space_type = "VIEW_3D"
-    bl_region_type = "UI"
-    bl_category = "Alec"
-    bl_label = "2D Drafting"
-    bl_parent_id = "ALEC_PT_alec_misc"
-
-    @classmethod
-    def poll(cls, context):
-        return context.area and context.area.type == "VIEW_3D"
-
-    def draw(self, _context):
-        layout = self.layout
-        col = layout.column(align=True)
-        col.operator("alec.draw_mesh_edges", text="Draw Mesh Edges", icon="GREASEPENCIL")
-        col.operator("alec.trim_extend_edges", text="Trim / Extend", icon="UV_EDGESEL")
-        col.operator("alec.fillet_edges", text="Fillet / Chamfer", icon="MOD_BEVEL")
-
-
 def register():
     _register_transform_ui_dummy_props()
     _register_lights_ui_dummy_props()
     bpy.utils.register_class(ALEC_PT_alec_transform)
     bpy.utils.register_class(ALEC_PT_alec_misc)
     bpy.utils.register_class(ALEC_PT_alec_misc_materials)
-    bpy.utils.register_class(ALEC_PT_alec_misc_modeling)
 
 
 def unregister():
-    bpy.utils.unregister_class(ALEC_PT_alec_misc_modeling)
     bpy.utils.unregister_class(ALEC_PT_alec_misc_materials)
     bpy.utils.unregister_class(ALEC_PT_alec_misc)
     bpy.utils.unregister_class(ALEC_PT_alec_transform)
