@@ -18,6 +18,7 @@ recovered_relative_paths.txt
 # --- VS Code & Sistem ---
 .vscode/
 *.code-workspace
+.cursorignore
 .cursor/
 .DS_Store
 Thumbs.db

@@ -109,11 +109,25 @@ def _unregister_lights_ui_dummy_props() -> None:
             delattr(bpy.types.Scene, name)
 
 
+def _draw_object_transform_item_style(col, obj):
+    """Location / rotation / scale / dimensions like Sidebar ▸ Item ▸ Transform."""
+    col.prop(obj, "location")
+    col.prop(obj, "rotation_mode")
+    if obj.rotation_mode == "QUATERNION":
+        col.prop(obj, "rotation_quaternion")
+    elif obj.rotation_mode == "AXIS_ANGLE":
+        col.prop(obj, "rotation_axis_angle")
+    else:
+        col.prop(obj, "rotation_euler")
+    col.prop(obj, "scale")
+    col.prop(obj, "dimensions")
+
+
 def _draw_transform_panel_fields(layout, context):
-    """Object.location only — same RNA as Item panel; no addon data on objects."""
+    """Object transform block like Sidebar ▸ Item ▸ Transform (split + decorate)."""
     col = layout.column()
     col.use_property_split = True
-    col.use_property_decorate = False
+    col.use_property_decorate = True
     col.separator()
 
     obj = context.active_object if context.mode == "OBJECT" else None
@@ -121,8 +135,7 @@ def _draw_transform_panel_fields(layout, context):
         col.label(text="OBJECT mode — select an object.", icon="INFO")
         return
 
-    col.label(text="Location", icon="EMPTY_AXIS")
-    col.prop(obj, "location", text="")
+    _draw_object_transform_item_style(col, obj)
 
 
 def _draw_camera_tools(layout, context):
