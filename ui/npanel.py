@@ -9,37 +9,6 @@ from ..operators.camera_tools import (
     scene_persp_camera,
 )
 
-# Blender 5+: cannot write Scene RNA during panel draw(); defer focal mirror sync.
-_pending_focal_lens_mirror_timer = False
-
-
-def _deferred_focal_lens_mirror_sync():
-    """Apply alec_focal_lens_ui mirror outside draw context (Blender 5 restriction)."""
-    global _pending_focal_lens_mirror_timer
-    _pending_focal_lens_mirror_timer = False
-    try:
-        scene = bpy.context.scene
-        cam = scene_persp_camera(scene)
-        if cam is None:
-            return None
-        cur_lens = float(cam.data.lens)
-        mirror_lens = float(getattr(scene, "alec_focal_lens_ui", cur_lens))
-        if abs(mirror_lens - cur_lens) <= 1e-4:
-            return None
-        _camera_tools_mod._lens_sync_busy = True
-        try:
-            scene.alec_focal_lens_ui = cur_lens
-        finally:
-            _camera_tools_mod._lens_sync_busy = False
-        for window in bpy.context.window_manager.windows:
-            for area in window.screen.areas:
-                if area.type == "VIEW_3D":
-                    area.tag_redraw()
-    except Exception:
-        pass
-    return None
-
-
 _LIGHTS_UI_DUMMY_PROPS = {
     "alec_lights_ui_dummy_energy": bpy.props.FloatProperty(
         name="Energy",
@@ -109,13 +78,22 @@ def _unregister_lights_ui_dummy_props() -> None:
             delattr(bpy.types.Scene, name)
 
 
-def _draw_object_transform_item_style(col, obj):
-    """Location / rotation / scale cu icoane in loc de label."""
+def _draw_transform_panel_fields(layout, context):
+    """Object transform block like Sidebar ▸ Item ▸ Transform (split + decorate)."""
+    col = layout.column()
+    col.use_property_split = True
+    col.use_property_decorate = True
+
+    obj = context.active_object if context.mode == "OBJECT" else None
+    if obj is None:
+        col.label(text="OBJECT mode — select an object.", icon="INFO")
+        return
+
+# transform row
     row = col.row(align=True)
     row.label(text="", icon="OBJECT_ORIGIN")
     row.prop(obj, "location", text="")
 
-    row = col.row(align=True)
     row.label(text="", icon="DRIVER_ROTATIONAL_DIFFERENCE")
     if obj.rotation_mode == "QUATERNION":
         row.prop(obj, "rotation_quaternion", text="")
@@ -136,27 +114,21 @@ def _draw_object_transform_item_style(col, obj):
     r.label(text="", icon="ARROW_LEFTRIGHT")
     r.prop(obj, "dimensions", text="")
 
+    # cursor row
+    layout.separator()
+    layout.label(text="Cursor Transform", icon="PIVOT_CURSOR")
+    col2 = layout.column(align=True)
+    cursor = context.scene.cursor
+    row = col2.row(align=True)
+    row.label(text="", icon="OBJECT_ORIGIN")
+    row.prop(cursor, "location", text="")
+    row = col2.row(align=True)
+    row.label(text="", icon="DRIVER_ROTATIONAL_DIFFERENCE")
+    row.prop(cursor, "rotation_euler", text="")
 
-def _draw_transform_panel_fields(layout, context):
-    """Object transform block like Sidebar ▸ Item ▸ Transform (split + decorate)."""
-    col = layout.column()
-    col.use_property_split = True
-    col.use_property_decorate = True
-    col.separator()
-
-    obj = context.active_object if context.mode == "OBJECT" else None
-    if obj is None:
-        col.label(text="OBJECT mode — select an object.", icon="INFO")
-        return
-
-    _draw_object_transform_item_style(col, obj)
 
 
 def _draw_camera_tools(layout, context):
-    global _pending_focal_lens_mirror_timer
-    layout.use_property_split = False
-    layout.use_property_decorate = False
-    layout.separator()
     layout.label(text="Camera Tools", icon="CAMERA_DATA")
     col = layout.column(align=True)
     col.use_property_split = False
@@ -229,12 +201,6 @@ def _draw_camera_tools(layout, context):
         )
 
     cam = scene_persp_camera(scene)
-    if cam is not None:
-        cur_lens = float(cam.data.lens)
-        mirror_lens = float(getattr(scene, "alec_focal_lens_ui", cur_lens))
-        if abs(mirror_lens - cur_lens) > 1e-4 and not _pending_focal_lens_mirror_timer:
-            _pending_focal_lens_mirror_timer = True
-            bpy.app.timers.register(_deferred_focal_lens_mirror_sync, first_interval=0.0)
 
     col.separator()
     focal_block = col.column(align=True)
@@ -276,9 +242,6 @@ def _draw_camera_tools(layout, context):
 
 
 def _draw_lights_tools(layout, context):
-    layout.use_property_split = False
-    layout.use_property_decorate = False
-    layout.separator()
     layout.label(text="Lights Tools", icon="LIGHT_DATA")
     col = layout.column(align=True)
     col.use_property_split = False
@@ -384,9 +347,6 @@ def _draw_lights_tools(layout, context):
 
 
 def _draw_2d_drafting(layout, _context):
-    layout.use_property_split = False
-    layout.use_property_decorate = False
-    layout.separator()
     layout.label(text="2D Drafting", icon="GREASEPENCIL")
     col = layout.column(align=True)
     col.operator("alec.draw_mesh_edges", text="Draw Mesh Edges", icon="GREASEPENCIL")
@@ -394,11 +354,11 @@ def _draw_2d_drafting(layout, _context):
     col.operator("alec.fillet_edges", text="Fillet / Chamfer", icon="MOD_BEVEL")
 
 
-class ALEC_PT_alec_transform(bpy.types.Panel):
+class ALEC_PT_npanelMain(bpy.types.Panel):
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "Alec"
-    bl_label = "Tools"
+    bl_label = ""
 
     @classmethod
     def poll(cls, context):
@@ -459,7 +419,7 @@ class ALEC_PT_alec_misc_materials(bpy.types.Panel):
 
 def register():
     _register_lights_ui_dummy_props()
-    bpy.utils.register_class(ALEC_PT_alec_transform)
+    bpy.utils.register_class(ALEC_PT_npanelMain)
     bpy.utils.register_class(ALEC_PT_alec_misc)
     bpy.utils.register_class(ALEC_PT_alec_misc_materials)
 
@@ -467,5 +427,5 @@ def register():
 def unregister():
     bpy.utils.unregister_class(ALEC_PT_alec_misc_materials)
     bpy.utils.unregister_class(ALEC_PT_alec_misc)
-    bpy.utils.unregister_class(ALEC_PT_alec_transform)
+    bpy.utils.unregister_class(ALEC_PT_npanelMain)
     _unregister_lights_ui_dummy_props()
