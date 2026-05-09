@@ -11,7 +11,7 @@ from bpy_extras.view3d_utils import (
 from ..modules import edit_mesh_draw_state as draw_state
 from ..modules import cursor_plane as cp
 from ..modules import modal_handler
-from ..ui.transform.selection_math import _orientation_matrix_world
+from ..modules.transform_orientation import orientation_matrix_world
 
 
 class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
@@ -510,7 +510,7 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
         if prev_world is None:
             return None
         try:
-            O = _orientation_matrix_world(context, self._obj)
+            O = orientation_matrix_world(context, self._obj)
             col = {'X': 0, 'Y': 1, 'Z': 2}[self._axis_lock]
             axis = Vector((O[0][col], O[1][col], O[2][col]))
             if axis.length_squared < 1e-12:
@@ -635,7 +635,7 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
         locked_axis: str | None = None,
     ) -> Vector | None:
         try:
-            O = _orientation_matrix_world(context, self._obj)
+            O = orientation_matrix_world(context, self._obj)
         except Exception:
             return None
         delta = target_world - prev_world

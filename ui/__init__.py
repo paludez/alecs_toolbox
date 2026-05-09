@@ -1,9 +1,6 @@
-from . import transform
-
-
 def register():
-    transform.register()
+    pass
 
 
 def unregister():
-    transform.unregister()
+    pass
