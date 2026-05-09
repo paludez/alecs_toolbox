@@ -110,17 +110,31 @@ def _unregister_lights_ui_dummy_props() -> None:
 
 
 def _draw_object_transform_item_style(col, obj):
-    """Location / rotation / scale / dimensions like Sidebar ▸ Item ▸ Transform."""
-    col.prop(obj, "location")
-    col.prop(obj, "rotation_mode")
+    """Location / rotation / scale cu icoane in loc de label."""
+    row = col.row(align=True)
+    row.label(text="", icon="OBJECT_ORIGIN")
+    row.prop(obj, "location", text="")
+
+    row = col.row(align=True)
+    row.label(text="", icon="DRIVER_ROTATIONAL_DIFFERENCE")
     if obj.rotation_mode == "QUATERNION":
-        col.prop(obj, "rotation_quaternion")
+        row.prop(obj, "rotation_quaternion", text="")
     elif obj.rotation_mode == "AXIS_ANGLE":
-        col.prop(obj, "rotation_axis_angle")
+        row.prop(obj, "rotation_axis_angle", text="")
     else:
-        col.prop(obj, "rotation_euler")
-    col.prop(obj, "scale")
-    col.prop(obj, "dimensions")
+        row.prop(obj, "rotation_euler", text="")
+
+    row = col.row(align=True)
+    left = row.column(align=True)
+    right = row.column(align=True)
+
+    r = left.row(align=True)
+    r.label(text="", icon="FULLSCREEN_ENTER")
+    r.prop(obj, "scale", text="")
+
+    r = right.row(align=True)
+    r.label(text="", icon="ARROW_LEFTRIGHT")
+    r.prop(obj, "dimensions", text="")
 
 
 def _draw_transform_panel_fields(layout, context):
