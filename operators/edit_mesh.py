@@ -1459,7 +1459,7 @@ class ALEC_OT_scale_object_to_edge_length(bpy.types.Operator):
         return {'FINISHED'}
 
 
-classes = [
+classes = (
     ALEC_OT_set_edge_length,
     ALEC_OT_scale_object_to_edge_length,
     ALEC_OT_equalize_edge_lengths,
@@ -1474,4 +1474,4 @@ classes = [
     ALEC_OT_clean_mesh,
     ALEC_OT_extract_and_solidify,
     ALEC_OT_select_similar_face_material,
-]
+)

@@ -311,9 +311,9 @@ class ALEC_OT_bbox_dialog(bpy.types.Operator):
         return {"FINISHED"}
 
 
-classes = [
+classes = (
     ALEC_OT_bbox_offset_modal,
     ALEC_OT_bbox_local,
     ALEC_OT_bbox_world,
     ALEC_OT_bbox_dialog,
-]
+)

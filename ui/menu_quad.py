@@ -1,5 +1,3 @@
-"""3D View quad pie menu (Alt+Right Click) — ALEC_MT_quad_menu."""
-
 import bpy
 from ..modules.utils import draw_hidden_coll_toggle, safe_operator_props
 
@@ -10,7 +8,6 @@ class ALEC_MT_quad_menu(bpy.types.Menu):
 
     def draw(self, context):
         pie = self.layout.menu_pie()
-        # Ordine pie (4 felii): Stânga | Dreapta | Jos | Sus
         # 1) Left  : Viewport | Align View (+ rotate ±90°)
         # 2) Right : Pivot + Orientation + Snap
         # 3) Bottom: Cursor + Origin
@@ -34,42 +31,21 @@ class ALEC_MT_quad_menu(bpy.types.Menu):
 
         col_rot = row_lv.column()
         box_rot = col_rot.box()
+
         box_rot.label(text="Align View", icon='VIEW_PERSPECTIVE')
-        grid_align = box_rot.grid_flow(columns=2, align=True, even_columns=True)
-        for axis_type, label in (
-            ("TOP", "Top"),
-            ("BOTTOM", "Bottom"),
-            ("FRONT", "Front"),
-            ("BACK", "Back"),
-            ("RIGHT", "Right"),
-            ("LEFT", "Left"),
-        ):
-            safe_operator_props(
-                grid_align.operator("view3d.view_axis", text=label),
-                align_active=True,
-                type=axis_type,
-            )
+        grid_rot = box_rot.grid_flow(columns=3, align=True, even_columns=True)
+        for axis_type in ("TOP", "FRONT", "RIGHT"):
+            grid_rot.operator("alec.view_axis_smart", text=axis_type.capitalize()).axis = axis_type
 
         box_rot.separator(factor=0.5)
-        box_rot.label(text="Rotate ±90°", icon='DRIVER_ROTATIONAL_DIFFERENCE')
-        col_rot_btns = box_rot.column(align=True)
-        prev_rot_ctx = col_rot_btns.operator_context
-        col_rot_btns.operator_context = 'EXEC_DEFAULT'
-        for axis in ('X', 'Y', 'Z'):
-            row_ax = col_rot_btns.row(align=True)
-            op_m = row_ax.operator(
-                "alec.selection_rotate_axis_90",
-                text=f"-90 {axis}",
-            )
-            op_m.axis = axis
-            op_m.angle_degrees = -90.0
-            op_p = row_ax.operator(
-                "alec.selection_rotate_axis_90",
-                text=f"+90 {axis}",
-            )
-            op_p.axis = axis
-            op_p.angle_degrees = 90.0
-        col_rot_btns.operator_context = prev_rot_ctx
+
+        box_rot.separator(factor=0.5)
+        box_rot.label(text="Rotate", icon='DRIVER_ROTATIONAL_DIFFERENCE')
+        row_rot = box_rot.row(align=True)
+        row_rot.operator("alec.selection_rotate_presets", text="45°").angle_degrees = 45.0
+        row_rot.operator("alec.selection_rotate_presets", text="90°").angle_degrees = 90.0
+        row_rot.operator("alec.selection_rotate_presets", text="180°").angle_degrees = 180.0
+        box_rot.separator(factor=0.5)
 
         # --- Slice 2 (Right): Pivot Point ---
         col_right = pie.column()

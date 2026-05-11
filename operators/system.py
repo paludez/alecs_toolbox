@@ -310,7 +310,7 @@ class ALEC_OT_open_alec_panel(bpy.types.Operator):
         return {"FINISHED"}
 
 
-classes = [
+classes = (
     ALEC_OT_menu_dispatcher,
     ALEC_OT_set_area_view3d_under_mouse,
     ALEC_OT_set_area_shader_under_mouse,
@@ -319,4 +319,4 @@ classes = [
     ALEC_OT_toggle_global_local_orientation,
     ALEC_OT_view_selected_safe,
     ALEC_OT_open_alec_panel,
-]
+)

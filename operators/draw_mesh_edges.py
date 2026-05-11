@@ -1055,6 +1055,6 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
                 pass
 
 
-classes = [
+classes = (
     ALEC_OT_draw_mesh_edges,
-]
+)

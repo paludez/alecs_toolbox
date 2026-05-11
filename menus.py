@@ -5,43 +5,8 @@ from .ui.menu_quad import ALEC_MT_quad_menu
 from .modules.utils import draw_hidden_coll_toggle, safe_operator_props
 
 
-def _shader_add_node(layout, text, icon, node_type: str):
-    """node.add_node: type/use_transform are not valid UILayout.operator() kwargs in Blender 5."""
-    safe_operator_props(
-        layout.operator("node.add_node", text=text, icon=icon),
-        type=node_type,
-        use_transform=True,
-    )
-
-
 # Insert between tuples in _SHADER_EDIT_PIE_NODES_* for a horizontal rule in the pie slice.
 _SHADER_PIE_SEP = object()
-
-
-def _shader_add_node_pairs(parent, entries):
-    col = parent.column(align=True)
-    n = len(entries)
-    i = 0
-    while i < n:
-        entry = entries[i]
-        if entry is _SHADER_PIE_SEP:
-            col.separator()
-            i += 1
-            continue
-        if i + 1 < n and entries[i + 1] is not _SHADER_PIE_SEP:
-            split = col.split(factor=0.5, align=True)
-            c0 = split.column(align=True)
-            c1 = split.column(align=True)
-            label, icon, node_id = entries[i]
-            label2, icon2, node_id2 = entries[i + 1]
-            _shader_add_node(c0, label, icon, node_id)
-            _shader_add_node(c1, label2, icon2, node_id2)
-            i += 2
-        else:
-            label, icon, node_id = entries[i]
-            _shader_add_node(col, label, icon, node_id)
-            i += 1
-
 
 # Shader Editor pie: four slices (Left/Right/Bottom/Top) — direct buttons, no submenus.
 _SHADER_EDIT_PIE_NODES_NORMAL = (
@@ -90,6 +55,40 @@ _SHADER_EDIT_PIE_NODES_UTILS = (
     ("Comb Color", "COLOR", "ShaderNodeCombineColor"),
 
 )
+
+
+def _shader_add_node(layout, text, icon, node_type: str):
+    """node.add_node: type/use_transform are not valid UILayout.operator() kwargs in Blender 5."""
+    safe_operator_props(
+        layout.operator("node.add_node", text=text, icon=icon),
+        type=node_type,
+        use_transform=True,
+    )
+
+
+def _shader_add_node_pairs(parent, entries):
+    col = parent.column(align=True)
+    n = len(entries)
+    i = 0
+    while i < n:
+        entry = entries[i]
+        if entry is _SHADER_PIE_SEP:
+            col.separator()
+            i += 1
+            continue
+        if i + 1 < n and entries[i + 1] is not _SHADER_PIE_SEP:
+            split = col.split(factor=0.5, align=True)
+            c0 = split.column(align=True)
+            c1 = split.column(align=True)
+            label, icon, node_id = entries[i]
+            label2, icon2, node_id2 = entries[i + 1]
+            _shader_add_node(c0, label, icon, node_id)
+            _shader_add_node(c1, label2, icon2, node_id2)
+            i += 2
+        else:
+            label, icon, node_id = entries[i]
+            _shader_add_node(col, label, icon, node_id)
+            i += 1
 
 
 class ALEC_OT_viewport_show_common_types(bpy.types.Operator):

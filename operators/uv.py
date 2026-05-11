@@ -135,7 +135,7 @@ class ALEC_OT_square_pixels(bpy.types.Operator):
             
         return {'FINISHED'}
 
-classes = [
+classes = ( 
     ALEC_OT_load_material_image,
     ALEC_OT_square_pixels,
-]
+)

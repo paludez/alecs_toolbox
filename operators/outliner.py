@@ -219,9 +219,9 @@ class ALEC_OT_delete_empty_collections(bpy.types.Operator):
         return {'FINISHED'}
 
 
-classes = [
+classes = (
     ALEC_OT_rename_data_to_object_name,
     ALEC_OT_hidden_collection_visibility,
     ALEC_OT_move_to_hidden_obj,
     ALEC_OT_delete_empty_collections,
-]
+)

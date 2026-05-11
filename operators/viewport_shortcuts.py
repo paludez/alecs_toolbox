@@ -1,6 +1,7 @@
 """Viewport display toggles bound from shortcuts (F3 / F4 / F5)."""
 
 import bpy
+import math
 from ..modules.modal_handler import ModalNumberInput
 
 # Per 3D View area: saved shading when F3 wireframe+xray mode is active.
@@ -319,6 +320,89 @@ class ALEC_OT_toggle_mesh_bounds_textured(bpy.types.Operator):
             obj.display_type = target
         return {"FINISHED"}
 
+class ALEC_OT_view_axis_smart(bpy.types.Operator):
+    """View axis — Alt for opposite side (Top/Bottom, Front/Back, Right/Left)"""
+    bl_idname = "alec.view_axis_smart"
+    bl_label = "View Axis Smart"
+    bl_options = {'REGISTER'}
+
+    axis: bpy.props.StringProperty()
+
+    def invoke(self, context, event):
+        axis = self.axis
+        if event.alt:
+            axis = {"TOP": "BOTTOM", "FRONT": "BACK", "RIGHT": "LEFT"}[axis]
+        bpy.ops.view3d.view_axis(type=axis, align_active=True)
+        return {'FINISHED'}
+
+class ALEC_OT_selection_rotate_presets(bpy.types.Operator):
+    """Rotate selection — X/Y/Z for axis, move mouse for direction/angle preview, click to confirm, ESC to cancel."""
+    bl_idname = "alec.selection_rotate_presets"
+    bl_label = "Rotate Selection"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    angle_degrees: bpy.props.FloatProperty(default=90.0)
+
+    _start_x: int = 0
+    _axis: str = 'Z'
+    _last_angle: float = 0.0
+
+    @classmethod
+    def poll(cls, context):
+        mode = context.mode
+        if mode == 'OBJECT':
+            return bool(context.selected_objects)
+        if mode in {'EDIT_MESH', 'EDIT_CURVE', 'EDIT_CURVES'}:
+            return context.edit_object is not None
+        return False
+
+    def _apply_rotation(self, angle_deg):
+        try:
+            bpy.ops.transform.rotate(
+                value=math.radians(angle_deg),
+                orient_axis=self._axis,
+                orient_type='LOCAL',
+            )
+        except RuntimeError:
+            pass
+
+    def _cancel_last(self):
+        if abs(self._last_angle) > 1e-6:
+            self._apply_rotation(-self._last_angle)
+            self._last_angle = 0.0
+
+    def invoke(self, context, event):
+        self._start_x = event.mouse_x
+        self._axis = None
+        self._last_angle = 0.0
+        context.window_manager.modal_handler_add(self)
+        return {'RUNNING_MODAL'}
+
+    def modal(self, context, event):
+        if event.type in {'X', 'Y', 'Z'} and event.value == 'PRESS':
+            self._cancel_last()
+            self._axis = event.type
+            self._start_x = event.mouse_x
+
+        elif event.type == 'MOUSEMOVE':
+            if self._axis is None:
+                return {'RUNNING_MODAL'}
+            delta = event.mouse_x - self._start_x
+            direction = 1.0 if delta >= 0 else -1.0
+            new_angle = direction * self.angle_degrees
+            if abs(new_angle - self._last_angle) > 1e-6:
+                self._cancel_last()
+                self._apply_rotation(new_angle)
+                self._last_angle = new_angle
+
+        elif event.type == 'LEFTMOUSE' and event.value == 'PRESS':
+            return {'FINISHED'}
+
+        elif event.type in {'RIGHTMOUSE', 'ESC'} and event.value == 'PRESS':
+            self._cancel_last()
+            return {'CANCELLED'}
+
+        return {'RUNNING_MODAL'}
 
 classes = (
     ALEC_OT_viewport_toggle_wireframe_xray,
@@ -328,4 +412,6 @@ classes = (
     ALEC_OT_light_energy_modal,
     ALEC_OT_toggle_mesh_wire_textured,
     ALEC_OT_toggle_mesh_bounds_textured,
+    ALEC_OT_view_axis_smart,
+    ALEC_OT_selection_rotate_presets,
 )

@@ -273,11 +273,11 @@ class ALEC_OT_material_linker(bpy.types.Operator):
     def execute(self, context):
         return {'FINISHED'}
 
-classes = [
+classes = (
     ALEC_OT_assign_gray_material,
     ALEC_OT_remove_orphan_materials,
     ALEC_OT_select_material_users,
     ALEC_OT_modify_material_slot,
     ALEC_OT_material_apply_operation,
     ALEC_OT_material_linker,
-]
+)

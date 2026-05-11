@@ -778,7 +778,7 @@ class ALEC_OT_distribute_objects_dialog(bpy.types.Operator):
         return {"FINISHED"}
 
 
-classes = [
+classes = (
     ALEC_OT_align_dialog,
     ALEC_OT_align_preset_centers,
     ALEC_OT_align_preset_origins,
@@ -786,4 +786,4 @@ classes = [
     ALEC_OT_quick_center_rot,
     ALEC_OT_quick_pivot_rot,
     ALEC_OT_distribute_objects_dialog,
-]
+)  

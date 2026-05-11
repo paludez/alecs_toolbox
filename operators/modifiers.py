@@ -383,7 +383,7 @@ class ALEC_OT_bake_mesh_hide_source(bpy.types.Operator):
         return {'FINISHED'}
 
 
-classes = [
+classes = (
     ALEC_OT_boolean_op,
     ALEC_OT_slice_boolean,
     ALEC_OT_mirror_control,
@@ -392,4 +392,4 @@ classes = [
     ALEC_OT_bevel_weight_modal,
     ALEC_OT_modifier_action,
     ALEC_OT_bake_mesh_hide_source,
-]
+)
