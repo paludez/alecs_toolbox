@@ -1,5 +1,6 @@
 import bpy
 from ..modules.modal_handler import BaseModalOperator
+from ..modules import status_bar
 from ..modules.utils import unit_suffixes, move_to_collection, switch_to_modifier_tab
 from .outliner import get_boolean_collection, get_hidden_sources_collection
 
@@ -143,6 +144,7 @@ class ALEC_OT_mirror_control(BaseModalOperator, bpy.types.Operator):
         if event.type in self.axes and event.value == 'PRESS':
             self.number_input.reset()
             self.axis_idx = self.axes.index(event.type)
+            status_bar.show_toggle_notice("Axis", event.type)
             self.mod.use_axis = [i == self.axis_idx for i in range(3)]
             delta_x = event.mouse_x - self.initial_mouse_x
             self.empty.location = self.initial_loc.copy()

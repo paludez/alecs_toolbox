@@ -214,24 +214,28 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
 
         if event.type in {'LEFT_SHIFT', 'RIGHT_SHIFT'} and event.value == 'PRESS':
             self._ortho_on = not self._ortho_on
+            status_bar.show_toggle_notice("Ortho", "ON" if self._ortho_on else "OFF")
             self._set_status(context)
             self._refresh_preview(context)
             return {'RUNNING_MODAL'}
 
         if event.type == 'V' and event.value == 'PRESS':
             self._snap_verts_on = not self._snap_verts_on
+            status_bar.show_toggle_notice("Obj Snap", "ON" if self._snap_verts_on else "OFF")
             self._set_status(context)
             self._refresh_preview(context)
             return {'RUNNING_MODAL'}
 
         if event.type == 'W' and event.value == 'PRESS':
             self._snap_other_on = not self._snap_other_on
+            status_bar.show_toggle_notice("World Snap", "ON" if self._snap_other_on else "OFF")
             self._set_status(context)
             self._refresh_preview(context)
             return {'RUNNING_MODAL'}
 
         if event.type == 'Q' and event.value == 'PRESS':
             self._ignore_draw_plane = not self._ignore_draw_plane
+            status_bar.show_toggle_notice("Draw", "3D" if self._ignore_draw_plane else "Plane")
             self._update_cursor_plane_visual(context)
             self._set_status(context)
             self._refresh_preview(context)
@@ -241,8 +245,10 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
             key = event.type
             if self._axis_lock == key:
                 self._axis_lock = None
+                status_bar.show_toggle_notice("Axis", "off")
             else:
                 self._axis_lock = key
+                status_bar.show_toggle_notice("Axis", key)
             self._set_status(context)
             self._refresh_preview(context)
             return {'RUNNING_MODAL'}

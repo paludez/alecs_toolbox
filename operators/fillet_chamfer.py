@@ -906,6 +906,7 @@ class ALEC_OT_fillet_edges(bpy.types.Operator):
                     self._segments = min(32, self._segments + 1)
                 else:
                     self._segments = max(1, self._segments - 1)
+                status_bar.show_toggle_notice("Seg", str(self._segments))
                 self._refresh_ui(context)
                 if context.area is not None:
                     context.area.tag_redraw()

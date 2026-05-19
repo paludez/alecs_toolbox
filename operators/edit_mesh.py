@@ -2,7 +2,7 @@ import bpy
 import bmesh
 import math
 from mathutils import Matrix, Vector
-from ..modules import modal_handler, utils
+from ..modules import modal_handler, status_bar, utils
 from ..modules import edit_mesh_draw_state as draw_state
 from ..modules import edit_mesh_helpers as emh
 from ..modules import edit_curve_helpers as ech
@@ -143,10 +143,13 @@ class ALEC_OT_set_edge_length(modal_handler.BaseModalOperator, bpy.types.Operato
 
             if event.type == 'A':
                 self.anchor_mode = 'ACTIVE'
+                status_bar.show_toggle_notice("Anchor", "Active")
             elif event.type == 'B':
                 self.anchor_mode = 'OTHER'
+                status_bar.show_toggle_notice("Anchor", "Other")
             elif event.type == 'C':
                 self.anchor_mode = 'CENTER'
+                status_bar.show_toggle_notice("Anchor", "Center")
             bmesh.update_edit_mesh(self.me)
 
     def on_apply_typed_value(self, context, event):

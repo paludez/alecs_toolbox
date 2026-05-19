@@ -144,10 +144,13 @@ class ALEC_OT_set_curve_point_length(modal_handler.BaseModalOperator, bpy.types.
             self.number_input.reset()
             if event.type == 'A':
                 self.anchor_mode = 'ACTIVE'
+                status_bar.show_toggle_notice("Anchor", "Active")
             elif event.type == 'B':
                 self.anchor_mode = 'OTHER'
+                status_bar.show_toggle_notice("Anchor", "Other")
             elif event.type == 'C':
                 self.anchor_mode = 'CENTER'
+                status_bar.show_toggle_notice("Anchor", "Center")
             self.me.update_tag()
             self.obj.update_from_editmode()
 

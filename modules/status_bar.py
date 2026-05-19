@@ -6,6 +6,8 @@ from typing import Sequence
 
 import bpy
 
+_TOGGLE_NOTICE_DURATION = 0.8
+
 
 def set_message(context, text: str | None) -> None:
     try:
@@ -16,6 +18,13 @@ def set_message(context, text: str | None) -> None:
 
 def clear_message(context) -> None:
     set_message(context, None)
+
+
+def show_toggle_notice(label: str, state: str, *, duration: float = _TOGGLE_NOTICE_DURATION) -> None:
+    """Short viewport toast when a modal mode toggles (not for confirm/cancel)."""
+    from . import notice_overlay
+
+    notice_overlay.show_notice(f"{label}: {state}", duration=duration, allcaps=False)
 
 
 def draw_shortcuts(layout, items: Sequence) -> None:

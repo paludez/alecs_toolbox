@@ -3,6 +3,7 @@
 import bpy
 import math
 from ..modules.modal_handler import ModalNumberInput
+from ..modules import status_bar
 from ..modules import viewport_header
 
 # Per 3D View area: saved shading when F3 wireframe+xray mode is active.
@@ -17,6 +18,20 @@ def _view3d_space(context):
     if space is None or getattr(space, "type", None) != "VIEW_3D":
         return None
     return space
+
+
+def _value_modal_subject(context):
+    """(LIGHT|EMPTY|CAMERA, active_object) for Alt+W, or (None, None). Active only."""
+    active = context.active_object
+    if active is None:
+        return None, None
+    if active.type == "LIGHT" and getattr(active, "data", None):
+        return "LIGHT", active
+    if active.type == "EMPTY":
+        return "EMPTY", active
+    if active.type == "CAMERA" and getattr(active, "data", None):
+        return "CAMERA", active
+    return None, None
 
 
 def _space_view3d_for_shading(context):
@@ -140,9 +155,10 @@ class ALEC_OT_light_energy_modal(bpy.types.Operator):
     """Adjust selected Light energy, Empty size, or Camera focal length"""
 
     bl_idname = "alec.light_energy_modal"
-    bl_label = "Light Energy Drag"
+    bl_label = "Adjust Light / Camera / Empty"
     bl_options = {"REGISTER", "UNDO", "BLOCKING"}
 
+    _active_instance = None
     _light_names = None
     _start_energy = None
     _start_mouse_y = 0
@@ -151,11 +167,36 @@ class ALEC_OT_light_energy_modal(bpy.types.Operator):
     _typed_base = 0.0
     _number_input = None
     _mode = "LIGHT"
+    _modifiers_shift = False
+    _modifiers_ctrl = False
+
+    @classmethod
+    def draw_status_bar(cls, panel_self, context):
+        inst = cls._active_instance
+        if inst is None:
+            return
+        status_bar.draw_shortcuts(panel_self.layout, inst.get_status_bar_items())
+
+    def get_status_bar_items(self):
+        return [
+            ("Fine", "[Shift]", self._modifiers_shift),
+            ("Fast", "[Ctrl]", self._modifiers_ctrl),
+            None,
+            ("Confirm", "[LMB]"),
+            ("Cancel", "[RMB]"),
+        ]
+
+    def _header_label(self) -> str:
+        if self._mode == "EMPTY":
+            return "Empty Size"
+        if self._mode == "CAMERA":
+            return "Focal Length"
+        return "Light Energy"
 
     @classmethod
     def poll(cls, context):
-        obj = context.active_object
-        return bool(obj and obj.type in {"LIGHT", "EMPTY", "CAMERA"})
+        _mode, obj = _value_modal_subject(context)
+        return obj is not None
 
     def _iter_lights(self):
         for name in self._light_names or []:
@@ -188,65 +229,82 @@ class ALEC_OT_light_energy_modal(bpy.types.Operator):
         for obj in self._iter_lights():
             self._set_obj_value(obj, value)
 
+    def _sync_modifiers(self, event) -> None:
+        self._modifiers_shift = bool(event.shift)
+        self._modifiers_ctrl = bool(event.ctrl)
+
     def _update_header(self, context):
         if not context.area:
             return
-        if self._mode == "EMPTY":
-            label = "Empty Size"
-        elif self._mode == "CAMERA":
-            label = "Focal Length"
-        else:
-            label = "Light Energy"
+        current = 0.0
+        for name in self._light_names or []:
+            obj = bpy.data.objects.get(name)
+            if obj is not None and obj.type == self._mode:
+                current = self._get_obj_value(obj)
+                break
+        suffix = " mm" if self._mode == "CAMERA" else ""
         typed = self._number_input.value_str if self._number_input else ""
-        if typed:
-            text = f"{label}: {typed} | Drag X | Shift=fine | Ctrl=fast | LMB/Enter=Confirm | RMB/Esc=Cancel"
-        else:
-            active = context.active_object
-            current = 0.0
-            if active and active.type == self._mode:
-                if self._mode == "EMPTY":
-                    current = float(active.empty_display_size)
-                elif self._mode == "CAMERA" and getattr(active, "data", None):
-                    current = float(active.data.lens)
-                elif getattr(active, "data", None):
-                    current = float(active.data.energy)
-            suffix = " mm" if self._mode == "CAMERA" else ""
-            text = f"{label}: {current:.3f}{suffix} | Drag X | Type value | LMB/Enter=Confirm | RMB/Esc=Cancel"
-        viewport_header.set(context, text)
+        viewport_header.set_numeric(
+            context,
+            main_label=self._header_label(),
+            main_value=current,
+            typed_str=typed,
+            suffix=suffix,
+            initial_value=self._typed_base,
+            precision=3,
+        )
+
+    def _modal_cleanup(self, context) -> None:
+        self.__class__._active_instance = None
+        status_bar.clear_all(context, self.__class__)
 
     def invoke(self, context, event):
-        active = context.active_object
-        if not active or active.type not in {"LIGHT", "EMPTY", "CAMERA"}:
-            self.report({"WARNING"}, "Active selection must be Light, Empty or Camera")
+        mode, obj = _value_modal_subject(context)
+        if obj is None:
+            self.report({"WARNING"}, "Active object must be a Light, Empty, or Camera")
             return {"CANCELLED"}
 
-        self._mode = active.type
-        selected_lights = [o for o in context.selected_objects if o.type == self._mode]
-        lights = selected_lights or [active]
-
-        self._light_names = [o.name for o in lights]
-        self._start_energy = {o.name: self._get_obj_value(o) for o in lights}
+        self._mode = mode
+        self._light_names = [obj.name]
+        self._start_energy = {obj.name: self._get_obj_value(obj)}
         self._start_mouse_x = event.mouse_x
         self._start_mouse_y = event.mouse_y
-        self._base_ref = max(max(self._start_energy.values(), default=1.0), 0.1)
-        self._typed_base = self._get_obj_value(active)
+        self._base_ref = max(self._get_obj_value(obj), 0.1)
+        self._typed_base = self._get_obj_value(obj)
         self._number_input = ModalNumberInput()
+        self._modifiers_shift = bool(event.shift)
+        self._modifiers_ctrl = bool(event.ctrl)
 
+        self.__class__._active_instance = self
+        status_bar.install_shortcuts(self.__class__)
         self._update_header(context)
         context.window_manager.modal_handler_add(self)
         return {"RUNNING_MODAL"}
 
     def modal(self, context, event):
+        self._sync_modifiers(event)
+
         if event.type in {"LEFTMOUSE", "RET", "NUMPAD_ENTER"} and event.value == "PRESS":
-            viewport_header.clear(context)
+            self._modal_cleanup(context)
             return {"FINISHED"}
 
         if event.type in {"RIGHTMOUSE", "ESC"} and event.value == "PRESS":
             for obj in self._iter_lights():
                 if obj.name in self._start_energy:
                     self._set_obj_value(obj, self._start_energy[obj.name])
-            viewport_header.clear(context)
+            self._modal_cleanup(context)
             return {"CANCELLED"}
+
+        if event.type in {
+            "LEFT_SHIFT",
+            "RIGHT_SHIFT",
+            "LEFT_CTRL",
+            "RIGHT_CTRL",
+        } and event.value in {"PRESS", "RELEASE"}:
+            self._update_header(context)
+            if context.area is not None:
+                context.area.tag_redraw()
+            return {"RUNNING_MODAL"}
 
         if self._number_input and self._number_input.handle_event(event):
             if self._number_input.has_value():

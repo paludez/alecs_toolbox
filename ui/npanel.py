@@ -84,9 +84,9 @@ def _draw_transform_panel_fields(layout, context):
     col.use_property_split = True
     col.use_property_decorate = True
 
-    obj = context.active_object if context.mode == "OBJECT" else None
+    obj = context.active_object
     if obj is None:
-        col.label(text="OBJECT mode — select an object.", icon="INFO")
+        col.label(text="Select an object.", icon="INFO")
         return
 
 # transform row

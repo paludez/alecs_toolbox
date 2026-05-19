@@ -5,11 +5,8 @@ Workflow:
   - preselected before invoking the tool: a single face wins, or a single edge
     if no face is selected (face beats edge);
   - clicked after invoking: first LMB sets the reference edge.
-- Hover a target edge. Mode is automatic unless overridden:
-  - default (auto): Trim if the infinite boundary cuts the segment; otherwise
-    Extend to meet the boundary along the shorter ray from an endpoint.
-  - Ctrl held: force Trim only (still pick side with LMB along the segment).
-  - Shift held: force Extend only (to the infinite boundary).
+- Hover a target edge: trim if the infinite boundary cuts the segment; otherwise
+  extend to meet the boundary along the shorter ray from an endpoint.
 - LMB applies the hovered action. Esc / Space / RMB cancel or clear the reference.
 
 The reference edge is treated as an infinite line; the reference face is
@@ -32,15 +29,6 @@ from ..modules import edit_mesh_helpers as emh
 
 _EPS = emh.DRAFT_EPS
 _PLANAR_EPS = emh.DRAFT_PLANAR_EPS
-
-
-def _mode_resolve(shift: bool, ctrl: bool) -> str:
-    """Modifier overrides for trim vs extend; Shift wins if both held."""
-    if shift:
-        return 'extend'
-    if ctrl:
-        return 'trim'
-    return 'auto'
 
 
 def _selected_reference(bm) -> tuple[str | None, object]:
@@ -380,7 +368,7 @@ def _apply_extend(bm, v_chosen_index: int, hit_world: Vector, mw) -> bool:
 
 
 class _TrimExtendBase:
-    """Modal logic: Auto trim vs extend; Shift/Ctrl optionally force one."""
+    """Modal logic: auto trim vs extend from geometry."""
 
     bl_options = {'REGISTER', 'UNDO', 'BLOCKING'}
 
@@ -427,7 +415,6 @@ class _TrimExtendBase:
         self._preview = None
         self._last_event_mouse: tuple[int, int] | None = None
         self._effective_extend = False
-        self._mode_override = 'auto'
 
         draw_state._draw_data['object_name'] = self._obj.name
         draw_state._draw_data['mesh_name'] = self._obj.data.name
@@ -445,23 +432,9 @@ class _TrimExtendBase:
         if event.type in {'MIDDLEMOUSE', 'WHEELUPMOUSE', 'WHEELDOWNMOUSE'}:
             return {'PASS_THROUGH'}
 
-        if event.type in {
-            'LEFT_SHIFT',
-            'RIGHT_SHIFT',
-            'LEFT_CTRL',
-            'RIGHT_CTRL',
-        } and event.value in {'PRESS', 'RELEASE'}:
-            if self._last_event_mouse is not None:
-                self._update_hover(context, shift=event.shift, ctrl=event.ctrl)
-                self._update_visual(context)
-                self._set_status(context)
-                if context.area is not None:
-                    context.area.tag_redraw()
-            return {'RUNNING_MODAL'}
-
         if event.type == 'MOUSEMOVE':
             self._last_event_mouse = (event.mouse_region_x, event.mouse_region_y)
-            self._update_hover(context, shift=event.shift, ctrl=event.ctrl)
+            self._update_hover(context)
             self._update_visual(context)
             self._set_status(context)
             if context.area is not None:
@@ -555,7 +528,7 @@ class _TrimExtendBase:
             self._sync_ref_edge_world_from_bm(bm, self._obj.matrix_world)
             return True
 
-        self._update_hover(context, shift=event.shift, ctrl=event.ctrl)
+        self._update_hover(context)
 
         if (
             self._target_edge_key is None
@@ -601,11 +574,10 @@ class _TrimExtendBase:
             self._preview = None
         return applied
 
-    def _update_hover(self, context, *, shift: bool = False, ctrl: bool = False):
+    def _update_hover(self, context):
         self._target_edge = None
         self._target_edge_key = None
         self._preview = None
-        self._mode_override = _mode_resolve(shift, ctrl)
         if self._last_event_mouse is None:
             return
         if context.region is None or context.region_data is None:
@@ -690,30 +662,22 @@ class _TrimExtendBase:
             edge_cut_w1=self._ref_edge_w1,
         )
 
-        mode = self._mode_override
-        if mode == 'extend':
+        trim_ok = bool(trim_pv is not None and not trim_pv.get('invalid', True))
+        ext_ok = bool(extend_pv is not None and not extend_pv.get('invalid', True))
+        if trim_ok:
+            self._effective_extend = False
+            self._preview = trim_pv
+        elif ext_ok:
             self._effective_extend = True
             self._preview = extend_pv
-        elif mode == 'trim':
-            self._effective_extend = False
-            self._preview = trim_pv if trim_pv is not None else {'invalid': True, 'reason': 'Invalid target'}
         else:
-            trim_ok = bool(trim_pv is not None and not trim_pv.get('invalid', True))
-            ext_ok = bool(extend_pv is not None and not extend_pv.get('invalid', True))
-            if trim_ok:
-                self._effective_extend = False
+            self._effective_extend = False
+            if trim_pv is not None:
                 self._preview = trim_pv
-            elif ext_ok:
-                self._effective_extend = True
+            elif extend_pv is not None:
                 self._preview = extend_pv
             else:
-                self._effective_extend = False
-                if trim_pv is not None:
-                    self._preview = trim_pv
-                elif extend_pv is not None:
-                    self._preview = extend_pv
-                else:
-                    self._preview = {'invalid': True, 'reason': 'Invalid target'}
+                self._preview = {'invalid': True, 'reason': 'Invalid target'}
 
     def _update_visual(self, context):
         state: dict = {}
@@ -802,26 +766,10 @@ class _TrimExtendBase:
                             f"  [RMB]{'Clear' if not self._ref_was_preselected else 'Exit'}  [Esc/Space] Exit"
                         )
                     else:
-                        if self._mode_override == 'extend':
-                            action = 'Extend (forced)'
-                            mod = '[LMB]'
-                            hint = '  release Shift: auto'
-                        elif self._mode_override == 'trim':
-                            action = 'Trim (forced)'
-                            mod = '[LMB]'
-                            hint = '  release Ctrl: auto'
-                        else:
-                            hint = '  [Shift] extend  [Ctrl] trim'
-                            if self._effective_extend:
-                                action = 'Extend (auto)'
-                                mod = '[LMB]'
-                            else:
-                                action = 'Trim (auto)'
-                                mod = '[LMB]'
+                        action = 'Extend' if self._effective_extend else 'Trim'
                         msg = (
-                            f"{label} [{ref_str}] {mod} {action}"
-                            + hint
-                            + f"  [RMB]{'Clear' if not self._ref_was_preselected else 'Exit'}  [Esc/Space] Exit"
+                            f"{label} [{ref_str}] [LMB] {action}"
+                            f"  [RMB]{'Clear' if not self._ref_was_preselected else 'Exit'}  [Esc/Space] Exit"
                         )
             status_bar.set_message(context, msg)
         except Exception:
@@ -840,9 +788,8 @@ class ALEC_OT_trim_extend_edges(_TrimExtendBase, bpy.types.Operator):
     bl_description = (
         'Trim or extend mesh edges against a reference. Pick a cutting/boundary '
         'reference first (selection or first click): a single selected face beats '
-        'a single edge. Hover a target edge: auto chooses trim (cut crosses the '
-        'segment) or extend; hold Ctrl for trim-only, Shift for extend-only; '
-        '[LMB] applies; Esc / Space exit.'
+        'a single edge. Hover a target edge: trim if the cut crosses the segment, '
+        'otherwise extend. [LMB] applies; Esc / Space exit.'
     )
 
 

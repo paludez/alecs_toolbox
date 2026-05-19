@@ -1,2 +1,0 @@
--de vazut de ce am optiuni jos la trim/extend
--de vazut de ce am optiuni la light power alt+w

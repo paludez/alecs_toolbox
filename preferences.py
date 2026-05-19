@@ -142,8 +142,10 @@ class ALECS_TB_AddonPreferences(AddonPreferences):
         update=_refresh_addon_keymaps,
     )
     shortcut_alt_w_light_energy_modal: BoolProperty(
-        name="Alt+W — Light/Empty value drag (modal)",
-        description="If active is Light: energy; Empty: display size; Camera: focal length. Drag left/right or type value.",
+        name="Alt+W — Light / Camera / Empty (modal)",
+        description=(
+            "Active object only: Light energy, Empty display size, or Camera focal length."
+        ),
         default=True,
         update=_refresh_addon_keymaps,
     )
