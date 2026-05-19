@@ -417,30 +417,6 @@ def find_farthest_vertices(verts):
     
     return v_a, v_b
 
-def draw_modal_status_bar(layout, items):
-    """
-    Draws a consistent status bar for modal operators.
-    'items' is a list of tuples: (label, value, is_active_flag) or None for a separator.
-    """
-    row = layout.row(align=True)
-    row.alignment = 'CENTER'
-    
-    for item in items:
-        if item is None:
-            row.separator(factor=2)
-            continue
-            
-        label, value, *active = item
-        is_active = active[0] if active else False
-        
-        sub_row = row.row(align=True)
-        if is_active:
-            sub_row.alert = True
-        
-        if label:
-            sub_row.label(text=f"{label}:")
-        sub_row.label(text=value)
-
 def find_layer_collection(layer_coll, target_coll):
     """Recursively find a LayerCollection wrapping target_coll."""
     if layer_coll.collection == target_coll:

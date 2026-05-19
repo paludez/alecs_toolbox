@@ -25,6 +25,7 @@ import bmesh
 from mathutils import Vector
 
 from ..modules import edit_mesh_draw_state as draw_state
+from ..modules import status_bar
 from ..modules import cursor_plane as cp
 from ..modules import edit_mesh_helpers as emh
 
@@ -822,16 +823,13 @@ class _TrimExtendBase:
                             + hint
                             + f"  [RMB]{'Clear' if not self._ref_was_preselected else 'Exit'}  [Esc/Space] Exit"
                         )
-            context.workspace.status_text_set(msg)
+            status_bar.set_message(context, msg)
         except Exception:
             pass
 
     def _cleanup(self, context):
         draw_state._draw_data.pop('trim_extend_state', None)
-        try:
-            context.workspace.status_text_set(None)
-        except Exception:
-            pass
+        status_bar.clear_message(context)
         if context.area is not None:
             context.area.tag_redraw()
 

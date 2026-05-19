@@ -1,6 +1,6 @@
 import bpy
 from ..modules.modal_handler import BaseModalOperator
-from ..modules.utils import unit_suffixes, draw_modal_status_bar, move_to_collection, switch_to_modifier_tab
+from ..modules.utils import unit_suffixes, move_to_collection, switch_to_modifier_tab
 from .outliner import get_boolean_collection, get_hidden_sources_collection
 
 class ALEC_OT_boolean_op(bpy.types.Operator):

@@ -61,8 +61,10 @@ def register():
 
 def unregister():
     from ..modules import distribute_gaps_overlay
+    from ..modules import notice_overlay
 
     distribute_gaps_overlay.unregister_preview()
+    notice_overlay.unregister()
     edit_mesh.unregister_draw_handler()
     auto_linked_mode._exit_auto_linked()
     batch_materials.post_unregister()

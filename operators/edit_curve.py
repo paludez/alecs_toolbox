@@ -1,5 +1,5 @@
 import bpy
-from ..modules import modal_handler, utils
+from ..modules import modal_handler, status_bar, utils
 from ..modules import edit_curve_helpers as ech
 from ..modules import edit_mesh_draw_state as draw_state
 
@@ -381,8 +381,9 @@ class ALEC_OT_coplanar_curve_three_point_plane(bpy.types.Operator):
         self._timer = wm.event_timer_add(0.05, window=context.window)
         wm.modal_handler_add(self)
 
-        context.workspace.status_text_set(
-            "Coplanar: select exactly 3 points for the plane (Esc to cancel)"
+        status_bar.set_message(
+            context,
+            "Coplanar: select exactly 3 points for the plane (Esc to cancel)",
         )
         return {'RUNNING_MODAL'}
 
@@ -437,7 +438,7 @@ class ALEC_OT_coplanar_curve_three_point_plane(bpy.types.Operator):
         if self._timer is not None:
             wm.event_timer_remove(self._timer)
             self._timer = None
-        context.workspace.status_text_set(None)
+        status_bar.clear_message(context)
 
         if self._overlay_space is not None and self._saved_display_handle is not None:
             self._overlay_space.overlay.display_handle = self._saved_display_handle

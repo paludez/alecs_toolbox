@@ -10,7 +10,7 @@ from bpy_extras.view3d_utils import (
 
 from ..modules import edit_mesh_draw_state as draw_state
 from ..modules import cursor_plane as cp
-from ..modules import modal_handler
+from ..modules import modal_handler, status_bar, viewport_header
 from ..modules.transform_orientation import orientation_matrix_world
 
 
@@ -311,32 +311,22 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
         return True
 
     def _update_area_header(self, context):
-        area = getattr(context, 'area', None)
-        if area is None:
-            return
         if (
             not self._chain_vert_indices
             or self._last_event_mouse is None
             or context.region is None
         ):
-            try:
-                area.header_text_set(None)
-            except Exception:
-                pass
+            viewport_header.clear(context)
             return
 
         lw = self._last_chain_world_pos()
         pp = self._preview_world_pos
         if lw is None or pp is None:
-            try:
-                area.header_text_set(None)
-            except Exception:
-                pass
+            viewport_header.clear(context)
             return
         seg_len = (pp - lw).length
-        unit_sys = context.scene.unit_settings.system
         if self.number_input.value_str:
-            modal_handler.update_modal_header(
+            viewport_header.set_numeric(
                 context,
                 main_label='Length',
                 main_value=float(seg_len),
@@ -346,14 +336,8 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
                 initial_value=float(seg_len),
             )
             return
-        try:
-            disp = bpy.utils.units.to_string(unit_sys, 'LENGTH', seg_len, precision=4)
-        except Exception:
-            disp = f'{seg_len:.4f}'
-        try:
-            area.header_text_set(f'Length: {disp}')
-        except Exception:
-            pass
+        disp = viewport_header.format_length(context, seg_len, precision=4)
+        viewport_header.set(context, f'Length: {disp}')
 
     def _set_status(self, context):
         try:
@@ -369,11 +353,12 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
             else:
                 num_part = ""
             sep = " " if num_part else ""
-            context.workspace.status_text_set(
+            status_bar.set_message(
+                context,
                 f"[LMB]Add [Bksp]Undo/buffer [RMB]Finish [C]Close "
                 f"[Shift]Ortho:{ortho} [V]ObjSnap:{v_snap} [W]WorldSnap:{w_snap} "
                 f"[Q]{plc}"
-                f" [X/Y/Z]Axis:{axis}{sep}{num_part} [Enter/Esc]Exit"
+                f" [X/Y/Z]Axis:{axis}{sep}{num_part} [Enter/Esc]Exit",
             )
         except Exception:
             pass
@@ -1028,15 +1013,8 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
             draw_state.refresh_edit_mesh_px_handler(context)
         except Exception:
             pass
-        try:
-            context.workspace.status_text_set(None)
-        except Exception:
-            pass
+        status_bar.clear_all(context)
         if context.area is not None:
-            try:
-                context.area.header_text_set(None)
-            except Exception:
-                pass
             context.area.tag_redraw()
 
         if cancelled and self._created_object:

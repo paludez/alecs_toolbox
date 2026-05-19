@@ -3,6 +3,7 @@
 import bpy
 import math
 from ..modules.modal_handler import ModalNumberInput
+from ..modules import viewport_header
 
 # Per 3D View area: saved shading when F3 wireframe+xray mode is active.
 _f3_wire_xray_saved: dict[int, dict] = {}
@@ -211,7 +212,7 @@ class ALEC_OT_light_energy_modal(bpy.types.Operator):
                     current = float(active.data.energy)
             suffix = " mm" if self._mode == "CAMERA" else ""
             text = f"{label}: {current:.3f}{suffix} | Drag X | Type value | LMB/Enter=Confirm | RMB/Esc=Cancel"
-        context.area.header_text_set(text)
+        viewport_header.set(context, text)
 
     def invoke(self, context, event):
         active = context.active_object
@@ -237,16 +238,14 @@ class ALEC_OT_light_energy_modal(bpy.types.Operator):
 
     def modal(self, context, event):
         if event.type in {"LEFTMOUSE", "RET", "NUMPAD_ENTER"} and event.value == "PRESS":
-            if context.area:
-                context.area.header_text_set(None)
+            viewport_header.clear(context)
             return {"FINISHED"}
 
         if event.type in {"RIGHTMOUSE", "ESC"} and event.value == "PRESS":
             for obj in self._iter_lights():
                 if obj.name in self._start_energy:
                     self._set_obj_value(obj, self._start_energy[obj.name])
-            if context.area:
-                context.area.header_text_set(None)
+            viewport_header.clear(context)
             return {"CANCELLED"}
 
         if self._number_input and self._number_input.handle_event(event):

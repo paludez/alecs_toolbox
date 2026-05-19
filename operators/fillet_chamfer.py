@@ -30,7 +30,7 @@ from mathutils import Vector
 from ..modules import edit_mesh_draw_state as draw_state
 from ..modules import cursor_plane as cp
 from ..modules import edit_mesh_helpers as emh
-from ..modules import modal_handler
+from ..modules import modal_handler, status_bar, viewport_header
 
 
 _EPS = emh.DRAFT_EPS
@@ -793,33 +793,27 @@ class ALEC_OT_fillet_edges(bpy.types.Operator):
         r = float(self._radius or 0.0)
         prv = getattr(self, '_preview', None) or {}
 
-        unit_sys = context.scene.unit_settings.system
-
-        def _disp_len(length: float, prec: int = 4) -> str:
-            try:
-                return bpy.utils.units.to_string(unit_sys, 'LENGTH', length, precision=prec)
-            except Exception:
-                return f'{length:.{prec}f}'
-
         if (
             self._both_edges_loaded()
             and prv.get('parallel')
             and not prv.get('invalid')
         ):
-            r_disp_parallel = _disp_len(float(prv.get('radius') or r), 4)
+            r_val = float(prv.get('radius') or r)
             if self.number_input.value_str:
-                modal_handler.update_modal_header(
+                viewport_header.set_numeric(
                     context,
                     main_label='Parallel r',
-                    main_value=float(prv.get('radius') or r),
+                    main_value=r_val,
                     typed_str=self.number_input.value_str,
                     suffix='',
                     secondary_text=f'seg={self._segments}',
-                    initial_value=float(prv.get('radius') or r),
+                    initial_value=r_val,
                 )
                 return
-            context.area.header_text_set(
-                f'Parallel: {r_disp_parallel} (fixed D/2)  |  Segments={self._segments}'
+            r_disp_parallel = viewport_header.format_length(context, r_val, precision=4)
+            viewport_header.set(
+                context,
+                f'Parallel: {r_disp_parallel} (fixed D/2)  |  Segments={self._segments}',
             )
             return
 
@@ -830,13 +824,10 @@ class ALEC_OT_fillet_edges(bpy.types.Operator):
         else:
             primary = 'Fillet'
 
-        try:
-            r_disp = bpy.utils.units.to_string(unit_sys, 'LENGTH', r, precision=4)
-        except Exception:
-            r_disp = f'{r:.4f}'
+        r_disp = viewport_header.format_length(context, r, precision=4)
 
         if self.number_input.value_str:
-            modal_handler.update_modal_header(
+            viewport_header.set_numeric(
                 context,
                 main_label=f'{primary} r',
                 main_value=r,
@@ -846,8 +837,9 @@ class ALEC_OT_fillet_edges(bpy.types.Operator):
                 initial_value=r,
             )
         else:
-            context.area.header_text_set(
-                f'{primary}: {r_disp}  |  segments={self._segments}'
+            viewport_header.set(
+                context,
+                f'{primary}: {r_disp}  |  segments={self._segments}',
             )
 
     def modal(self, context, event):
@@ -1106,9 +1098,10 @@ class ALEC_OT_fillet_edges(bpy.types.Operator):
         try:
             label = self.bl_label
             if self.number_input.value_str:
-                context.workspace.status_text_set(
+                status_bar.set_message(
+                    context,
                     f"{label}: [Enter] apply  [Esc] cancel typing  "
-                    f"[Wheel] segments  [RMB] clear edge"
+                    f"[Wheel] segments  [RMB] clear edge",
                 )
                 return
             r = float(self._radius or 0.0)
@@ -1144,21 +1137,14 @@ class ALEC_OT_fillet_edges(bpy.types.Operator):
                             f"Move mouse = radius  Type r [Enter] = apply  "
                             f"[Wheel] segments  [RMB] Reset  [Esc] Exit"
                         )
-            context.workspace.status_text_set(msg)
+            status_bar.set_message(context, msg)
         except Exception:
             pass
 
     def _cleanup(self, context):
         draw_state._draw_data.pop('trim_extend_state', None)
-        try:
-            context.workspace.status_text_set(None)
-        except Exception:
-            pass
+        status_bar.clear_all(context)
         if context.area is not None:
-            try:
-                context.area.header_text_set(None)
-            except Exception:
-                pass
             context.area.tag_redraw()
 
 

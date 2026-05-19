@@ -190,8 +190,11 @@ class ALEC_OT_toggle_global_local_orientation(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
+        from ..modules import notice_overlay
+
         slot = context.scene.transform_orientation_slots[0]
         slot.type = 'LOCAL' if slot.type == 'GLOBAL' else 'GLOBAL'
+        notice_overlay.show_notice(slot.type.title())
         return {'FINISHED'}
 
 
