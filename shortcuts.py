@@ -10,8 +10,10 @@ _addon_keymaps_auto_linked: list[tuple] = []
 _addon_keymaps_mesh: list[tuple] = []
 _addon_keymaps_toolbar_tools: list[tuple] = []
 _addon_keymaps_object_hide: list[tuple] = []
+_addon_keymaps_align: list[tuple] = []
 _km_auto_linked_mesh = None
 _km_object_hide = None
+_km_object_align = None
 _mesh_keys_registered = False
 _km_object_mode = None
 _km_mesh_edit = None
@@ -403,6 +405,39 @@ def _unregister_object_hide_keymaps():
     _addon_keymaps_object_hide.clear()
 
 
+def _unregister_align_keymaps():
+    for km, kmi in _addon_keymaps_align:
+        km.keymap_items.remove(kmi)
+    _addon_keymaps_align.clear()
+
+
+def _register_align_keymaps():
+    prefs = _addon_prefs()
+    want_origins = _pref(prefs, "shortcut_alt_a_align_origins", True)
+    want_dialog = _pref(prefs, "shortcut_ctrl_alt_a_align_dialog", True)
+    if not (want_origins or want_dialog):
+        return
+    wm = bpy.context.window_manager
+    kc = wm.keyconfigs.addon
+    if not kc:
+        return
+    global _km_object_align
+    if _km_object_align is None:
+        _km_object_align = kc.keymaps.new(
+            "Object Mode", space_type="EMPTY", region_type="WINDOW"
+        )
+    if want_origins:
+        kmi = _km_object_align.keymap_items.new(
+            "alec.align_preset_origins", "A", "PRESS", alt=True
+        )
+        _addon_keymaps_align.append((_km_object_align, kmi))
+    if want_dialog:
+        kmi = _km_object_align.keymap_items.new(
+            "alec.align_dialog", "A", "PRESS", ctrl=True, alt=True
+        )
+        _addon_keymaps_align.append((_km_object_align, kmi))
+
+
 def _register_object_hide_keymaps():
     prefs = _addon_prefs()
     if not _pref(prefs, "use_object_hide_sync_render_shortcuts", True):
@@ -478,12 +513,14 @@ def refresh_keymaps_from_prefs():
     _unregister_toolbar_tool_keymaps()
     _unregister_auto_linked_keymap()
     _unregister_object_hide_keymaps()
+    _unregister_align_keymaps()
     _register_core_keymaps()
     _register_toolbar_tool_keymaps()
     prefs = _addon_prefs()
     if _pref(prefs, "shortcut_key_4_auto_linked"):
         _register_auto_linked_keymap()
     _register_object_hide_keymaps()
+    _register_align_keymaps()
 
 
 def set_mesh_max_keys(want: bool):
@@ -516,5 +553,6 @@ def unregister():
     set_mesh_max_keys(False)
     _unregister_auto_linked_keymap()
     _unregister_object_hide_keymaps()
+    _unregister_align_keymaps()
     _unregister_toolbar_tool_keymaps()
     _unregister_core_keymaps()

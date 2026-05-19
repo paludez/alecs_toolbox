@@ -200,6 +200,22 @@ class ALECS_TB_AddonPreferences(AddonPreferences):
         update=_refresh_addon_keymaps,
     )
 
+    shortcut_alt_a_align_origins: BoolProperty(
+        name="Alt+A — Align (Origins + rotation)",
+        description=(
+            "Object Mode: align origins to active and match rotation "
+            "(same as Origins preset with Alt held)."
+        ),
+        default=True,
+        update=_refresh_addon_keymaps,
+    )
+    shortcut_ctrl_alt_a_align_dialog: BoolProperty(
+        name="Ctrl+Alt+A — Align (dialog)",
+        description="Object Mode: same as the Align button (full redo panel).",
+        default=True,
+        update=_refresh_addon_keymaps,
+    )
+
     def draw(self, context):
         layout = self.layout
         layout.prop(self, "use_max_style_mesh_keys")
@@ -244,6 +260,12 @@ class ALECS_TB_AddonPreferences(AddonPreferences):
         col4.prop(self, "shortcut_hide_h_sync_render")
         col4.prop(self, "shortcut_hide_shift_h_sync_render")
         col4.prop(self, "shortcut_hide_alt_h_sync_render")
+
+        box5 = layout.box()
+        box5.label(text="Align (Object Mode)")
+        col5 = box5.column(align=True)
+        col5.prop(self, "shortcut_alt_a_align_origins")
+        col5.prop(self, "shortcut_ctrl_alt_a_align_dialog")
 
 
 classes = (ALECS_TB_AddonPreferences,)

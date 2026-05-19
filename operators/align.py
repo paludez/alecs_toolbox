@@ -163,6 +163,30 @@ class AlignBase:
                     "scale": obj.scale.copy(),
                 }
 
+    def _default_ref_point_for_reset(self) -> str:
+        if getattr(self, "bl_idname", "") == "alec.align_preset_centers":
+            return "CENTER"
+        return "PIVOT"
+
+    def _reset_align_defaults(self, ref_point: str, match_rotation: bool = False):
+        self.align_x = self.align_y = self.align_z = True
+        self.source_point = self.target_point = ref_point
+        self.orient_x = self.orient_y = self.orient_z = match_rotation
+        self.scale_x = self.scale_y = self.scale_z = False
+        self.use_active_orient = False
+        self.offset_x = self.offset_y = self.offset_z = 0.0
+        self.orient_offset_x = self.orient_offset_y = self.orient_offset_z = 0.0
+        self.scale_offset_x = self.scale_offset_y = self.scale_offset_z = 0.0
+        self.reset_requested = False
+
+    def _invoke_align_preset(self, context, event, ref_point: str):
+        want_rot = bool(getattr(event, "alt", False))
+        self._reset_align_defaults(ref_point, want_rot)
+        self._is_modal = True
+        self._capture_selection_snapshot(context)
+        self.execute(context)
+        return {"FINISHED"}
+
     def draw(self, context):
         layout = self.layout
 
@@ -193,15 +217,7 @@ class AlignBase:
 
     def check(self, context):
         if self.reset_requested:
-            self.align_x = self.align_y = self.align_z = True
-            self.source_point = self.target_point = "PIVOT"
-            self.orient_x = self.orient_y = self.orient_z = False
-            self.scale_x = self.scale_y = self.scale_z = False
-            self.use_active_orient = False
-            self.offset_x = self.offset_y = self.offset_z = 0.0
-            self.orient_offset_x = self.orient_offset_y = self.orient_offset_z = 0.0
-            self.scale_offset_x = self.scale_offset_y = self.scale_offset_z = 0.0
-            self.reset_requested = False
+            self._reset_align_defaults(self._default_ref_point_for_reset(), match_rotation=False)
         self.execute(context)
         return True
 
@@ -280,13 +296,7 @@ class ALEC_OT_align_preset_centers(AlignBase, bpy.types.Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def invoke(self, context, event):
-        self._is_modal = True
-        self._capture_selection_snapshot(context)
-        self.source_point = self.target_point = "CENTER"
-        want_rot = bool(getattr(event, "alt", False))
-        self.orient_x = self.orient_y = self.orient_z = want_rot
-        self.execute(context)
-        return {"FINISHED"}
+        return self._invoke_align_preset(context, event, "CENTER")
 
 
 class ALEC_OT_align_preset_origins(AlignBase, bpy.types.Operator):
@@ -297,45 +307,7 @@ class ALEC_OT_align_preset_origins(AlignBase, bpy.types.Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def invoke(self, context, event):
-        self._is_modal = True
-        self._capture_selection_snapshot(context)
-        self.source_point = self.target_point = "PIVOT"
-        want_rot = bool(getattr(event, "alt", False))
-        self.orient_x = self.orient_y = self.orient_z = want_rot
-        self.execute(context)
-        return {"FINISHED"}
-
-
-class ALEC_OT_quick_center(AlignBase, bpy.types.Operator):
-    bl_idname = "alec.quick_center"
-    bl_label = "Quick Center"
-    bl_options = {"REGISTER", "UNDO"}
-
-    def invoke(self, context, event):
-        self.source_point = self.target_point = "CENTER"
-        return self.execute(context)
-
-
-class ALEC_OT_quick_center_rot(AlignBase, bpy.types.Operator):
-    bl_idname = "alec.quick_center_rot"
-    bl_label = "Quick Center (Rot)"
-    bl_options = {"REGISTER", "UNDO"}
-
-    def invoke(self, context, event):
-        self.source_point = self.target_point = "CENTER"
-        self.orient_x = self.orient_y = self.orient_z = True
-        return self.execute(context)
-
-
-class ALEC_OT_quick_pivot_rot(AlignBase, bpy.types.Operator):
-    bl_idname = "alec.quick_pivot_rot"
-    bl_label = "Quick Pivot (Rot)"
-    bl_options = {"REGISTER", "UNDO"}
-
-    def invoke(self, context, event):
-        self.source_point = self.target_point = "PIVOT"
-        self.orient_x = self.orient_y = self.orient_z = True
-        return self.execute(context)
+        return self._invoke_align_preset(context, event, "PIVOT")
 
 
 class ALEC_OT_distribute_objects_dialog(bpy.types.Operator):
@@ -782,8 +754,5 @@ classes = (
     ALEC_OT_align_dialog,
     ALEC_OT_align_preset_centers,
     ALEC_OT_align_preset_origins,
-    ALEC_OT_quick_center,
-    ALEC_OT_quick_center_rot,
-    ALEC_OT_quick_pivot_rot,
     ALEC_OT_distribute_objects_dialog,
 )  
