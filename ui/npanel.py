@@ -225,8 +225,7 @@ def _draw_camera_tools(layout, context):
     if cam is not None:
         cadru_row = sub_ld.row(align=True)
         cadru_row.enabled = view3d_camera_rv3d(context) is not None
-        cadru_row.prop(scene, "alec_frame_scale", text="Cadru")
-        sub_ld.prop(cam.data, "shift_y", text="Y shift")
+        cadru_row.prop(scene, "alec_frame_scale", text="Crop")
 
     col.separator()
     row_tl = col.row(align=True)
