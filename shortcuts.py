@@ -129,8 +129,10 @@ def _register_core_keymaps():
             _pref(prefs, "shortcut_alt_rmb_quad"),
             _pref(prefs, "shortcut_f1_search"),
             _pref(prefs, "shortcut_f3_wireframe_xray"),
-            _pref(prefs, "shortcut_f4_overlay_wireframes"),
-            _pref(prefs, "shortcut_f5_solid_rendered"),
+            _pref(prefs, "shortcut_f4_solid"),
+            _pref(prefs, "shortcut_f5_rendered"),
+            _pref(prefs, "shortcut_f6_material"),
+            _pref(prefs, "shortcut_alt_f3_overlay_wireframes"),
             _pref(prefs, "shortcut_c_camera"),
             _pref(prefs, "shortcut_grave_isolate"),
             _pref(prefs, "shortcut_alt_grave_orientation"),
@@ -164,17 +166,29 @@ def _register_core_keymaps():
         )
         _addon_keymaps_core.append((km, kmi_f3))
 
-    if km is not None and _pref(prefs, "shortcut_f4_overlay_wireframes"):
+    if km is not None and _pref(prefs, "shortcut_f4_solid"):
         kmi_f4 = km.keymap_items.new(
-            "alec.viewport_toggle_overlay_wireframes", "F4", "PRESS"
+            "alec.viewport_toggle_shading_solid", "F4", "PRESS"
         )
         _addon_keymaps_core.append((km, kmi_f4))
 
-    if km is not None and _pref(prefs, "shortcut_f5_solid_rendered"):
+    if km is not None and _pref(prefs, "shortcut_f5_rendered"):
         kmi_f5 = km.keymap_items.new(
-            "alec.viewport_toggle_solid_rendered", "F5", "PRESS"
+            "alec.viewport_toggle_shading_rendered", "F5", "PRESS"
         )
         _addon_keymaps_core.append((km, kmi_f5))
+
+    if km is not None and _pref(prefs, "shortcut_f6_material"):
+        kmi_f6 = km.keymap_items.new(
+            "alec.viewport_toggle_shading_material", "F6", "PRESS"
+        )
+        _addon_keymaps_core.append((km, kmi_f6))
+
+    if km is not None and _pref(prefs, "shortcut_alt_f3_overlay_wireframes"):
+        kmi_alt_f3 = km.keymap_items.new(
+            "alec.viewport_toggle_overlay_wireframes", "F3", "PRESS", alt=True
+        )
+        _addon_keymaps_core.append((km, kmi_alt_f3))
 
     if km is not None and _pref(prefs, "shortcut_c_camera"):
         kmi_camera_view = km.keymap_items.new(

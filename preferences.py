@@ -66,19 +66,31 @@ class ALECS_TB_AddonPreferences(AddonPreferences):
     )
     shortcut_f3_wireframe_xray: BoolProperty(
         name="F3 — Toggle wireframe + X-Ray (viewport)",
-        description="Toggle wireframe shading + X-Ray; second press restores previous shading.",
+        description="Wireframe + X-Ray; press again for Solid.",
         default=True,
         update=_refresh_addon_keymaps,
     )
-    shortcut_f4_overlay_wireframes: BoolProperty(
-        name="F4 — Toggle overlay wireframes",
-        description="Toggle Viewport Overlays » Wireframe.",
+    shortcut_f4_solid: BoolProperty(
+        name="F4 — Solid / Solid + overlay wire",
+        description="Solid, then Solid with overlay wireframes; again clears overlay.",
         default=True,
         update=_refresh_addon_keymaps,
     )
-    shortcut_f5_solid_rendered: BoolProperty(
-        name="F5 — Toggle Solid / Rendered shading",
-        description="Switch viewport shading between Solid and Rendered preview.",
+    shortcut_f5_rendered: BoolProperty(
+        name="F5 — Toggle Rendered shading",
+        description="Rendered preview; press again for Solid.",
+        default=True,
+        update=_refresh_addon_keymaps,
+    )
+    shortcut_f6_material: BoolProperty(
+        name="F6 — Toggle Material Preview",
+        description="Material Preview; press again for Solid.",
+        default=True,
+        update=_refresh_addon_keymaps,
+    )
+    shortcut_alt_f3_overlay_wireframes: BoolProperty(
+        name="Alt+F3 — Toggle overlay wireframes",
+        description="Overlay wireframes on/off in any shading mode.",
         default=True,
         update=_refresh_addon_keymaps,
     )
@@ -229,8 +241,10 @@ class ALECS_TB_AddonPreferences(AddonPreferences):
         col.prop(self, "shortcut_alt_rmb_quad")
         col.prop(self, "shortcut_f1_search")
         col.prop(self, "shortcut_f3_wireframe_xray")
-        col.prop(self, "shortcut_f4_overlay_wireframes")
-        col.prop(self, "shortcut_f5_solid_rendered")
+        col.prop(self, "shortcut_f4_solid")
+        col.prop(self, "shortcut_f5_rendered")
+        col.prop(self, "shortcut_f6_material")
+        col.prop(self, "shortcut_alt_f3_overlay_wireframes")
         col.prop(self, "shortcut_c_camera")
         col.prop(self, "shortcut_grave_isolate")
         col.prop(self, "shortcut_alt_grave_orientation")

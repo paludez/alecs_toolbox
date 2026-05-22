@@ -19,7 +19,7 @@ from . import system
 from . import triplanar_mapping
 from . import trim_extend
 from . import uv
-from . import viewport_shortcuts
+from . import viewport_tools
 
 classes = (
     *align.classes,
@@ -41,7 +41,7 @@ classes = (
     *triplanar_mapping.classes,
     *trim_extend.classes,
     *uv.classes,
-    *viewport_shortcuts.classes,
+    *viewport_tools.classes,
 )
 
 _app_handlers = []

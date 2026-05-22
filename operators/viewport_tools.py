@@ -1,14 +1,10 @@
-"""Viewport display toggles bound from shortcuts (F3 / F4 / F5)."""
+"""Viewport-related operators (shading shortcuts, display toggles, align view, Alt+W modal)."""
 
 import bpy
 import math
 from ..modules.modal_handler import ModalNumberInput
 from ..modules import status_bar
 from ..modules import viewport_header
-
-# Per 3D View area: saved shading when F3 wireframe+xray mode is active.
-_f3_wire_xray_saved: dict[int, dict] = {}
-
 
 def _view3d_space(context):
     area = context.area
@@ -34,24 +30,38 @@ def _value_modal_subject(context):
     return None, None
 
 
-def _space_view3d_for_shading(context):
-    """SpaceView3D for shading RNA; prefers space_data, falls back to area.spaces.active."""
-    space = getattr(context, "space_data", None)
-    if space is not None and getattr(space, "type", None) == "VIEW_3D":
-        return space
-    area = getattr(context, "area", None)
-    if area is not None and area.type == "VIEW_3D":
-        s = area.spaces.active
-        if s is not None and getattr(s, "type", None) == "VIEW_3D":
-            return s
-    return None
+def _apply_solid_shading(shading) -> None:
+    shading.type = "SOLID"
+    shading.show_xray = False
+    shading.show_xray_wireframe = False
+
+
+def _is_f3_wire_xray(shading) -> bool:
+    return (
+        shading.type == "WIREFRAME"
+        and shading.show_xray
+        and shading.show_xray_wireframe
+    )
+
+
+def _toggle_shading_or_solid(context, is_active, apply_mode):
+    space = _view3d_space(context)
+    if space is None:
+        return {"CANCELLED"}
+    shading = space.shading
+    if is_active(shading):
+        _apply_solid_shading(shading)
+    else:
+        apply_mode(shading)
+    return {"FINISHED"}
 
 
 class ALEC_OT_viewport_toggle_wireframe_xray(bpy.types.Operator):
-    """Toggle wireframe + X-Ray; restores previous shading on second press (per viewport)."""
+    """Wireframe + X-Ray shading; second press returns to Solid."""
 
     bl_idname = "alec.viewport_toggle_wireframe_xray"
     bl_label = "Toggle Wireframe + X-Ray"
+    bl_description = "Wireframe + X-Ray; press again for Solid"
     bl_options = {"REGISTER"}
 
     @classmethod
@@ -59,29 +69,12 @@ class ALEC_OT_viewport_toggle_wireframe_xray(bpy.types.Operator):
         return _view3d_space(context) is not None
 
     def execute(self, context):
-        space = _view3d_space(context)
-        if space is None:
-            return {"CANCELLED"}
-        area = context.area
-        key = area.as_pointer()
-        shading = space.shading
+        def apply_wire_xray(sh):
+            sh.type = "WIREFRAME"
+            sh.show_xray = True
+            sh.show_xray_wireframe = True
 
-        if key in _f3_wire_xray_saved:
-            s = _f3_wire_xray_saved.pop(key)
-            shading.type = s["type"]
-            shading.show_xray = s["show_xray"]
-            shading.show_xray_wireframe = s["show_xray_wireframe"]
-        else:
-            _f3_wire_xray_saved[key] = {
-                "type": shading.type,
-                "show_xray": shading.show_xray,
-                "show_xray_wireframe": shading.show_xray_wireframe,
-            }
-            shading.type = "WIREFRAME"
-            shading.show_xray = True
-            shading.show_xray_wireframe = True
-
-        return {"FINISHED"}
+        return _toggle_shading_or_solid(context, _is_f3_wire_xray, apply_wire_xray)
 
 
 class ALEC_OT_viewport_toggle_overlay_wireframes(bpy.types.Operator):
@@ -130,25 +123,84 @@ class ALEC_OT_viewport_toggle_curve_bezier_handles(bpy.types.Operator):
         return {"FINISHED"}
 
 
-class ALEC_OT_viewport_toggle_solid_rendered(bpy.types.Operator):
-    """Toggle viewport shading Solid ↔ Rendered (space_data.shading.type)."""
+class ALEC_OT_viewport_toggle_shading_solid(bpy.types.Operator):
+    """Solid shading, then Solid + overlay wireframes; third press clears overlay."""
 
-    bl_idname = "alec.viewport_toggle_solid_rendered"
-    bl_label = "Toggle Solid / Rendered"
-    bl_description = "Switch viewport shading between Solid and Rendered preview"
+    bl_idname = "alec.viewport_toggle_shading_solid"
+    bl_label = "Toggle Solid Shading"
+    bl_description = "Solid, then Solid with overlay wireframes (Alt+F3 toggles overlay in any mode)"
     bl_options = {"REGISTER"}
 
     @classmethod
     def poll(cls, context):
-        return _space_view3d_for_shading(context) is not None
+        return _view3d_space(context) is not None
 
     def execute(self, context):
-        space = _space_view3d_for_shading(context)
+        space = _view3d_space(context)
         if space is None:
             return {"CANCELLED"}
-        sh = space.shading
-        sh.type = "SOLID" if sh.type == "RENDERED" else "RENDERED"
+        shading = space.shading
+        ov = space.overlay
+        if shading.type == "SOLID" and ov.show_wireframes:
+            ov.show_wireframes = False
+            _apply_solid_shading(shading)
+        elif shading.type == "SOLID":
+            _apply_solid_shading(shading)
+            ov.show_wireframes = True
+        else:
+            _apply_solid_shading(shading)
+            ov.show_wireframes = False
         return {"FINISHED"}
+
+
+class ALEC_OT_viewport_toggle_shading_rendered(bpy.types.Operator):
+    """Rendered shading; second press returns to Solid."""
+
+    bl_idname = "alec.viewport_toggle_shading_rendered"
+    bl_label = "Toggle Rendered Shading"
+    bl_description = "Rendered preview; press again for Solid"
+    bl_options = {"REGISTER"}
+
+    @classmethod
+    def poll(cls, context):
+        return _view3d_space(context) is not None
+
+    def execute(self, context):
+        def apply_rendered(sh):
+            sh.type = "RENDERED"
+            sh.show_xray = False
+            sh.show_xray_wireframe = False
+
+        return _toggle_shading_or_solid(
+            context,
+            lambda sh: sh.type == "RENDERED",
+            apply_rendered,
+        )
+
+
+class ALEC_OT_viewport_toggle_shading_material(bpy.types.Operator):
+    """Material Preview shading; second press returns to Solid."""
+
+    bl_idname = "alec.viewport_toggle_shading_material"
+    bl_label = "Toggle Material Preview"
+    bl_description = "Material Preview; press again for Solid"
+    bl_options = {"REGISTER"}
+
+    @classmethod
+    def poll(cls, context):
+        return _view3d_space(context) is not None
+
+    def execute(self, context):
+        def apply_material(sh):
+            sh.type = "MATERIAL"
+            sh.show_xray = False
+            sh.show_xray_wireframe = False
+
+        return _toggle_shading_or_solid(
+            context,
+            lambda sh: sh.type == "MATERIAL",
+            apply_material,
+        )
 
 
 class ALEC_OT_light_energy_modal(bpy.types.Operator):
@@ -423,7 +475,9 @@ classes = (
     ALEC_OT_viewport_toggle_wireframe_xray,
     ALEC_OT_viewport_toggle_overlay_wireframes,
     ALEC_OT_viewport_toggle_curve_bezier_handles,
-    ALEC_OT_viewport_toggle_solid_rendered,
+    ALEC_OT_viewport_toggle_shading_solid,
+    ALEC_OT_viewport_toggle_shading_rendered,
+    ALEC_OT_viewport_toggle_shading_material,
     ALEC_OT_light_energy_modal,
     ALEC_OT_toggle_mesh_wire_textured,
     ALEC_OT_toggle_mesh_bounds_textured,
