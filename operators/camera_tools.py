@@ -1,7 +1,10 @@
 import math
+from contextlib import contextmanager
 
 import bpy
 from mathutils import Matrix, Vector
+
+from ..modules import modal_handler
 
 _ALEC_TARGET_CON_NAME = "Alec Target"
 
@@ -11,43 +14,6 @@ _CAM_SPHERE_PROP_NAMES = (
     "alec_cam_angle",
     "alec_cam_elevation",
 )
-
-_msgbus_owner = object()
-
-
-def _on_lens_changed():
-    global _lens_sync_busy
-    if _lens_sync_busy:
-        return
-    scene = bpy.context.scene
-    if scene is None:
-        return
-    cam = scene_persp_camera(scene)
-    if cam is None:
-        return
-    cur_lens = float(cam.data.lens)
-    mirror_lens = float(getattr(scene, "alec_focal_lens_ui", cur_lens))
-    if abs(mirror_lens - cur_lens) <= 1e-4:
-        return
-    _lens_sync_busy = True
-    try:
-        scene.alec_focal_lens_ui = cur_lens
-    finally:
-        _lens_sync_busy = False
-
-
-def _subscribe_lens_msgbus():
-    bpy.msgbus.subscribe_rna(
-        key=(bpy.types.Camera, "lens"),
-        owner=_msgbus_owner,
-        args=(),
-        notify=_on_lens_changed,
-    )
-
-
-def _unsubscribe_lens_msgbus():
-    bpy.msgbus.clear_by_owner(_msgbus_owner)
-
 
 def _object_in_view_layer(obj, context) -> bool:
     return obj is not None and obj.name in context.view_layer.objects
@@ -179,15 +145,7 @@ def _sync_camera_sphere_props_from_world(cam_obj, context):
         _CAM_RIG_UPDATING = False
 
 
-def _alec_cam_distance_update(cam_obj, context):
-    _apply_camera_sphere_props(cam_obj, context)
-
-
-def _alec_cam_angle_update(cam_obj, context):
-    _apply_camera_sphere_props(cam_obj, context)
-
-
-def _alec_cam_elevation_update(cam_obj, context):
+def _alec_cam_sphere_prop_update(cam_obj, context):
     _apply_camera_sphere_props(cam_obj, context)
 
 
@@ -205,21 +163,21 @@ def register_camera_sphere_object_props() -> None:
         min=1e-4,
         soft_max=5000.0,
         unit="LENGTH",
-        update=_alec_cam_distance_update,
+        update=_alec_cam_sphere_prop_update,
     )
     bpy.types.Object.alec_cam_angle = bpy.props.FloatProperty(
         name="Cam azimuth",
         description="Azimuth around world Z from +X (orbit around Alec Target)",
         default=0.0,
         subtype="ANGLE",
-        update=_alec_cam_angle_update,
+        update=_alec_cam_sphere_prop_update,
     )
     bpy.types.Object.alec_cam_elevation = bpy.props.FloatProperty(
         name="Cam elevation",
         description="Elevation from world XY toward +Z (orbit around Alec Target)",
         default=0.0,
         subtype="ANGLE",
-        update=_alec_cam_elevation_update,
+        update=_alec_cam_sphere_prop_update,
     )
 
 
@@ -236,39 +194,63 @@ def unregister_camera_sphere_object_props() -> None:
 # ---------------------------------------------------------------------------
 
 _lens_sync_busy: bool = False
+_msgbus_owner = object()
+_prev_lens_by_cam_data_ptr: dict[int, float] = {}
 
 _SCENE_FOCAL_PROP_NAMES = (
-    "alec_focal_lens_ui",
     "alec_focal_dolly_compensate",
-    "alec_frame_scale",
     "alec_frame_base_lens",
-    "alec_frame_base_matrix",
+    "alec_frame_base_cam_name",
     "alec_frame_base_view_zoom",
     "alec_camera_marker_step",
 )
 
-_FRAME_SCALE_EPS = 1e-6
 # Blender camera-view display scale: ((sqrt(2)/100)*zoom + 1)^2 (see view3d draw).
 _FRAME_ZOOM_SQRT2_OVER_100 = math.sqrt(2.0) / 100.0
 _VIEW_CAMERA_ZOOM_MIN = -30.0
 _VIEW_CAMERA_ZOOM_MAX = 600.0
-_IDENTITY_MATRIX_FLAT = (
-    1.0, 0.0, 0.0, 0.0,
-    0.0, 1.0, 0.0, 0.0,
-    0.0, 0.0, 1.0, 0.0,
-    0.0, 0.0, 0.0, 1.0,
-)
-_last_frame_scale: float = 1.0
+_CROP_SCALE_MIN = 0.5
+_CROP_SCALE_MAX = 2.0
+_CROP_MODAL_DRAG_SENS = 0.002
+
+
+@contextmanager
+def _lens_sync_guard():
+    global _lens_sync_busy
+    _lens_sync_busy = True
+    try:
+        yield
+    finally:
+        _lens_sync_busy = False
+
+
+def _persp_camera_obj(obj):
+    if obj is None or getattr(obj, "type", None) != "CAMERA":
+        return None
+    if getattr(obj.data, "type", None) != "PERSP":
+        return None
+    return obj
 
 
 def scene_persp_camera(scene):
     """Return scene.camera if it is a perspective Camera object, else None."""
-    cam = getattr(scene, "camera", None)
-    if cam is None or getattr(cam, "type", None) != "CAMERA":
-        return None
-    if getattr(cam.data, "type", None) != "PERSP":
-        return None
-    return cam
+    return _persp_camera_obj(getattr(scene, "camera", None))
+
+
+def focal_edit_camera(context):
+    """Perspective camera edited by Focal mm / Crop (viewport, active, then scene)."""
+    space = context.space_data
+    if space is not None and getattr(space, "type", None) == "VIEW_3D":
+        rv3d = getattr(space, "region_3d", None)
+        if rv3d is not None and getattr(rv3d, "view_perspective", None) == "CAMERA":
+            cam = _persp_camera_obj(getattr(space, "camera", None))
+            if cam is not None:
+                return cam
+            return scene_persp_camera(context.scene)
+    cam = _persp_camera_obj(context.active_object)
+    if cam is not None:
+        return cam
+    return scene_persp_camera(context.scene)
 
 
 def view3d_camera_rv3d(context):
@@ -280,6 +262,11 @@ def view3d_camera_rv3d(context):
     if rv3d is None or getattr(rv3d, "view_perspective", None) != "CAMERA":
         return None
     return rv3d
+
+
+def crop_cam_and_rv3d(context):
+    """(camera, rv3d) for crop / focal in camera view, or (None, None)."""
+    return focal_edit_camera(context), view3d_camera_rv3d(context)
 
 
 def _clamp_view_camera_zoom(zoom: float) -> float:
@@ -316,54 +303,138 @@ def _frame_scale_coupled_lens_and_zoom(
 def _capture_frame_baseline(scene, cam, rv3d) -> None:
     scene.alec_frame_base_lens = float(cam.data.lens)
     scene.alec_frame_base_view_zoom = float(rv3d.view_camera_zoom)
+    scene.alec_frame_base_cam_name = cam.name
 
 
-def _apply_frame_scale_update(scene, context) -> None:
-    """Overscan: orange frame size in the window + matched focal (camera stays put)."""
-    global _lens_sync_busy, _last_frame_scale
-    cam = scene_persp_camera(scene)
-    if cam is None:
-        return
-    rv3d = view3d_camera_rv3d(context)
-    if rv3d is None:
-        return
-
-    scale = max(float(scene.alec_frame_scale), 0.01)
+def _ensure_frame_baseline(scene, cam, rv3d) -> None:
     if (
-        abs(_last_frame_scale - 1.0) < _FRAME_SCALE_EPS
-        and abs(scale - 1.0) >= _FRAME_SCALE_EPS
+        getattr(scene, "alec_frame_base_cam_name", "") != cam.name
+        or float(scene.alec_frame_base_lens) < 1e-6
     ):
         _capture_frame_baseline(scene, cam, rv3d)
 
-    base_lens = float(scene.alec_frame_base_lens)
-    if base_lens < 1e-6:
-        _capture_frame_baseline(scene, cam, rv3d)
-        base_lens = float(scene.alec_frame_base_lens)
-    base_zoom = float(scene.alec_frame_base_view_zoom)
 
-    cam.data.lens = base_lens
-    rv3d.view_camera_zoom = base_zoom
+def _clamp_crop_scale(scale: float) -> float:
+    return max(_CROP_SCALE_MIN, min(_CROP_SCALE_MAX, scale))
 
-    if abs(scale - 1.0) < _FRAME_SCALE_EPS:
-        _lens_sync_busy = True
-        try:
-            scene.alec_focal_lens_ui = float(cam.data.lens)
-        finally:
-            _lens_sync_busy = False
-        _last_frame_scale = scale
-        return
 
+def _restore_frame_baseline(scene, cam, rv3d) -> None:
+    _ensure_frame_baseline(scene, cam, rv3d)
+    with _lens_sync_guard():
+        cam.data.lens = float(scene.alec_frame_base_lens)
+        rv3d.view_camera_zoom = float(scene.alec_frame_base_view_zoom)
+
+
+def _apply_crop_scale(scene, context, scale: float) -> bool:
+    """Apply crop multiplier from stored baseline; camera position unchanged."""
+    cam, rv3d = crop_cam_and_rv3d(context)
+    if cam is None or rv3d is None:
+        return False
+    _ensure_frame_baseline(scene, cam, rv3d)
     new_lens, new_zoom = _frame_scale_coupled_lens_and_zoom(
-        base_lens, base_zoom, scale
+        float(scene.alec_frame_base_lens),
+        float(scene.alec_frame_base_view_zoom),
+        _clamp_crop_scale(scale),
     )
-    _lens_sync_busy = True
-    try:
+    with _lens_sync_guard():
         cam.data.lens = new_lens
         rv3d.view_camera_zoom = new_zoom
-        scene.alec_focal_lens_ui = new_lens
-    finally:
-        _lens_sync_busy = False
-    _last_frame_scale = scale
+        _prev_lens_by_cam_data_ptr[cam.data.as_pointer()] = new_lens
+    return True
+
+
+def _commit_crop_baseline(scene, cam, rv3d) -> None:
+    """Keep current lens/zoom as the new crop reference (multiplier back to 1.0)."""
+    _capture_frame_baseline(scene, cam, rv3d)
+
+
+class ALEC_OT_camera_crop_modal(modal_handler.BaseModalOperator, bpy.types.Operator):
+    """Crop overscan in camera view: type a multiplier or drag horizontally (like Set Edge Length)."""
+
+    bl_idname = "alec.camera_crop_modal"
+    bl_label = "Crop"
+    bl_description = (
+        "Camera view: drag horizontally or type a crop multiplier (1.0 = current). "
+        "Widens/narrows the orange frame; picture inside stays still. LMB or Enter to confirm"
+    )
+    bl_options = {"REGISTER", "UNDO", "GRAB_CURSOR", "BLOCKING"}
+
+    _initial_scale: float = 1.0
+    _current_scale: float = 1.0
+    _snap_lens: float = 0.0
+    _snap_zoom: float = 0.0
+
+    @classmethod
+    def poll(cls, context):
+        cam, rv3d = crop_cam_and_rv3d(context)
+        return cam is not None and rv3d is not None
+
+    def invoke(self, context, event):
+        cam, rv3d = crop_cam_and_rv3d(context)
+        if cam is None or rv3d is None:
+            self.report({"WARNING"}, "Scene camera and camera view required")
+            return {"CANCELLED"}
+        _ensure_frame_baseline(context.scene, cam, rv3d)
+        self._initial_scale = 1.0
+        self._current_scale = 1.0
+        self._snap_lens = float(cam.data.lens)
+        self._snap_zoom = float(rv3d.view_camera_zoom)
+        return self.base_invoke(context, event)
+
+    def get_status_bar_items(self):
+        return [("Confirm", "[LMB]"), ("Cancel", "[RMB]"), ("Reset", "[R]")]
+
+    def get_header_args(self, context):
+        return {
+            "main_label": "Crop",
+            "main_value": self._current_scale,
+            "suffix": "×",
+            "secondary_text": "1.0 = baseline",
+            "initial_value": self._initial_scale,
+            "precision": 3,
+        }
+
+    def _apply_current(self, context) -> None:
+        _apply_crop_scale(context.scene, context, self._current_scale)
+
+    def on_mouse_move(self, context, event, delta_x):
+        sens = _CROP_MODAL_DRAG_SENS * (0.1 if event.shift else 1.0)
+        self._current_scale = _clamp_crop_scale(
+            self._initial_scale + delta_x * sens
+        )
+        self._apply_current(context)
+
+    def on_apply_typed_value(self, context, event):
+        if not self.number_input.has_value():
+            return
+        try:
+            typed = self.number_input.get_value(initial_value=self._initial_scale)
+            self._current_scale = _clamp_crop_scale(typed)
+            self._apply_current(context)
+        except ValueError:
+            pass
+
+    def on_reset(self, context, event):
+        self._current_scale = self._initial_scale
+        cam, rv3d = crop_cam_and_rv3d(context)
+        if cam is not None:
+            _restore_frame_baseline(context.scene, cam, rv3d)
+
+    def on_confirm(self, context, event):
+        cam, rv3d = crop_cam_and_rv3d(context)
+        if cam is None:
+            return
+        _commit_crop_baseline(context.scene, cam, rv3d)
+        self.report({"INFO"}, f"Crop {self._current_scale:.3f}× committed")
+
+    def on_cancel(self, context, event):
+        cam, rv3d = crop_cam_and_rv3d(context)
+        if cam is None:
+            return
+        with _lens_sync_guard():
+            cam.data.lens = self._snap_lens
+            rv3d.view_camera_zoom = self._snap_zoom
+            _prev_lens_by_cam_data_ptr[cam.data.as_pointer()] = self._snap_lens
 
 
 def _apply_focal_dolly(cam, tgt, old_lens: float, new_lens: float) -> None:
@@ -383,47 +454,46 @@ def _apply_focal_dolly(cam, tgt, old_lens: float, new_lens: float) -> None:
     cam.matrix_world = Matrix.LocRotScale(loc + delta_w, rot, sca)
 
 
-def _alec_focal_lens_ui_update(scene, context):
+def _on_camera_lens_changed() -> None:
+    """Dolly only: runs when a Camera.lens RNA value changes (not a timer)."""
     global _lens_sync_busy
     if _lens_sync_busy:
         return
-    cam = scene_persp_camera(scene)
+    ctx = bpy.context
+    scene = getattr(ctx, "scene", None)
+    if scene is None:
+        return
+    cam = focal_edit_camera(ctx)
     if cam is None:
         return
-    new_lens = float(scene.alec_focal_lens_ui)
-    old_lens = float(cam.data.lens)
-    if abs(new_lens - old_lens) < 1e-6:
+    data = cam.data
+    key = data.as_pointer()
+    new_lens = float(data.lens)
+    old_lens = _prev_lens_by_cam_data_ptr.get(key, new_lens)
+    _prev_lens_by_cam_data_ptr[key] = new_lens
+    if abs(new_lens - old_lens) < 1e-4:
         return
-    cam.data.lens = new_lens
-    global _last_frame_scale
-    scene.alec_frame_scale = 1.0
-    _last_frame_scale = 1.0
-    rv3d = view3d_camera_rv3d(context)
-    if rv3d is not None:
-        _reset_camera_view_display_offsets(rv3d)
-        scene.alec_frame_base_view_zoom = 0.0
-        _capture_frame_baseline(scene, cam, rv3d)
-    else:
-        scene.alec_frame_base_lens = float(cam.data.lens)
+    if float(scene.alec_frame_base_lens) >= 1e-6:
+        scene.alec_frame_base_lens = new_lens
     if not bool(scene.alec_focal_dolly_compensate):
         return
-    tgt = getattr(context, "active_object", None)
+    tgt = getattr(ctx, "active_object", None)
     if tgt is None or tgt is cam:
         return
     _apply_focal_dolly(cam, tgt, old_lens, new_lens)
 
 
-def _alec_focal_dolly_toggle_update(scene, _context):
-    """Re-sync mirror on toggle so no jump occurs when turning dolly on."""
-    global _lens_sync_busy
-    cam = scene_persp_camera(scene)
-    if cam is None:
-        return
-    _lens_sync_busy = True
-    try:
-        scene.alec_focal_lens_ui = float(cam.data.lens)
-    finally:
-        _lens_sync_busy = False
+def _subscribe_focal_dolly_msgbus() -> None:
+    bpy.msgbus.subscribe_rna(
+        key=(bpy.types.Camera, "lens"),
+        owner=_msgbus_owner,
+        args=(),
+        notify=_on_camera_lens_changed,
+    )
+
+
+def _unsubscribe_focal_dolly_msgbus() -> None:
+    bpy.msgbus.clear_by_owner(_msgbus_owner)
 
 
 def register_focal_lens_scene_props() -> None:
@@ -433,59 +503,28 @@ def register_focal_lens_scene_props() -> None:
                 delattr(bpy.types.Scene, name)
             except Exception:
                 pass
-    bpy.types.Scene.alec_focal_lens_ui = bpy.props.FloatProperty(
-        name="Focal (mm)",
-        description=(
-            "Focal length of the scene camera (Render Properties camera). "
-            "Use with \"Dolly focal\" below to move the camera when you change this value"
-        ),
-        default=50.0,
-        min=1.0,
-        soft_max=500.0,
-        precision=2,
-        step=100,
-        update=_alec_focal_lens_ui_update,
-    )
     bpy.types.Scene.alec_focal_dolly_compensate = bpy.props.BoolProperty(
         name="Dolly focal",
         description=(
-            "On: changing \"Focal (mm)\"  changes the scene camera lens and "
-            "slides that camera forward or back so the active object (selected in "
-            "the viewport) stays about the same size in frame."
+            "On: changing focal length slides the edited camera forward or back "
+            "so the active object stays about the same size in frame"
         ),
         default=False,
-        update=_alec_focal_dolly_toggle_update,
+    )
+    bpy.types.Scene.alec_frame_base_cam_name = bpy.props.StringProperty(
+        name="Frame baseline camera",
+        default="",
+        options={"HIDDEN"},
     )
     bpy.types.Scene.alec_frame_base_lens = bpy.props.FloatProperty(
         name="Frame baseline lens",
-        default=50.0,
+        default=0.0,
         options={"HIDDEN"},
     )
     bpy.types.Scene.alec_frame_base_view_zoom = bpy.props.FloatProperty(
         name="Frame baseline view zoom",
         default=0.0,
         options={"HIDDEN"},
-    )
-    bpy.types.Scene.alec_frame_base_matrix = bpy.props.FloatVectorProperty(
-        name="Frame baseline matrix",
-        size=16,
-        subtype="MATRIX",
-        default=_IDENTITY_MATRIX_FLAT,
-        options={"HIDDEN"},
-    )
-    bpy.types.Scene.alec_frame_scale = bpy.props.FloatProperty(
-        name="Cadru",
-        description=(
-            "Overscan / underscan in camera view: resizes the orange frame in the "
-            "window and adjusts focal so the picture inside does not appear to move. "
-            "Camera position is not changed. 1.0 = reference"
-        ),
-        default=1.0,
-        min=0.5,
-        max=2.0,
-        precision=2,
-        step=1,
-        update=_apply_frame_scale_update,
     )
     bpy.types.Scene.alec_camera_marker_step = bpy.props.IntProperty(
         name="Camera marker step",
@@ -497,10 +536,12 @@ def register_focal_lens_scene_props() -> None:
         min=1,
         soft_max=1000,
     )
-    _subscribe_lens_msgbus()
+    _subscribe_focal_dolly_msgbus()
+
 
 def unregister_focal_lens_scene_props() -> None:
-    _unsubscribe_lens_msgbus()
+    _unsubscribe_focal_dolly_msgbus()
+    _prev_lens_by_cam_data_ptr.clear()
     for name in _SCENE_FOCAL_PROP_NAMES:
         if hasattr(bpy.types.Scene, name):
             try:
@@ -1170,4 +1211,5 @@ classes = (
     ALEC_OT_cameras_bind_all_to_timeline,
     ALEC_OT_cameras_bind_selected_to_end,
     ALEC_OT_camera_rig_read_sphere,
+    ALEC_OT_camera_crop_modal,
 )

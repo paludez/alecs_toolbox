@@ -7,6 +7,7 @@ from ..operators.camera_tools import (
     view3d_camera_rv3d,
     _camera_data_from_context,
     camera_sphere_track_target,
+    focal_edit_camera,
     scene_persp_camera,
 )
 
@@ -201,31 +202,35 @@ def _draw_camera_tools(layout, context):
             icon="FILE_REFRESH",
         )
 
-    cam = scene_persp_camera(scene)
+    cam = focal_edit_camera(context)
 
     col.separator()
     focal_block = col.column(align=True)
     row_focal = focal_block.row(align=True)
     sub_ld = row_focal.row(align=True)
     sub_ld.enabled = cam is not None
-    sub_ld.prop(scene, "alec_focal_lens_ui", text="Focal mm")
+    if cam is not None:
+        sub_ld.prop(cam.data, "lens", text="Focal mm")
     dolly_on = bool(scene.alec_focal_dolly_compensate)
     tgt = context.active_object
     pivot_ok = cam is not None and tgt is not None and tgt is not cam
-    toggle_icon = "CON_CAMERASOLVER" if dolly_on else "CAMERA_DATA"
     dolly_wrap = sub_ld.row(align=True)
     dolly_wrap.alert = bool(cam is not None and dolly_on and not pivot_ok)
     dolly_wrap.prop(
         scene,
         "alec_focal_dolly_compensate",
         text="",
-        icon=toggle_icon,
+        icon="AUTO",
         toggle=True,
     )
     if cam is not None:
-        cadru_row = sub_ld.row(align=True)
-        cadru_row.enabled = view3d_camera_rv3d(context) is not None
-        cadru_row.prop(scene, "alec_frame_scale", text="Crop")
+        crop_op = sub_ld.row(align=True)
+        crop_op.enabled = view3d_camera_rv3d(context) is not None
+        crop_op.operator(
+            "alec.camera_crop_modal",
+            text="Crop",
+            icon="NONE",
+        )
 
     col.separator()
     row_tl = col.row(align=True)
@@ -273,12 +278,18 @@ def _draw_lights_tools(layout, context):
         op.light_type = lt
 
     row_lt_tgt = col.row(align=True)
+    row_lt_tgt.operator("alec.light_target_dist", text="Targ.Dist")
     row_lt_tgt.operator("alec.light_target_obj", text="Target.Obj")
     row_lt_tgt.operator("alec.light_target_cursor", text="Target.Curs")
     row_lt_tgt.operator(
         "alec.light_clear_track_target",
         text="",
         icon="UNLINKED",
+    )
+    row_lt_tgt.operator(
+        "alec.light_select_track_target",
+        text="",
+        icon="RESTRICT_SELECT_OFF",
     )
 
     scene = context.scene
@@ -287,14 +298,12 @@ def _draw_lights_tools(layout, context):
         light_data.shape if area_light_ok else None
     )
 
-    # Același rând: dimensiuni la început, shape-uri la sfârșit (sub-rând pt. cele 2 float-uri).
     area_block = col.column(align=True)
     area_block.enabled = area_light_ok
     row_area = area_block.row(align=True)
     sz = row_area.row(align=True)
     sz.ui_units_x = 12
     if area_light_ok:
-        # size_y aplică la RECTANGLE și ELLIPSE; la SQUARE / DISK e ignorat în Light data.
         _area_uses_second_dim = cur_area_shape in {"RECTANGLE", "ELLIPSE"}
         sz.prop(light_data, "size", text="")
         ry = sz.row(align=True)
@@ -305,9 +314,9 @@ def _draw_lights_tools(layout, context):
         sz.prop(scene, "alec_lights_ui_dummy_area_size_y", text="")
     for shape_id, icon in (
         ("SQUARE", "MESH_PLANE"),
-        ("RECTANGLE", "UV_FACESEL"),
+        ("RECTANGLE", "MOD_EDGESPLIT"),
         ("DISK", "MESH_CIRCLE"),
-        ("ELLIPSE", "META_ELLIPSOID"),
+        ("ELLIPSE", "MESH_CAPSULE"),
     ):
         op = row_area.operator(
             "alec.light_area_shape",
@@ -370,7 +379,7 @@ class ALEC_PT_npanelMain(bpy.types.Panel):
     def draw_header(self, context):
         layout = self.layout
 
-        layout.label(text="Alec's Tools", icon="EXPERIMENTAL")
+        layout.label(text="Alec's Tools", icon="HEART")
 
     def draw(self, context):
         layout = self.layout

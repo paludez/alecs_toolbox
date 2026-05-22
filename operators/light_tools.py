@@ -3,7 +3,10 @@ import math
 import bpy
 from mathutils import Vector
 
-from .camera_tools import _object_bbox_center_world
+from .camera_tools import (
+    _empty_world_location_on_camera_axis,
+    _object_bbox_center_world,
+)
 
 _LIGHT_RIG_UPDATING = False
 _ALEC_LT_CON_NAME = "Alec Track Target"
@@ -68,6 +71,30 @@ def light_rig_world_position(light_obj, context):
     return tw + light_dir * dist
 
 
+def _upgrade_light_track_constraint(light_obj) -> bpy.types.Constraint | None:
+    """Orbit rig uses Track To (like scene camera); upgrade legacy Damped Track."""
+    con = light_obj.constraints.get(_ALEC_LT_CON_NAME)
+    if con is None:
+        for c in light_obj.constraints:
+            if c.type in _LIGHT_TRACK_CON_TYPES_FROZEN:
+                con = c
+                break
+    if con is None:
+        return None
+    if con.type == "DAMPED_TRACK":
+        tgt = con.target
+        name = con.name
+        light_obj.constraints.remove(con)
+        con = light_obj.constraints.new(type="TRACK_TO")
+        con.name = name
+        con.target = tgt
+    if con.type != "TRACK_TO":
+        return None
+    con.track_axis = "TRACK_NEGATIVE_Z"
+    con.up_axis = "UP_Y"
+    return con
+
+
 def _apply_light_rig_props(light_obj, context):
     global _LIGHT_RIG_UPDATING
     if _LIGHT_RIG_UPDATING:
@@ -79,16 +106,28 @@ def _apply_light_rig_props(light_obj, context):
     pos = light_rig_world_position(light_obj, context)
     if pos is None:
         return
+    con = _upgrade_light_track_constraint(light_obj)
+    saved_inf = None
     _LIGHT_RIG_UPDATING = True
     try:
+        if con is not None:
+            saved_inf = con.influence
+            con.influence = 0.0
+        # Move on orbit sphere first (Damped Track used to spin in place here).
         if light_obj.parent is None:
             light_obj.location = pos
         else:
             mw = light_obj.matrix_world.copy()
             mw.translation = pos
             light_obj.matrix_world = mw
+        if con is not None and saved_inf is not None:
+            con.influence = saved_inf
     finally:
         _LIGHT_RIG_UPDATING = False
+    try:
+        context.view_layer.update()
+    except Exception:
+        pass
 
 
 def _sync_light_sphere_props_from_world(light_obj: bpy.types.Object, context) -> None:
@@ -252,11 +291,11 @@ def _ensure_empty_and_light_damped_track(
     if old is not None:
         light_obj.constraints.remove(old)
 
-    con = light_obj.constraints.new(type="DAMPED_TRACK")
+    con = light_obj.constraints.new(type="TRACK_TO")
     con.name = _ALEC_LT_CON_NAME
     con.target = empty
     con.track_axis = "TRACK_NEGATIVE_Z"
-    con.influence = 1.0
+    con.up_axis = "UP_Y"
     _tag_alec_light_track_target_empty(empty)
     context.view_layer.update()
     if apply_sphere_orbit:
@@ -380,7 +419,7 @@ _AREA_SHAPE_ITEMS = (
 
 
 class ALEC_OT_light_area_shape(bpy.types.Operator):
-    """Set active Area light shape (matches Light » Area » Shape)."""
+    """Set active Area light Square, Rectangle, Disk, Ellipse"""
 
     bl_idname = "alec.light_area_shape"
     bl_label = "Area Light Shape"
@@ -411,7 +450,7 @@ class ALEC_OT_light_area_shape(bpy.types.Operator):
 
 
 class ALEC_OT_new_light_rig(bpy.types.Operator):
-    """Empty at 3D cursor (target) + Area light with Damped Track; sphere coords in panel."""
+    """Empty at 3D cursor (target) + Area light with Track To; sphere coords in panel."""
 
     bl_idname = "alec.new_light_rig"
     bl_label = "New Light"
@@ -445,11 +484,11 @@ class ALEC_OT_new_light_rig(bpy.types.Operator):
             return {"CANCELLED"}
         light.name = "AlecAreaRig"
 
-        con = light.constraints.new(type="DAMPED_TRACK")
+        con = light.constraints.new(type="TRACK_TO")
         con.name = _ALEC_LT_CON_NAME
         con.target = empty
         con.track_axis = "TRACK_NEGATIVE_Z"
-        con.influence = 1.0
+        con.up_axis = "UP_Y"
 
         _tag_alec_light_track_target_empty(empty)
 
@@ -463,6 +502,43 @@ class ALEC_OT_new_light_rig(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class ALEC_OT_light_target_dist(bpy.types.Operator):
+    """Empty on each selected lamp axis through active object origin (like camera Targ.Dist)."""
+
+    bl_idname = "alec.light_target_dist"
+    bl_label = "Targ.Dist"
+    bl_description = (
+        "Each selected lamp: <name>_Target on the lamp axis through the active "
+        "object origin; Track To; lamp position unchanged (no orbit snap)"
+    )
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        if context.mode != "OBJECT":
+            return False
+        obj = context.active_object
+        if obj is None or obj.type == "LIGHT":
+            return False
+        return len(_lights_in_selection(context)) > 0
+
+    def execute(self, context):
+        obj = context.active_object
+        if obj is None or obj.type == "LIGHT":
+            return {"CANCELLED"}
+        lights = _lights_in_selection(context)
+        if not lights:
+            self.report({"WARNING"}, "Include at least one light in selection")
+            return {"CANCELLED"}
+        pt = obj.matrix_world.translation.copy()
+        for light in lights:
+            loc = _empty_world_location_on_camera_axis(light, pt)
+            _ensure_empty_and_light_damped_track(
+                context, light, loc, apply_sphere_orbit=False
+            )
+        return {"FINISHED"}
+
+
 class ALEC_OT_light_target_obj(bpy.types.Operator):
     """BBox center of active (non-light) object; damped-track for every lamp in selection."""
 
@@ -470,7 +546,7 @@ class ALEC_OT_light_target_obj(bpy.types.Operator):
     bl_label = "Target.Obj"
     bl_description = (
         "Active object is the aim target (bbox center). Include one or more lights in "
-        "selection — each gets <name>_Target + Damped Track; light position unchanged (no orbit snap)"
+        "selection — each gets <name>_Target + Track To; light position unchanged (no orbit snap)"
     )
     bl_options = {"REGISTER", "UNDO"}
 
@@ -571,7 +647,7 @@ class ALEC_OT_light_clear_track_target(bpy.types.Operator):
     bl_idname = "alec.light_clear_track_target"
     bl_label = "Clear target"
     bl_description = (
-        "Remove every Damped Track / Track To on active lamp (not by name); transform stays put; "
+        "Remove every Track To / Damped Track on active lamp (not by name); transform stays put; "
         "removes Alec-created targets (tagged) or legacy empty names LightName_Target / AlecLightTarget"
     )
     bl_options = {"REGISTER", "UNDO"}
@@ -637,12 +713,47 @@ class ALEC_OT_light_clear_track_target(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class ALEC_OT_light_select_track_target(bpy.types.Operator):
+    """Select the active lamp's track target (empty from target buttons)."""
+
+    bl_idname = "alec.light_select_track_target"
+    bl_label = "Select light target"
+    bl_description = "Select the object the active lamp tracks (Alec track constraint)"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        if context.mode != "OBJECT":
+            return False
+        obj = context.active_object
+        if obj is None or obj.type != "LIGHT":
+            return False
+        return _alec_sphere_track_target(obj, context) is not None
+
+    def execute(self, context):
+        light = context.active_object
+        if light is None or light.type != "LIGHT":
+            return {"CANCELLED"}
+        tgt = _alec_sphere_track_target(light, context)
+        if tgt is None:
+            return {"CANCELLED"}
+        try:
+            bpy.ops.object.select_all(action="DESELECT")
+        except RuntimeError:
+            pass
+        tgt.select_set(True)
+        context.view_layer.objects.active = tgt
+        return {"FINISHED"}
+
+
 classes = (
     ALEC_OT_light_add,
     ALEC_OT_light_area_shape,
     ALEC_OT_new_light_rig,
+    ALEC_OT_light_target_dist,
     ALEC_OT_light_target_obj,
     ALEC_OT_light_target_cursor,
     ALEC_OT_light_clear_track_target,
+    ALEC_OT_light_select_track_target,
     ALEC_OT_light_rig_read_sphere,
 )
