@@ -377,20 +377,46 @@ class ALEC_OT_toggle_mesh_bounds_textured(bpy.types.Operator):
             obj.display_type = target
         return {"FINISHED"}
 
-class ALEC_OT_view_axis_smart(bpy.types.Operator):
-    """View axis — Alt for opposite side (Top/Bottom, Front/Back, Right/Left)"""
-    bl_idname = "alec.view_axis_smart"
-    bl_label = "View Axis Smart"
+_VIEW_AXIS_OPPOSITE = {"TOP": "BOTTOM", "FRONT": "BACK", "RIGHT": "LEFT"}
+
+
+def _invoke_view_axis(context, event, base_axis: str):
+    axis = _VIEW_AXIS_OPPOSITE[base_axis] if event.alt else base_axis
+    bpy.ops.view3d.view_axis(type=axis, align_active=True)
+    return {'FINISHED'}
+
+
+class ALEC_OT_view_axis_top(bpy.types.Operator):
+    """Align view to Top; Alt for Bottom"""
+    bl_idname = "alec.view_axis_top"
+    bl_label = "Top"
+    bl_description = "Align view to Top (aligned to active object). Hold Alt for Bottom."
     bl_options = {'REGISTER'}
 
-    axis: bpy.props.StringProperty()
+    def invoke(self, context, event):
+        return _invoke_view_axis(context, event, "TOP")
+
+
+class ALEC_OT_view_axis_front(bpy.types.Operator):
+    """Align view to Front; Alt for Back"""
+    bl_idname = "alec.view_axis_front"
+    bl_label = "Front"
+    bl_description = "Align view to Front (aligned to active object). Hold Alt for Back."
+    bl_options = {'REGISTER'}
 
     def invoke(self, context, event):
-        axis = self.axis
-        if event.alt:
-            axis = {"TOP": "BOTTOM", "FRONT": "BACK", "RIGHT": "LEFT"}[axis]
-        bpy.ops.view3d.view_axis(type=axis, align_active=True)
-        return {'FINISHED'}
+        return _invoke_view_axis(context, event, "FRONT")
+
+
+class ALEC_OT_view_axis_right(bpy.types.Operator):
+    """Align view to Right; Alt for Left"""
+    bl_idname = "alec.view_axis_right"
+    bl_label = "Right"
+    bl_description = "Align view to Right (aligned to active object). Hold Alt for Left."
+    bl_options = {'REGISTER'}
+
+    def invoke(self, context, event):
+        return _invoke_view_axis(context, event, "RIGHT")
 
 
 classes = (
@@ -401,5 +427,7 @@ classes = (
     ALEC_OT_light_energy_modal,
     ALEC_OT_toggle_mesh_wire_textured,
     ALEC_OT_toggle_mesh_bounds_textured,
-    ALEC_OT_view_axis_smart,
+    ALEC_OT_view_axis_top,
+    ALEC_OT_view_axis_front,
+    ALEC_OT_view_axis_right,
 )

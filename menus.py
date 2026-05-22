@@ -91,6 +91,9 @@ def _shader_add_node_pairs(parent, entries):
             i += 1
 
 
+_VIEW3D_OBJECT_TYPE_FILTERS = ("mesh", "curves", "empty", "light", "camera")
+
+
 class ALEC_OT_viewport_show_common_types(bpy.types.Operator):
     """Enable common viewport object-type visibility filters"""
     bl_idname = "alec.viewport_show_common_types"
@@ -103,11 +106,25 @@ class ALEC_OT_viewport_show_common_types(bpy.types.Operator):
 
     def execute(self, context):
         space = context.space_data
-        space.show_object_viewport_mesh = True
-        space.show_object_viewport_curves = True
-        space.show_object_viewport_empty = True
-        space.show_object_viewport_light = True
-        space.show_object_viewport_camera = True
+        for name in _VIEW3D_OBJECT_TYPE_FILTERS:
+            setattr(space, f"show_object_viewport_{name}", True)
+        return {'FINISHED'}
+
+
+class ALEC_OT_viewport_select_common_types(bpy.types.Operator):
+    """Enable common viewport object-type selectability filters"""
+    bl_idname = "alec.viewport_select_common_types"
+    bl_label = "Select Common Types"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return bool(context.space_data and context.space_data.type == 'VIEW_3D')
+
+    def execute(self, context):
+        space = context.space_data
+        for name in _VIEW3D_OBJECT_TYPE_FILTERS:
+            setattr(space, f"show_object_select_{name}", True)
         return {'FINISHED'}
 
 
@@ -400,6 +417,16 @@ class ALEC_MT_object_menu(bpy.types.Menu):
             text="",
             icon="OBJECT_ORIGIN",
         )
+        row_align.operator(
+            "alec.align_preset_rotate",
+            text="",
+            icon="DRIVER_ROTATIONAL_DIFFERENCE",
+        )
+        row_align.operator(
+            "alec.align_preset_scale",
+            text="",
+            icon="CON_SIZELIKE",
+        )
         row_align.operator_context = prev_ctx
 
         row_distrib = box_align.row(align=True)
@@ -489,6 +516,7 @@ class ALEC_MT_object_menu(bpy.types.Menu):
 
 classes = [
     ALEC_OT_viewport_show_common_types,
+    ALEC_OT_viewport_select_common_types,
     ALEC_MT_object_menu,
     ALEC_MT_edit_menu,
     ALEC_MT_edit_curve_menu,

@@ -1,6 +1,23 @@
 import bpy
 from ..modules.utils import draw_hidden_coll_toggle, safe_operator_props
 
+_VIEW3D_TYPE_FILTER_UI = (
+    ("mesh", 'MESH_DATA'),
+    ("curves", 'OUTLINER_OB_CURVE'),
+    ("empty", 'EMPTY_DATA'),
+    ("light", 'LIGHT_DATA'),
+    ("camera", 'CAMERA_DATA'),
+)
+
+
+def _draw_view3d_type_filter_row(box, space, label, prop_prefix, enable_op_id, *, label_icon='NONE'):
+    row = box.row(align=True)
+    row.label(text=label, icon=label_icon)
+    btns = row.row(align=True)
+    for name, icon in _VIEW3D_TYPE_FILTER_UI:
+        btns.prop(space, f"show_object_{prop_prefix}_{name}", text="", icon=icon, toggle=True)
+    btns.operator(enable_op_id, text="", icon='CON_ROTLIKE')
+
 
 class ALEC_MT_quad_menu(bpy.types.Menu):
     bl_idname = "ALEC_MT_quad_menu"
@@ -8,7 +25,7 @@ class ALEC_MT_quad_menu(bpy.types.Menu):
 
     def draw(self, context):
         pie = self.layout.menu_pie()
-        # 1) Left  : Viewport | Align View (+ rotate ±90°)
+        # 1) Left  : Viewport | Align View
         # 2) Right : Pivot + Orientation + Snap
         # 3) Bottom: Cursor + Origin
         # 4) Top   : Visibility
@@ -19,43 +36,53 @@ class ALEC_MT_quad_menu(bpy.types.Menu):
 
         col_view = row_lv.column()
         box_view = col_view.box()
-        box_view.label(text="Viewport", icon='RESTRICT_VIEW_OFF')
-        col_inner = box_view.column(align=True)
-        grid_vis = col_inner.grid_flow(columns=3, align=True, even_columns=True)
-        grid_vis.prop(context.space_data, "show_object_viewport_mesh", text="Mesh", icon='MESH_DATA', toggle=True)
-        grid_vis.prop(context.space_data, "show_object_viewport_curves", text="Curves", icon='OUTLINER_OB_CURVE', toggle=True)
-        grid_vis.prop(context.space_data, "show_object_viewport_empty", text="Empty", icon='EMPTY_DATA', toggle=True)
-        grid_vis.prop(context.space_data, "show_object_viewport_light", text="Light", icon='LIGHT_DATA', toggle=True)
-        grid_vis.prop(context.space_data, "show_object_viewport_camera", text="Camera", icon='CAMERA_DATA', toggle=True)
-        col_inner.operator("alec.viewport_show_common_types", text="Show All", icon='CHECKMARK')
+        space = context.space_data
+        _draw_view3d_type_filter_row(
+            box_view, space, "Vis.", "viewport", "alec.viewport_show_common_types",
+            label_icon='HIDE_OFF',
+        )
+        _draw_view3d_type_filter_row(
+            box_view, space, "Sel.", "select", "alec.viewport_select_common_types",
+            label_icon='RESTRICT_SELECT_OFF',
+        )
 
         col_rot = row_lv.column()
         box_rot = col_rot.box()
 
-        box_rot.label(text="Align View", icon='VIEW_PERSPECTIVE')
-        grid_rot = box_rot.grid_flow(columns=3, align=True, even_columns=True)
-        for axis_type in ("TOP", "FRONT", "RIGHT"):
-            grid_rot.operator("alec.view_axis_smart", text=axis_type.capitalize()).axis = axis_type
+        row_align = box_rot.row(align=True)
+        row_align.label(text="Align View")
+        axes = row_align.row(align=True)
+        axes.operator_context = 'INVOKE_DEFAULT'
+        for op_id, icon in (
+            ("alec.view_axis_top", 'AXIS_TOP'),
+            ("alec.view_axis_front", 'AXIS_FRONT'),
+            ("alec.view_axis_right", 'AXIS_SIDE'),
+        ):
+            axes.operator(op_id, text="", icon=icon)
 
-        box_rot.separator(factor=0.5)
-
-        box_rot.separator(factor=0.5)
-        box_rot.label(text="Rotate", icon='DRIVER_ROTATIONAL_DIFFERENCE')
-        row_rot = box_rot.row(align=True)
-        row_rot.operator("alec.selection_rotate_presets", text="45°").angle_degrees = 45.0
-        row_rot.operator("alec.selection_rotate_presets", text="90°").angle_degrees = 90.0
-        row_rot.operator("alec.selection_rotate_presets", text="180°").angle_degrees = 180.0
-        box_rot.separator(factor=0.5)
+        row_affect = box_rot.row(align=True)
+        row_affect.label(text="Affect Only")
+        btns = row_affect.row(align=True)
+        ts = context.tool_settings
+        btns.prop(ts, "use_transform_data_origin", text="", icon='TRANSFORM_ORIGINS', toggle=True)
+        btns.prop(ts, "use_transform_pivot_point_align", text="", icon='PIVOT_CURSOR', toggle=True)
+        btns.prop(ts, "use_transform_skip_children", text="", icon='FILE_PARENT', toggle=True)
 
         # --- Slice 2 (Right): Pivot Point ---
         col_right = pie.column()
         box_pivot = col_right.box()
-        box_pivot.label(text="Pivot Point", icon='PIVOT_MEDIAN')
-        grid = box_pivot.grid_flow(columns=3, align=True, even_columns=True)
-        for val, txt in [('BOUNDING_BOX_CENTER', "BBox"), ('CURSOR', "Cursor"), ('INDIVIDUAL_ORIGINS', "Indiv"),
-                         ('MEDIAN_POINT', "Median"), ('ACTIVE_ELEMENT', "Active")]:
-            grid.prop_enum(context.tool_settings, "transform_pivot_point", value=val, text=txt)
-        grid.prop(context.tool_settings, "use_transform_pivot_point_align", text="Only Loc")
+        row_pivot = box_pivot.row(align=True)
+        row_pivot.label(text="Pivot Point")
+        pivots = row_pivot.row(align=True)
+        ts_pivot = context.tool_settings
+        for val, icon in (
+            ('BOUNDING_BOX_CENTER', 'PIVOT_BOUNDBOX'),
+            ('CURSOR', 'PIVOT_CURSOR'),
+            ('INDIVIDUAL_ORIGINS', 'PIVOT_INDIVIDUAL'),
+            ('MEDIAN_POINT', 'PIVOT_MEDIAN'),
+            ('ACTIVE_ELEMENT', 'PIVOT_ACTIVE'),
+        ):
+            pivots.prop_enum(ts_pivot, "transform_pivot_point", value=val, text="", icon=icon)
 
         box_orient = col_right.box()
         box_orient.label(text="Orientation", icon='ORIENTATION_GLOBAL')

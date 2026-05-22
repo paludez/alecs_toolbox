@@ -168,11 +168,18 @@ class AlignBase:
             return "CENTER"
         return "PIVOT"
 
-    def _reset_align_defaults(self, ref_point: str, match_rotation: bool = False):
-        self.align_x = self.align_y = self.align_z = True
+    def _reset_align_defaults(
+        self,
+        ref_point: str,
+        *,
+        match_position: bool = True,
+        match_rotation: bool = False,
+        match_scale: bool = False,
+    ):
+        self.align_x = self.align_y = self.align_z = match_position
         self.source_point = self.target_point = ref_point
         self.orient_x = self.orient_y = self.orient_z = match_rotation
-        self.scale_x = self.scale_y = self.scale_z = False
+        self.scale_x = self.scale_y = self.scale_z = match_scale
         self.use_active_orient = False
         self.offset_x = self.offset_y = self.offset_z = 0.0
         self.orient_offset_x = self.orient_offset_y = self.orient_offset_z = 0.0
@@ -181,7 +188,29 @@ class AlignBase:
 
     def _invoke_align_preset(self, context, event, ref_point: str):
         want_rot = bool(getattr(event, "alt", False))
-        self._reset_align_defaults(ref_point, want_rot)
+        self._reset_align_defaults(
+            ref_point, match_position=True, match_rotation=want_rot
+        )
+        self._is_modal = True
+        self._capture_selection_snapshot(context)
+        self.execute(context)
+        return {"FINISHED"}
+
+    def _invoke_align_preset_flags(
+        self,
+        context,
+        ref_point: str,
+        *,
+        match_position: bool,
+        match_rotation: bool,
+        match_scale: bool,
+    ):
+        self._reset_align_defaults(
+            ref_point,
+            match_position=match_position,
+            match_rotation=match_rotation,
+            match_scale=match_scale,
+        )
         self._is_modal = True
         self._capture_selection_snapshot(context)
         self.execute(context)
@@ -308,6 +337,40 @@ class ALEC_OT_align_preset_origins(AlignBase, bpy.types.Operator):
 
     def invoke(self, context, event):
         return self._invoke_align_preset(context, event, "PIVOT")
+
+
+class ALEC_OT_align_preset_rotate(AlignBase, bpy.types.Operator):
+    """Preset: match rotation to active (origins ref, no position move)."""
+
+    bl_idname = "alec.align_preset_rotate"
+    bl_label = "Align (Rotation)"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def invoke(self, context, event):
+        return self._invoke_align_preset_flags(
+            context,
+            "PIVOT",
+            match_position=False,
+            match_rotation=True,
+            match_scale=False,
+        )
+
+
+class ALEC_OT_align_preset_scale(AlignBase, bpy.types.Operator):
+    """Preset: match scale to active (origins ref, no position move)."""
+
+    bl_idname = "alec.align_preset_scale"
+    bl_label = "Align (Scale)"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def invoke(self, context, event):
+        return self._invoke_align_preset_flags(
+            context,
+            "PIVOT",
+            match_position=False,
+            match_rotation=False,
+            match_scale=True,
+        )
 
 
 class ALEC_OT_distribute_objects_dialog(bpy.types.Operator):
@@ -754,5 +817,7 @@ classes = (
     ALEC_OT_align_dialog,
     ALEC_OT_align_preset_centers,
     ALEC_OT_align_preset_origins,
+    ALEC_OT_align_preset_rotate,
+    ALEC_OT_align_preset_scale,
     ALEC_OT_distribute_objects_dialog,
 )  

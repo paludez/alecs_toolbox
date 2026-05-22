@@ -1,5 +1,5 @@
 import bpy
-import math
+
 from ..modules import misc_tools
 
 def _objects_in_view_layer(context):
@@ -189,75 +189,6 @@ class ALEC_OT_hide_view_clear_viewport_render(bpy.types.Operator):
         return {"FINISHED"}
 
 
-class ALEC_OT_selection_rotate_presets(bpy.types.Operator):
-    """Rotate selection — X/Y/Z for axis, move mouse for direction/angle preview, click to confirm, ESC to cancel."""
-    bl_idname = "alec.selection_rotate_presets"
-    bl_label = "Rotate Selection"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    angle_degrees: bpy.props.FloatProperty(default=90.0)
-
-    _start_x: int = 0
-    _axis: str = None
-    _last_angle: float = 0.0
-
-    @classmethod
-    def poll(cls, context):
-        mode = context.mode
-        if mode == 'OBJECT':
-            return bool(context.selected_objects)
-        if mode in {'EDIT_MESH', 'EDIT_CURVE', 'EDIT_CURVES'}:
-            return context.edit_object is not None
-        return False
-
-    def _apply_rotation(self, context, angle_deg):
-        try:
-            bpy.ops.transform.rotate(
-                value=math.radians(angle_deg),
-                orient_axis=self._axis,
-                orient_type=context.scene.transform_orientation_slots[0].type,
-            )
-        except RuntimeError:
-            pass
-
-    def _cancel_last(self, context):
-        if abs(self._last_angle) > 1e-6:
-            self._apply_rotation(context, -self._last_angle)
-            self._last_angle = 0.0
-
-    def invoke(self, context, event):
-        self._start_x = event.mouse_x
-        self._axis = None
-        self._last_angle = 0.0
-        context.window_manager.modal_handler_add(self)
-        return {'RUNNING_MODAL'}
-
-    def modal(self, context, event):
-        if event.type in {'X', 'Y', 'Z'} and event.value == 'PRESS':
-            self._cancel_last(context)
-            self._axis = event.type
-            self._start_x = event.mouse_x
-
-        elif event.type == 'MOUSEMOVE':
-            if self._axis is None:
-                return {'RUNNING_MODAL'}
-            delta = event.mouse_x - self._start_x
-            direction = 1.0 if delta >= 0 else -1.0
-            new_angle = direction * self.angle_degrees
-            if abs(new_angle - self._last_angle) > 1e-6:
-                self._cancel_last(context)
-                self._apply_rotation(context, new_angle)
-                self._last_angle = new_angle
-
-        elif event.type == 'LEFTMOUSE' and event.value == 'PRESS':
-            return {'FINISHED'}
-
-        elif event.type in {'RIGHTMOUSE', 'ESC'} and event.value == 'PRESS':
-            self._cancel_last(context)
-            return {'CANCELLED'}
-
-        return {'RUNNING_MODAL'}
-
 classes = (
     ALEC_OT_track_to_active,
     ALEC_OT_group,
@@ -266,5 +197,4 @@ classes = (
     ALEC_OT_hide_selected_viewport_render,
     ALEC_OT_hide_unselected_viewport_render,
     ALEC_OT_hide_view_clear_viewport_render,
-    ALEC_OT_selection_rotate_presets,
 )
