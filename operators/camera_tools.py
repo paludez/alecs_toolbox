@@ -240,8 +240,25 @@ _lens_sync_busy: bool = False
 _SCENE_FOCAL_PROP_NAMES = (
     "alec_focal_lens_ui",
     "alec_focal_dolly_compensate",
+    "alec_frame_scale",
+    "alec_frame_base_lens",
+    "alec_frame_base_matrix",
+    "alec_frame_base_view_zoom",
     "alec_camera_marker_step",
 )
+
+_FRAME_SCALE_EPS = 1e-6
+# Blender camera-view display scale: ((sqrt(2)/100)*zoom + 1)^2 (see view3d draw).
+_FRAME_ZOOM_SQRT2_OVER_100 = math.sqrt(2.0) / 100.0
+_VIEW_CAMERA_ZOOM_MIN = -30.0
+_VIEW_CAMERA_ZOOM_MAX = 600.0
+_IDENTITY_MATRIX_FLAT = (
+    1.0, 0.0, 0.0, 0.0,
+    0.0, 1.0, 0.0, 0.0,
+    0.0, 0.0, 1.0, 0.0,
+    0.0, 0.0, 0.0, 1.0,
+)
+_last_frame_scale: float = 1.0
 
 
 def scene_persp_camera(scene):
@@ -252,6 +269,101 @@ def scene_persp_camera(scene):
     if getattr(cam.data, "type", None) != "PERSP":
         return None
     return cam
+
+
+def view3d_camera_rv3d(context):
+    """RegionView3D when the active space is 3D View in camera perspective, else None."""
+    space = context.space_data
+    if space is None or getattr(space, "type", None) != "VIEW_3D":
+        return None
+    rv3d = getattr(space, "region_3d", None)
+    if rv3d is None or getattr(rv3d, "view_perspective", None) != "CAMERA":
+        return None
+    return rv3d
+
+
+def _clamp_view_camera_zoom(zoom: float) -> float:
+    return max(_VIEW_CAMERA_ZOOM_MIN, min(_VIEW_CAMERA_ZOOM_MAX, zoom))
+
+
+def _view_camera_zoom_display_factor(zoom: float) -> float:
+    """On-screen scale from RegionView3D.view_camera_zoom in camera view."""
+    return (_FRAME_ZOOM_SQRT2_OVER_100 * zoom + 1.0) ** 2
+
+
+def _view_camera_zoom_from_display_factor(factor: float) -> float:
+    factor = max(factor, 1e-9)
+    return 100.0 / math.sqrt(2.0) * (math.sqrt(factor) - 1.0)
+
+
+def _frame_scale_coupled_lens_and_zoom(
+    base_lens: float, base_zoom: float, scale: float
+) -> tuple[float, float]:
+    """Match focal to viewport zoom so picture inside the orange frame stays still."""
+    base_factor = _view_camera_zoom_display_factor(base_zoom)
+    if base_factor < 1e-9:
+        base_factor = 1.0
+    target_factor = base_factor * scale
+    new_zoom = _clamp_view_camera_zoom(
+        _view_camera_zoom_from_display_factor(target_factor)
+    )
+    actual_factor = _view_camera_zoom_display_factor(new_zoom)
+    # Wider FOV when viewport magnifies, so picture inside the frame stays still.
+    new_lens = max(1.0, base_lens * (base_factor / actual_factor))
+    return new_lens, new_zoom
+
+
+def _capture_frame_baseline(scene, cam, rv3d) -> None:
+    scene.alec_frame_base_lens = float(cam.data.lens)
+    scene.alec_frame_base_view_zoom = float(rv3d.view_camera_zoom)
+
+
+def _apply_frame_scale_update(scene, context) -> None:
+    """Overscan: orange frame size in the window + matched focal (camera stays put)."""
+    global _lens_sync_busy, _last_frame_scale
+    cam = scene_persp_camera(scene)
+    if cam is None:
+        return
+    rv3d = view3d_camera_rv3d(context)
+    if rv3d is None:
+        return
+
+    scale = max(float(scene.alec_frame_scale), 0.01)
+    if (
+        abs(_last_frame_scale - 1.0) < _FRAME_SCALE_EPS
+        and abs(scale - 1.0) >= _FRAME_SCALE_EPS
+    ):
+        _capture_frame_baseline(scene, cam, rv3d)
+
+    base_lens = float(scene.alec_frame_base_lens)
+    if base_lens < 1e-6:
+        _capture_frame_baseline(scene, cam, rv3d)
+        base_lens = float(scene.alec_frame_base_lens)
+    base_zoom = float(scene.alec_frame_base_view_zoom)
+
+    cam.data.lens = base_lens
+    rv3d.view_camera_zoom = base_zoom
+
+    if abs(scale - 1.0) < _FRAME_SCALE_EPS:
+        _lens_sync_busy = True
+        try:
+            scene.alec_focal_lens_ui = float(cam.data.lens)
+        finally:
+            _lens_sync_busy = False
+        _last_frame_scale = scale
+        return
+
+    new_lens, new_zoom = _frame_scale_coupled_lens_and_zoom(
+        base_lens, base_zoom, scale
+    )
+    _lens_sync_busy = True
+    try:
+        cam.data.lens = new_lens
+        rv3d.view_camera_zoom = new_zoom
+        scene.alec_focal_lens_ui = new_lens
+    finally:
+        _lens_sync_busy = False
+    _last_frame_scale = scale
 
 
 def _apply_focal_dolly(cam, tgt, old_lens: float, new_lens: float) -> None:
@@ -283,6 +395,16 @@ def _alec_focal_lens_ui_update(scene, context):
     if abs(new_lens - old_lens) < 1e-6:
         return
     cam.data.lens = new_lens
+    global _last_frame_scale
+    scene.alec_frame_scale = 1.0
+    _last_frame_scale = 1.0
+    rv3d = view3d_camera_rv3d(context)
+    if rv3d is not None:
+        _reset_camera_view_display_offsets(rv3d)
+        scene.alec_frame_base_view_zoom = 0.0
+        _capture_frame_baseline(scene, cam, rv3d)
+    else:
+        scene.alec_frame_base_lens = float(cam.data.lens)
     if not bool(scene.alec_focal_dolly_compensate):
         return
     tgt = getattr(context, "active_object", None)
@@ -333,6 +455,37 @@ def register_focal_lens_scene_props() -> None:
         ),
         default=False,
         update=_alec_focal_dolly_toggle_update,
+    )
+    bpy.types.Scene.alec_frame_base_lens = bpy.props.FloatProperty(
+        name="Frame baseline lens",
+        default=50.0,
+        options={"HIDDEN"},
+    )
+    bpy.types.Scene.alec_frame_base_view_zoom = bpy.props.FloatProperty(
+        name="Frame baseline view zoom",
+        default=0.0,
+        options={"HIDDEN"},
+    )
+    bpy.types.Scene.alec_frame_base_matrix = bpy.props.FloatVectorProperty(
+        name="Frame baseline matrix",
+        size=16,
+        subtype="MATRIX",
+        default=_IDENTITY_MATRIX_FLAT,
+        options={"HIDDEN"},
+    )
+    bpy.types.Scene.alec_frame_scale = bpy.props.FloatProperty(
+        name="Cadru",
+        description=(
+            "Overscan / underscan in camera view: resizes the orange frame in the "
+            "window and adjusts focal so the picture inside does not appear to move. "
+            "Camera position is not changed. 1.0 = reference"
+        ),
+        default=1.0,
+        min=0.5,
+        max=2.0,
+        precision=2,
+        step=1,
+        update=_apply_frame_scale_update,
     )
     bpy.types.Scene.alec_camera_marker_step = bpy.props.IntProperty(
         name="Camera marker step",

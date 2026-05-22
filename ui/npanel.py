@@ -4,6 +4,7 @@ import bpy
 
 from ..operators import camera_tools as _camera_tools_mod
 from ..operators.camera_tools import (
+    view3d_camera_rv3d,
     _camera_data_from_context,
     camera_sphere_track_target,
     scene_persp_camera,
@@ -222,6 +223,9 @@ def _draw_camera_tools(layout, context):
         toggle=True,
     )
     if cam is not None:
+        cadru_row = sub_ld.row(align=True)
+        cadru_row.enabled = view3d_camera_rv3d(context) is not None
+        cadru_row.prop(scene, "alec_frame_scale", text="Cadru")
         sub_ld.prop(cam.data, "shift_y", text="Y shift")
 
     col.separator()
