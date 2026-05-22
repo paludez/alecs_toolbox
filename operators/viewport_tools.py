@@ -77,6 +77,40 @@ class ALEC_OT_viewport_toggle_wireframe_xray(bpy.types.Operator):
         return _toggle_shading_or_solid(context, _is_f3_wire_xray, apply_wire_xray)
 
 
+def _overlay_axes_visible(overlay) -> bool:
+    return bool(
+        overlay.show_axis_x
+        or overlay.show_axis_y
+        or overlay.show_axis_z
+    )
+
+
+def _set_overlay_axes_visible(overlay, visible: bool) -> None:
+    overlay.show_axis_x = visible
+    overlay.show_axis_y = visible
+    overlay.show_axis_z = visible
+
+
+class ALEC_OT_viewport_toggle_overlay_axes(bpy.types.Operator):
+    """Toggle viewport axis guide lines (X, Y, Z)."""
+
+    bl_idname = "alec.viewport_toggle_overlay_axes"
+    bl_label = "Toggle Axes"
+    bl_options = {"REGISTER"}
+
+    @classmethod
+    def poll(cls, context):
+        return _view3d_space(context) is not None
+
+    def execute(self, context):
+        space = _view3d_space(context)
+        if space is None:
+            return {"CANCELLED"}
+        ov = space.overlay
+        _set_overlay_axes_visible(ov, not _overlay_axes_visible(ov))
+        return {"FINISHED"}
+
+
 class ALEC_OT_viewport_toggle_overlay_wireframes(bpy.types.Operator):
     """Toggle overlay wireframes (Viewport Overlays » Wireframe)."""
 
@@ -473,6 +507,7 @@ class ALEC_OT_view_axis_right(bpy.types.Operator):
 
 classes = (
     ALEC_OT_viewport_toggle_wireframe_xray,
+    ALEC_OT_viewport_toggle_overlay_axes,
     ALEC_OT_viewport_toggle_overlay_wireframes,
     ALEC_OT_viewport_toggle_curve_bezier_handles,
     ALEC_OT_viewport_toggle_shading_solid,

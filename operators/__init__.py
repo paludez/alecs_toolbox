@@ -18,7 +18,6 @@ from . import outliner
 from . import system
 from . import triplanar_mapping
 from . import trim_extend
-from . import uv
 from . import viewport_tools
 
 classes = (
@@ -40,7 +39,6 @@ classes = (
     *system.classes,
     *triplanar_mapping.classes,
     *trim_extend.classes,
-    *uv.classes,
     *viewport_tools.classes,
 )
 

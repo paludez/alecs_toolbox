@@ -225,23 +225,6 @@ def _register_core_keymaps():
         )
         _addon_keymaps_core.append((km, kmi_light_modal))
 
-    if (
-        _pref(prefs, "shortcut_q_alt_menu")
-        or _pref(prefs, "shortcut_alt_rmb_quad")
-    ):
-        km_uv = kc.keymaps.new(name="Image", space_type="IMAGE_EDITOR", region_type="WINDOW")
-        if _pref(prefs, "shortcut_q_alt_menu"):
-            kmi_uv = km_uv.keymap_items.new(
-                "alec.menu_dispatcher", "Q", "PRESS", alt=True
-            )
-            _addon_keymaps_core.append((km_uv, kmi_uv))
-        if _pref(prefs, "shortcut_alt_rmb_quad"):
-            kmi_uv_pie = km_uv.keymap_items.new(
-                "wm.call_menu_pie", "RIGHTMOUSE", "PRESS", alt=True
-            )
-            kmi_uv_pie.properties.name = "ALEC_MT_uv_menu"
-            _addon_keymaps_core.append((km_uv, kmi_uv_pie))
-
     if _pref(prefs, "shortcut_alt_rmb_quad"):
         km_node = kc.keymaps.new(name="Node Editor", space_type="NODE_EDITOR", region_type="WINDOW")
         kmi_shader_pie = km_node.keymap_items.new(

@@ -158,26 +158,6 @@ class ALEC_MT_shader_edit_pie(bpy.types.Menu):
         inner.operator("alec.triplanar_node_arrange", icon="NODE_SEL")
 
 
-class ALEC_MT_uv_menu(bpy.types.Menu):
-    bl_idname = "ALEC_MT_uv_menu"
-    bl_label = "Alec UV"
-
-    def draw(self, context):
-        # Unwrap / align / pack etc. are already in the editor's default RMB menu.
-        pie = self.layout.menu_pie()
-
-        col = pie.column()
-        box = col.box()
-        box.label(text="Alec UV", icon='UV')
-        inner = box.column(align=True)
-        inner.operator("alec.load_material_image", text="Load from Mat", icon='IMAGE_DATA')
-        inner.operator("alec.square_pixels", text="Square Pixels", icon='UV')
-
-        pie.column()
-        pie.column()
-        pie.column()
-
-
 class ALEC_MT_outliner_pie(bpy.types.Menu):
     bl_idname = "ALEC_MT_outliner_pie"
     bl_label = "Alec Outliner Pie"
@@ -520,7 +500,6 @@ classes = [
     ALEC_MT_object_menu,
     ALEC_MT_edit_menu,
     ALEC_MT_edit_curve_menu,
-    ALEC_MT_uv_menu,
     ALEC_MT_outliner_pie,
     ALEC_MT_quad_menu,
     ALEC_MT_shader_edit_pie,

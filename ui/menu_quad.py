@@ -19,6 +19,48 @@ def _draw_view3d_type_filter_row(box, space, label, prop_prefix, enable_op_id, *
     btns.operator(enable_op_id, text="", icon='CON_ROTLIKE')
 
 
+_VIEW3D_ORIENTATION_UI = (
+    ('GLOBAL', 'ORIENTATION_GLOBAL'),
+    ('LOCAL', 'ORIENTATION_LOCAL'),
+    ('CURSOR', 'ORIENTATION_CURSOR'),
+    ('NORMAL', 'ORIENTATION_NORMAL'),
+    ('GIMBAL', 'ORIENTATION_GIMBAL'),
+    ('PARENT', 'ORIENTATION_PARENT'),
+)
+
+_VIEW3D_SNAP_ELEMENTS_UI = (
+    ('VERTEX', 'SNAP_VERTEX'),
+    ('EDGE', 'SNAP_EDGE'),
+    ('EDGE_MIDPOINT', 'SNAP_MIDPOINT'),
+    ('EDGE_PERPENDICULAR', 'SNAP_PERPENDICULAR'),
+    ('FACE', 'SNAP_FACE'),
+    ('FACE_MIDPOINT', 'SNAP_FACE_CENTER'),
+)
+
+
+_VIEW3D_OVERLAY_TOGGLES = (
+    ("show_extras", "", 'ALIGN_FLUSH'),
+    ("show_face_orientation", "", 'NORMALS_FACE'),
+    ("show_floor", "", 'MESH_GRID'),
+)
+
+
+def _draw_view3d_overlay_toggle_row(box, space):
+    ov = space.overlay
+    row = box.row(align=True)
+    row.label(text="Overlays", icon='OVERLAY')
+    btns = row.row(align=True)
+    for prop, text, icon in _VIEW3D_OVERLAY_TOGGLES:
+        btns.prop(ov, prop, text=text, toggle=True, icon=icon)
+    axes_on = ov.show_axis_x or ov.show_axis_y or ov.show_axis_z
+    btns.operator(
+        "alec.viewport_toggle_overlay_axes",
+        text="",
+        icon='OBJECT_ORIGIN',
+        depress=axes_on,
+    )
+
+
 class ALEC_MT_quad_menu(bpy.types.Menu):
     bl_idname = "ALEC_MT_quad_menu"
     bl_label = "Quad Menu"
@@ -45,6 +87,7 @@ class ALEC_MT_quad_menu(bpy.types.Menu):
             box_view, space, "Sel.", "select", "alec.viewport_select_common_types",
             label_icon='RESTRICT_SELECT_OFF',
         )
+        _draw_view3d_overlay_toggle_row(box_view, space)
 
         col_rot = row_lv.column()
         box_rot = col_rot.box()
@@ -85,21 +128,20 @@ class ALEC_MT_quad_menu(bpy.types.Menu):
             pivots.prop_enum(ts_pivot, "transform_pivot_point", value=val, text="", icon=icon)
 
         box_orient = col_right.box()
-        box_orient.label(text="Orientation", icon='ORIENTATION_GLOBAL')
+        row_orient = box_orient.row(align=True)
+        row_orient.label(text="Orientation")
+        orients = row_orient.row(align=True)
         slot = context.scene.transform_orientation_slots[0]
-        grid = box_orient.grid_flow(columns=3, align=True, even_columns=True)
-        for val in ['GLOBAL', 'LOCAL', 'NORMAL', 'GIMBAL', 'CURSOR', 'PARENT']:
-            grid.prop_enum(slot, "type", value=val, text=val.capitalize())
+        for val, icon in _VIEW3D_ORIENTATION_UI:
+            orients.prop_enum(slot, "type", value=val, text="", icon=icon)
 
         box_snap = col_right.box()
-        grid_snap_elements = box_snap.grid_flow(columns=3, align=True)
-        for val, txt in [('INCREMENT', "Incr"), ('VERTEX', "Vertex"), ('EDGE', "Edge"), ('FACE', "Face"), ('VOLUME', "Volume")]:
-            grid_snap_elements.prop_enum(context.tool_settings, "snap_elements", value=val, text=txt)
-
-        box_snap.separator()
-        grid_snap_target = box_snap.grid_flow(columns=3, align=True)
-        for val in ['CENTER', 'MEDIAN', 'ACTIVE']:
-            grid_snap_target.prop_enum(context.tool_settings, "snap_target", value=val, text=val.capitalize())
+        ts_snap = context.tool_settings
+        row_snap_el = box_snap.row(align=True)
+        row_snap_el.label(text="Snap")
+        snap_el = row_snap_el.row(align=True)
+        for val, icon in _VIEW3D_SNAP_ELEMENTS_UI:
+            snap_el.prop_enum(ts_snap, "snap_elements", value=val, text="", icon=icon)
 
         # --- Slice 3 (Bottom): Cursor + Origin ---
         col_bottom = pie.column()

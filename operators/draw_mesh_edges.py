@@ -1,4 +1,5 @@
 """Modal operator: draw polylines as real mesh edges on the 3D cursor work plane."""
+import time
 import bpy
 import bmesh
 from mathutils import Vector
@@ -10,8 +11,11 @@ from bpy_extras.view3d_utils import (
 
 from ..modules import edit_mesh_draw_state as draw_state
 from ..modules import cursor_plane as cp
+from ..modules import draw_mesh_snap_cache as snap_cache
 from ..modules import modal_handler, status_bar, viewport_header
 from ..modules.transform_orientation import orientation_matrix_world
+
+_PREVIEW_MIN_INTERVAL = 1.0 / 60.0
 
 
 class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
@@ -48,6 +52,9 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
             event.mouse_region_x,
             event.mouse_region_y,
         )
+        self._snap_cache = snap_cache.DrawMeshSnapCache()
+        self._last_preview_time = 0.0
+        self._world_snap_warned = False
 
         if context.mode == "EDIT_MESH" and context.active_object is not None and context.active_object.type == "MESH":
             self._obj = context.active_object
@@ -139,7 +146,16 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
         if event.type == 'MOUSEMOVE':
             if context.region is None or context.region_data is None:
                 return {'RUNNING_MODAL'}
-            self._last_event_mouse = (event.mouse_region_x, event.mouse_region_y)
+            new_mouse = (event.mouse_region_x, event.mouse_region_y)
+            if new_mouse == self._last_event_mouse:
+                return {'RUNNING_MODAL'}
+            self._last_event_mouse = new_mouse
+            now = time.monotonic()
+            if now - self._last_preview_time < _PREVIEW_MIN_INTERVAL:
+                if context.area is not None:
+                    context.area.tag_redraw()
+                return {'RUNNING_MODAL'}
+            self._last_preview_time = now
             self._refresh_preview(context)
             return {'RUNNING_MODAL'}
 
@@ -313,6 +329,7 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
         self._chain_vert_indices.append(new_vert.index)
         bmesh.update_edit_mesh(me)
         me.update_tag()
+        self._invalidate_snap_cache()
         self._axis_lock = None
         return True
 
@@ -542,6 +559,8 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
             draw_state._draw_data['cursor_plane'] = (center, u, v)
         except Exception:
             draw_state._draw_data.pop('cursor_plane', None)
+        if self._snap_other_on and not self._ignore_draw_plane:
+            self._snap_cache.invalidate_world()
 
     def _resolve_3d_position(
         self,
@@ -557,14 +576,21 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
         origin_w = region_2d_to_origin_3d(region, rv3d, coord)
         direction_w = region_2d_to_vector_3d(region, rv3d, coord).normalized()
 
-        depsgraph_rp = None
-        try:
-            depsgraph_rp = context.evaluated_depsgraph_get()
-        except Exception:
-            depsgraph_rp = None
-        ray_t, ray_hit_world = self._viewport_ray_pick(
-            context, depsgraph_rp, origin_w, direction_w
+        need_ray = (
+            self._ignore_draw_plane
+            or self._viewport_snap_respects_opaque_depth(context)
         )
+        depsgraph_rp = None
+        ray_hit_world = None
+        ray_t = None
+        if need_ray:
+            try:
+                depsgraph_rp = context.evaluated_depsgraph_get()
+            except Exception:
+                depsgraph_rp = None
+            ray_t, ray_hit_world = self._viewport_ray_pick(
+                context, depsgraph_rp, origin_w, direction_w
+            )
         occlusion_t = (
             ray_t
             if self._viewport_snap_respects_opaque_depth(context)
@@ -742,123 +768,12 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
 
         region = context.region
         rv3d = context.region_data
-
-        depsgraph = None
-        try:
-            depsgraph = context.evaluated_depsgraph_get()
-        except Exception:
-            depsgraph = None
-
-        radius_sq = self._screen_snap_radius_px * self._screen_snap_radius_px
-        best_d2 = radius_sq
-        best_idx: int | None = None
-        best_world: Vector | None = None
-        raw_snap_world: Vector | None = None
-
-        if self._snap_verts_on:
-            mw = self._obj.matrix_world
-            me = self._obj.data
-            try:
-                bm = bmesh.from_edit_mesh(me)
-                bm.verts.ensure_lookup_table()
-                bm.edges.ensure_lookup_table()
-            except Exception:
-                bm = None
-
-            if bm is not None:
-                for v in bm.verts:
-                    world_co = mw @ v.co
-                    if self._snap_occludes_candidate(occlusion_t, origin_w, dir_w, world_co, context):
-                        continue
-                    p2 = location_3d_to_region_2d(region, rv3d, world_co)
-                    if p2 is None:
-                        continue
-                    dx = p2.x - coord[0]
-                    dy = p2.y - coord[1]
-                    d2 = dx * dx + dy * dy
-                    if d2 < best_d2:
-                        best_d2 = d2
-                        best_idx = v.index
-                        best_world = world_co
-                        raw_snap_world = None
-
-                for e in bm.edges:
-                    mid_local = (e.verts[0].co + e.verts[1].co) * 0.5
-                    mid_w = mw @ mid_local
-                    if self._snap_occludes_candidate(occlusion_t, origin_w, dir_w, mid_w, context):
-                        continue
-                    p2 = location_3d_to_region_2d(region, rv3d, mid_w)
-                    if p2 is None:
-                        continue
-                    dx = p2.x - coord[0]
-                    dy = p2.y - coord[1]
-                    d2 = dx * dx + dy * dy
-                    if d2 < best_d2:
-                        best_d2 = d2
-                        best_idx = -2
-                        best_world = mid_w
-                        raw_snap_world = None
-
-        if self._snap_other_on:
-            if depsgraph is not None:
-                for obj_inst in depsgraph.object_instances:
-                    obj_eval = obj_inst.object
-                    if obj_eval is None or obj_eval.type != 'MESH':
-                        continue
-                    try:
-                        obj_orig = obj_eval.original
-                    except Exception:
-                        obj_orig = obj_eval
-                    if obj_orig is self._obj:
-                        continue
-                    try:
-                        vl = getattr(context, 'view_layer', None)
-                        if vl is None:
-                            vis_ok = obj_orig.visible_get()
-                        else:
-                            try:
-                                vis_ok = obj_orig.visible_get(view_layer=vl)
-                            except TypeError:
-                                vis_ok = obj_orig.visible_get()
-                        if not vis_ok:
-                            continue
-                    except Exception:
-                        pass
-                    inst_mw = obj_inst.matrix_world
-                    try:
-                        eval_mesh = obj_eval.data
-                    except Exception:
-                        continue
-                    if eval_mesh is None:
-                        continue
-                    try:
-                        verts = eval_mesh.vertices
-                    except Exception:
-                        continue
-                    for v in verts:
-                        v_world = inst_mw @ v.co
-                        if self._snap_occludes_candidate(
-                            occlusion_t, origin_w, dir_w, v_world, context
-                        ):
-                            continue
-                        p2 = location_3d_to_region_2d(region, rv3d, v_world)
-                        if p2 is None:
-                            continue
-                        dx = p2.x - coord[0]
-                        dy = p2.y - coord[1]
-                        d2 = dx * dx + dy * dy
-                        if d2 < best_d2:
-                            best_d2 = d2
-                            best_idx = -3
-                            if self._ignore_draw_plane:
-                                best_world = v_world.copy()
-                                raw_snap_world = None
-                            else:
-                                best_world = cp.project_onto_cursor_plane(context, v_world)
-                                raw_snap_world = v_world.copy()
-
-        if best_idx is None or best_world is None:
+        hit = self._query_snap_cache(context, coord, occlusion_t, origin_w, dir_w)
+        if hit is None:
             return None, None, None
+        best_idx = hit.snap_idx
+        best_world = hit.world
+        raw_snap_world = hit.raw_world
         if (
             best_idx >= 0
             and self._chain_vert_indices
@@ -869,6 +784,140 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
         ):
             return best_world, -1, None
         return best_world, best_idx, raw_snap_world
+
+    def _query_snap_cache(
+        self,
+        context,
+        coord,
+        occlusion_t: float | None,
+        origin_w: Vector,
+        dir_w: Vector,
+    ):
+        region = context.region
+        rv3d = context.region_data
+        me = self._obj.data
+        bm = None
+        try:
+            bm = bmesh.from_edit_mesh(me)
+            bm.verts.ensure_lookup_table()
+            bm.edges.ensure_lookup_table()
+        except Exception:
+            return None
+
+        use_kd = snap_cache.should_use_obj_kdtree(bm)
+        if use_kd or self._snap_other_on:
+            if self._snap_verts_on:
+                self._snap_cache.ensure_obj(
+                    bm,
+                    self._obj.matrix_world,
+                    region,
+                    rv3d,
+                    snap_cache.mesh_topology_key(me, bm),
+                    include_verts=True,
+                    include_edge_mids=True,
+                )
+            if self._snap_other_on:
+                depsgraph = None
+                try:
+                    depsgraph = context.evaluated_depsgraph_get()
+                except Exception:
+                    depsgraph = None
+                self._snap_cache.ensure_world(
+                    context,
+                    depsgraph,
+                    region,
+                    rv3d,
+                    self._obj,
+                    ignore_draw_plane=self._ignore_draw_plane,
+                    world_key=snap_cache.world_snap_cache_key(context),
+                )
+                if self._snap_cache.world_snap_truncated and not self._world_snap_warned:
+                    self._world_snap_warned = True
+                    status_bar.show_toggle_notice(
+                        "World snap",
+                        "limited (dense scene)",
+                    )
+            hit = self._snap_cache.find_best(
+                coord,
+                float(self._screen_snap_radius_px),
+                occlusion_t,
+                origin_w,
+                dir_w,
+                context,
+                self._snap_occludes_candidate,
+                use_obj=self._snap_verts_on,
+                use_world=self._snap_other_on,
+            )
+            if hit is not None:
+                return hit
+
+        if not self._snap_verts_on:
+            return None
+
+        return self._screen_snap_brute(
+            bm, me, region, rv3d, coord, occlusion_t, origin_w, dir_w, context
+        )
+
+    def _screen_snap_brute(
+        self,
+        bm,
+        me,
+        region,
+        rv3d,
+        coord,
+        occlusion_t,
+        origin_w,
+        dir_w,
+        context,
+    ):
+        """Linear scan for small meshes (cheaper than building a KD-tree)."""
+        radius_sq = self._screen_snap_radius_px * self._screen_snap_radius_px
+        best_d2 = radius_sq
+        best_idx = None
+        best_world = None
+        raw_snap_world = None
+        mw = self._obj.matrix_world
+
+        if self._snap_verts_on:
+            for v in bm.verts:
+                world_co = mw @ v.co
+                if self._snap_occludes_candidate(occlusion_t, origin_w, dir_w, world_co, context):
+                    continue
+                p2 = location_3d_to_region_2d(region, rv3d, world_co)
+                if p2 is None:
+                    continue
+                dx = p2.x - coord[0]
+                dy = p2.y - coord[1]
+                d2 = dx * dx + dy * dy
+                if d2 < best_d2:
+                    best_d2 = d2
+                    best_idx = v.index
+                    best_world = world_co
+                    raw_snap_world = None
+
+            for e in bm.edges:
+                mid_local = (e.verts[0].co + e.verts[1].co) * 0.5
+                mid_w = mw @ mid_local
+                if self._snap_occludes_candidate(occlusion_t, origin_w, dir_w, mid_w, context):
+                    continue
+                p2 = location_3d_to_region_2d(region, rv3d, mid_w)
+                if p2 is None:
+                    continue
+                dx = p2.x - coord[0]
+                dy = p2.y - coord[1]
+                d2 = dx * dx + dy * dy
+                if d2 < best_d2:
+                    best_d2 = d2
+                    best_idx = -2
+                    best_world = mid_w
+                    raw_snap_world = None
+
+        if best_idx is None or best_world is None:
+            return None
+        return snap_cache.SnapHit(best_world, best_idx, raw_snap_world)
+
+    def _invalidate_snap_cache(self) -> None:
+        self._snap_cache.invalidate_mesh()
 
     def _on_click(self, context) -> bool:
         """Returns True when the polyline was closed via snap sentinel (operator should exit)."""
@@ -891,6 +940,7 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
                 self._safe_new_edge(bm, first_idx, last_idx)
                 bmesh.update_edit_mesh(me)
                 me.update_tag()
+                self._invalidate_snap_cache()
                 self._end_chain()
                 self._axis_lock = None
                 self.number_input.reset()
@@ -924,6 +974,7 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
         self._chain_vert_indices.append(new_vert.index)
         bmesh.update_edit_mesh(me)
         me.update_tag()
+        self._invalidate_snap_cache()
         self._axis_lock = None
         self.number_input.reset()
         self._refresh_preview(context)
@@ -961,6 +1012,7 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
         self._safe_new_edge(bm, self._chain_vert_indices[0], self._chain_vert_indices[-1])
         bmesh.update_edit_mesh(me)
         me.update_tag()
+        self._invalidate_snap_cache()
         self._end_chain()
         self._axis_lock = None
         self.number_input.reset()
@@ -1007,9 +1059,11 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
         self._chain_vert_indices.pop()
         bmesh.update_edit_mesh(me)
         me.update_tag()
+        self._invalidate_snap_cache()
         self._refresh_preview(context)
 
     def _cleanup(self, context, cancelled: bool):
+        self._snap_cache.invalidate_all()
         draw_state._draw_data.pop('draw_rubber_band', None)
         draw_state._draw_data.pop('draw_rubber_band_label', None)
         draw_state._draw_data.pop('draw_snap_ring', None)

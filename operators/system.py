@@ -1,14 +1,63 @@
 import bpy
 
+
+def _area_under_mouse(context, event):
+    win = context.window
+    if not win or not win.screen:
+        return None
+    mx, my = event.mouse_x, event.mouse_y
+    for area in win.screen.areas:
+        if area.x <= mx < area.x + area.width and area.y <= my < area.y + area.height:
+            return area
+    return None
+
+
+def _schedule_area_update(fn) -> None:
+    """Run area type/ui_type changes next frame (avoids HUD region assert on switch)."""
+
+    def _deferred():
+        fn()
+        return None
+
+    bpy.app.timers.register(_deferred, first_interval=0.0)
+
+
+def _set_area_view3d(area) -> None:
+    if area.type != "VIEW_3D":
+        area.type = "VIEW_3D"
+
+
+def _set_area_shader(area, mode: str, context) -> None:
+    if area.type != "NODE_EDITOR":
+        area.type = "NODE_EDITOR"
+    if getattr(area, "ui_type", None) != "ShaderNodeTree":
+        area.ui_type = "ShaderNodeTree"
+    space = area.spaces.active
+    if space and space.type == "NODE_EDITOR":
+        space.shader_type = mode
+    if mode == "WORLD":
+        world = context.scene.world
+        if not world:
+            world = bpy.data.worlds.new("World")
+            context.scene.world = world
+        if not world.use_nodes:
+            world.use_nodes = True
+
+
+def _set_area_uv(area) -> None:
+    if area.type != "IMAGE_EDITOR":
+        area.type = "IMAGE_EDITOR"
+    if getattr(area, "ui_type", None) != "UV":
+        area.ui_type = "UV"
+
+
 class ALEC_OT_menu_dispatcher(bpy.types.Operator):
     """Shows a different menu based on the context (Object/Edit mode)"""
     bl_idname = "alec.menu_dispatcher"
     bl_label = "Menu Dispatcher"
 
     def execute(self, context):
-        if context.area.type == 'IMAGE_EDITOR':
-            bpy.ops.wm.call_menu_pie(name='ALEC_MT_uv_menu')
-        elif context.mode == 'EDIT_MESH':
+        if context.mode == 'EDIT_MESH':
             bpy.ops.wm.call_menu_pie(name='ALEC_MT_edit_menu')
         elif context.mode == 'EDIT_CURVE':
             bpy.ops.wm.call_menu_pie(name='ALEC_MT_edit_curve_menu')
@@ -24,25 +73,15 @@ class ALEC_OT_set_area_view3d_under_mouse(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     def invoke(self, context, event):
-        win = context.window
-        if not win or not win.screen:
+        if not context.window or not context.window.screen:
             self.report({'WARNING'}, "No active window/screen")
             return {'CANCELLED'}
-
-        mx = event.mouse_x
-        my = event.mouse_y
-        target_area = None
-        for area in win.screen.areas:
-            if area.x <= mx < area.x + area.width and area.y <= my < area.y + area.height:
-                target_area = area
-                break
-
+        target_area = _area_under_mouse(context, event)
         if target_area is None:
             self.report({'WARNING'}, "No area under mouse")
             return {'CANCELLED'}
-
-        if target_area.type != 'VIEW_3D':
-            target_area.type = 'VIEW_3D'
+        area_ref = target_area
+        _schedule_area_update(lambda: _set_area_view3d(area_ref))
         return {'FINISHED'}
 
 class ALEC_OT_set_area_shader_under_mouse(bpy.types.Operator):
@@ -56,63 +95,35 @@ class ALEC_OT_set_area_shader_under_mouse(bpy.types.Operator):
     ) # type: ignore
 
     def invoke(self, context, event):
-        win = context.window
-        if not win or not win.screen:
+        if not context.window or not context.window.screen:
             self.report({'WARNING'}, "No active window/screen")
             return {'CANCELLED'}
-
-        mx = event.mouse_x
-        my = event.mouse_y
-        target_area = None
-        for area in win.screen.areas:
-            if area.x <= mx < area.x + area.width and area.y <= my < area.y + area.height:
-                target_area = area
-                break
-
+        target_area = _area_under_mouse(context, event)
         if target_area is None:
             self.report({'WARNING'}, "No area under mouse")
             return {'CANCELLED'}
-
-        target_area.type = 'NODE_EDITOR'
-        target_area.ui_type = 'ShaderNodeTree'
-        space = target_area.spaces.active
-        if space and space.type == 'NODE_EDITOR':
-            space.shader_type = self.mode
-
-        if self.mode == 'WORLD':
-            world = context.scene.world
-            if not world:
-                world = bpy.data.worlds.new("World")
-                context.scene.world = world
-            if not world.use_nodes:
-                world.use_nodes = True
+        area_ref = target_area
+        mode = self.mode
+        _schedule_area_update(lambda: _set_area_shader(area_ref, mode, context))
         return {'FINISHED'}
 
+
 class ALEC_OT_set_area_uv_under_mouse(bpy.types.Operator):
-    """Set the editor under mouse to UV/Image Editor"""
+    """Set the editor under mouse to UV Editor"""
     bl_idname = "alec.set_area_uv_under_mouse"
     bl_label = "Set Area To UV Editor"
     bl_options = {'REGISTER', 'UNDO'}
 
     def invoke(self, context, event):
-        win = context.window
-        if not win or not win.screen:
+        if not context.window or not context.window.screen:
             self.report({'WARNING'}, "No active window/screen")
             return {'CANCELLED'}
-
-        mx = event.mouse_x
-        my = event.mouse_y
-        target_area = None
-        for area in win.screen.areas:
-            if area.x <= mx < area.x + area.width and area.y <= my < area.y + area.height:
-                target_area = area
-                break
-
+        target_area = _area_under_mouse(context, event)
         if target_area is None:
             self.report({'WARNING'}, "No area under mouse")
             return {'CANCELLED'}
-
-        target_area.type = 'IMAGE_EDITOR'
+        area_ref = target_area
+        _schedule_area_update(lambda: _set_area_uv(area_ref))
         return {'FINISHED'}
 
 class ALEC_OT_floating_shader_editor(bpy.types.Operator):
