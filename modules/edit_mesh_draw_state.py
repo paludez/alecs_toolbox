@@ -257,6 +257,8 @@ def draw_callback_px(context):
                 col = (1.0, 0.9, 0.15, 0.92)
             elif snap_kind == -3:
                 col = (0.85, 0.35, 1.0, 0.9)
+            elif snap_kind == -4:
+                col = (0.25, 0.85, 1.0, 0.92)
             else:
                 col = (0.15, 1.0, 0.45, 0.92)
             gpu_state.blend_set('ALPHA')
@@ -267,6 +269,8 @@ def draw_callback_px(context):
                 label = 'Mid'
             elif snap_kind == -3:
                 label = 'World'
+            elif snap_kind == -4:
+                label = 'Perp'
             elif snap_kind is not None and snap_kind >= 0:
                 label = 'Vtx'
             elif snap_kind == -1:
@@ -386,6 +390,8 @@ def draw_callback_3d(context):
                 color_point = (1.0, 0.85, 0.0, 1.0)
             elif snap_idx == -3:
                 color_point = (0.8, 0.2, 1.0, 1.0)
+            elif snap_idx == -4:
+                color_point = (0.2, 0.75, 1.0, 1.0)
             elif is_snap:
                 color_point = (0.15, 1.0, 0.52, 1.0)
             else:

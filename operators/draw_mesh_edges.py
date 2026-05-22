@@ -1,8 +1,9 @@
 """Modal operator: draw polylines as real mesh edges on the 3D cursor work plane."""
+import math
 import time
 import bpy
 import bmesh
-from mathutils import Vector
+from mathutils import Matrix, Vector
 from bpy_extras.view3d_utils import (
     region_2d_to_origin_3d,
     region_2d_to_vector_3d,
@@ -19,7 +20,8 @@ _PREVIEW_MIN_INTERVAL = 1.0 / 60.0
 
 
 class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
-    """Draw polylines on the 3D cursor work plane. Snaps verts/mids; [Shift] ortho;
+    """Draw polylines on the 3D cursor work plane. Snaps verts/mids/perp (from chain); [Shift] ortho;
+    [A] type angle vs last edge (Enter locks); [B] toggle 90° vs last edge (needs 2+ chain verts).
     [Q] toggles free 3D preview (viewport ray vs mesh, else depth through chain, else plane).
     Outside X-ray / wire shading, snaps skip geometry behind first viewport-ray hit (opaque depth).
     [X/Y/Z] axis; [V]/[W] snap; type length like edge-length (mouse when no digits,
@@ -48,6 +50,9 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
         self._snap_other_on: bool = False
         self._ignore_draw_plane: bool = False
         self.number_input = modal_handler.ModalNumberInput()
+        self.angle_input = modal_handler.ModalNumberInput()
+        self._edge_angle_deg: float | None = None
+        self._typing_angle: bool = False
         self._last_event_mouse: tuple[int, int] | None = (
             event.mouse_region_x,
             event.mouse_region_y,
@@ -116,8 +121,20 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
             return {'PASS_THROUGH'}
 
         if event.type == 'ESC' and event.value == 'PRESS':
-            if self._chain_vert_indices and self.number_input.has_value():
+            if self._chain_vert_indices and (
+                self.number_input.has_value()
+                or self.angle_input.has_value()
+                or self._typing_angle
+            ):
                 self.number_input.reset()
+                self.angle_input.reset()
+                self._typing_angle = False
+                self._refresh_preview(context)
+                if context.area is not None:
+                    context.area.tag_redraw()
+                return {'RUNNING_MODAL'}
+            if self._chain_vert_indices and self._edge_angle_deg is not None:
+                self._edge_angle_deg = None
                 self._refresh_preview(context)
                 if context.area is not None:
                     context.area.tag_redraw()
@@ -134,14 +151,21 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
             event.type in {'RET', 'NUMPAD_ENTER'}
             and event.value == 'PRESS'
             and self._chain_vert_indices
-            and self.number_input.has_value()
         ):
-            if self._apply_typed_vertex(context):
-                self.number_input.reset()
-            self._refresh_preview(context)
-            if context.area is not None:
-                context.area.tag_redraw()
-            return {'RUNNING_MODAL'}
+            if self.angle_input.has_value() or self._typing_angle:
+                if self._apply_typed_angle(context):
+                    status_bar.show_toggle_notice("Angle", f"{self._edge_angle_deg:g}°")
+                self._refresh_preview(context)
+                if context.area is not None:
+                    context.area.tag_redraw()
+                return {'RUNNING_MODAL'}
+            if self.number_input.has_value():
+                if self._apply_typed_vertex(context):
+                    self.number_input.reset()
+                self._refresh_preview(context)
+                if context.area is not None:
+                    context.area.tag_redraw()
+                return {'RUNNING_MODAL'}
 
         if event.type == 'MOUSEMOVE':
             if context.region is None or context.region_data is None:
@@ -160,6 +184,16 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
             return {'RUNNING_MODAL'}
 
         if event.type == 'BACK_SPACE' and event.value == 'PRESS':
+            if self._chain_vert_indices and (
+                self.angle_input.has_value() or self._typing_angle
+            ):
+                self.angle_input.value_str = self.angle_input.value_str[:-1]
+                if not self.angle_input.value_str:
+                    self._typing_angle = False
+                self._refresh_preview(context)
+                if context.area is not None:
+                    context.area.tag_redraw()
+                return {'RUNNING_MODAL'}
             if self._chain_vert_indices and self.number_input.has_value():
                 self.number_input.value_str = self.number_input.value_str[:-1]
                 self._refresh_preview(context)
@@ -185,6 +219,8 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
             'X',
             'Y',
             'Z',
+            'A',
+            'B',
             'MIDDLEMOUSE',
             'WHEELUPMOUSE',
             'WHEELDOWNMOUSE',
@@ -201,7 +237,13 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
             and context.area is not None
             and event.type not in _modal_reserved
         ):
-            if self.number_input.handle_event(event):
+            if self._typing_angle:
+                if self.angle_input.handle_event(event):
+                    self._refresh_preview(context)
+                    if context.area is not None:
+                        context.area.tag_redraw()
+                    return {'RUNNING_MODAL'}
+            elif self.number_input.handle_event(event):
                 self._refresh_preview(context)
                 if context.area is not None:
                     context.area.tag_redraw()
@@ -253,6 +295,36 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
             self._ignore_draw_plane = not self._ignore_draw_plane
             status_bar.show_toggle_notice("Draw", "3D" if self._ignore_draw_plane else "Plane")
             self._update_cursor_plane_visual(context)
+            self._set_status(context)
+            self._refresh_preview(context)
+            return {'RUNNING_MODAL'}
+
+        if event.type == 'A' and event.value == 'PRESS':
+            if len(self._chain_vert_indices) < 2:
+                status_bar.show_toggle_notice("Angle", "need 2 verts")
+                return {'RUNNING_MODAL'}
+            self._typing_angle = True
+            self._edge_angle_deg = None
+            self.angle_input.reset()
+            self.number_input.reset()
+            status_bar.show_toggle_notice("Angle", "type °")
+            self._set_status(context)
+            self._refresh_preview(context)
+            return {'RUNNING_MODAL'}
+
+        if event.type == 'B' and event.value == 'PRESS':
+            if len(self._chain_vert_indices) < 2:
+                status_bar.show_toggle_notice("90°", "need 2 verts")
+                return {'RUNNING_MODAL'}
+            if self._edge_angle_deg == 90.0:
+                self._edge_angle_deg = None
+                status_bar.show_toggle_notice("90°", "OFF")
+            else:
+                self._edge_angle_deg = 90.0
+                self._typing_angle = False
+                self.angle_input.reset()
+                self.number_input.reset()
+                status_bar.show_toggle_notice("90°", "ON")
             self._set_status(context)
             self._refresh_preview(context)
             return {'RUNNING_MODAL'}
@@ -333,6 +405,171 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
         self._axis_lock = None
         return True
 
+    def _apply_typed_angle(self, context) -> bool:
+        if len(self._chain_vert_indices) < 2:
+            return False
+        try:
+            ang = self.angle_input.get_value(
+                initial_value=self._mouse_edge_angle_deg(context)
+            )
+        except ValueError:
+            return False
+        self._edge_angle_deg = ang
+        self._typing_angle = False
+        self.angle_input.reset()
+        return True
+
+    def _chain_world_pos_at(self, chain_index: int) -> Vector | None:
+        if not self._chain_vert_indices:
+            return None
+        try:
+            vert_idx = self._chain_vert_indices[chain_index]
+        except IndexError:
+            return None
+        try:
+            me = self._obj.data
+            bm = bmesh.from_edit_mesh(me)
+            bm.verts.ensure_lookup_table()
+            if vert_idx >= len(bm.verts):
+                return None
+            return self._obj.matrix_world @ bm.verts[vert_idx].co
+        except Exception:
+            return None
+
+    def _last_edge_direction_world(self) -> Vector | None:
+        if len(self._chain_vert_indices) < 2:
+            return None
+        prev = self._chain_world_pos_at(-1)
+        prev_prev = self._chain_world_pos_at(-2)
+        if prev is None or prev_prev is None:
+            return None
+        d = prev - prev_prev
+        if d.length_squared < 1e-12:
+            return None
+        return d.normalized()
+
+    def _draw_plane_normal(self, context) -> Vector:
+        if self._ignore_draw_plane:
+            rv3d = context.region_data
+            if rv3d is not None:
+                try:
+                    return rv3d.view_rotation @ Vector((0.0, 0.0, 1.0))
+                except Exception:
+                    pass
+            return Vector((0.0, 0.0, 1.0))
+        n, _u, _v = cp.cursor_plane_axes(context)
+        return n
+
+    def _edge_angle_directions(
+        self,
+        context,
+        last_dir: Vector,
+        angle_deg: float,
+    ) -> tuple[Vector, Vector] | None:
+        n = self._draw_plane_normal(context)
+        last_in = last_dir - n * last_dir.dot(n)
+        if last_in.length_squared < 1e-20:
+            ref = last_dir.cross(n)
+            if ref.length_squared < 1e-20:
+                ref = Vector((1.0, 0.0, 0.0))
+            last_in = ref
+        last_in.normalize()
+        rad = math.radians(angle_deg)
+        d_plus = (Matrix.Rotation(rad, 4, n) @ last_in).normalized()
+        d_minus = (Matrix.Rotation(-rad, 4, n) @ last_in).normalized()
+        return d_plus, d_minus
+
+    def _pick_edge_angle_direction(
+        self,
+        context,
+        prev_world: Vector,
+        target_world: Vector,
+        angle_deg: float,
+    ) -> Vector | None:
+        last_dir = self._last_edge_direction_world()
+        if last_dir is None:
+            return None
+        dirs = self._edge_angle_directions(context, last_dir, angle_deg)
+        if dirs is None:
+            return None
+        d_plus, d_minus = dirs
+        delta = target_world - prev_world
+        if delta.length_squared < 1e-12:
+            return d_plus
+        return d_plus if d_plus.dot(delta) >= d_minus.dot(delta) else d_minus
+
+    def _apply_edge_angle_to_position(
+        self,
+        context,
+        prev_world: Vector,
+        target_world: Vector,
+        angle_deg: float,
+    ) -> Vector:
+        d = self._pick_edge_angle_direction(context, prev_world, target_world, angle_deg)
+        if d is None:
+            return target_world
+        dist = (target_world - prev_world).length
+        if dist < 1e-9:
+            dist = 1.0
+        return prev_world + d * dist
+
+    def _effective_edge_angle_deg(self, context) -> float | None:
+        if self.angle_input.has_value():
+            try:
+                return self.angle_input.get_value(
+                    initial_value=self._mouse_edge_angle_deg(context)
+                )
+            except ValueError:
+                pass
+        if self._edge_angle_deg is not None:
+            return self._edge_angle_deg
+        if self._typing_angle:
+            return self._mouse_edge_angle_deg(context)
+        return None
+
+    def _mouse_edge_angle_deg(self, context) -> float:
+        last_dir = self._last_edge_direction_world()
+        prev = self._last_chain_world_pos()
+        if (
+            last_dir is None
+            or prev is None
+            or self._last_event_mouse is None
+            or context.region is None
+            or context.region_data is None
+        ):
+            return 90.0
+        raw_pos, _s, _i, _o, _a = self._resolve_3d_position(
+            context, self._last_event_mouse, apply_edge_angle=False
+        )
+        delta = raw_pos - prev
+        if delta.length_squared < 1e-12:
+            return 90.0
+        n = self._draw_plane_normal(context)
+        ld = last_dir - n * last_dir.dot(n)
+        dd = delta - n * delta.dot(n)
+        if ld.length_squared < 1e-20 or dd.length_squared < 1e-20:
+            return 90.0
+        ld.normalize()
+        dd.normalize()
+        cos_a = max(-1.0, min(1.0, ld.dot(dd)))
+        return math.degrees(math.acos(cos_a))
+
+    def _constrain_with_edge_angle(
+        self,
+        context,
+        pos: Vector,
+        is_ortho: bool,
+    ) -> tuple[Vector, bool]:
+        if len(self._chain_vert_indices) < 2:
+            return pos, is_ortho
+        angle = self._effective_edge_angle_deg(context)
+        if angle is None:
+            return pos, is_ortho
+        prev = self._last_chain_world_pos()
+        if prev is None:
+            return pos, is_ortho
+        return self._apply_edge_angle_to_position(context, prev, pos, angle), True
+
     def _update_area_header(self, context):
         if (
             not self._chain_vert_indices
@@ -348,6 +585,26 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
             viewport_header.clear(context)
             return
         seg_len = (pp - lw).length
+        if self.angle_input.value_str or self._typing_angle:
+            try:
+                ang_val = self.angle_input.get_value(
+                    initial_value=self._mouse_edge_angle_deg(context)
+                )
+            except ValueError:
+                ang_val = self._mouse_edge_angle_deg(context)
+            viewport_header.set_numeric(
+                context,
+                main_label='Angle',
+                main_value=float(ang_val),
+                typed_str=self.angle_input.value_str,
+                suffix='°',
+                secondary_text='',
+                initial_value=float(ang_val),
+            )
+            return
+        if self._edge_angle_deg is not None:
+            viewport_header.set(context, f'Angle: {self._edge_angle_deg:g}°')
+            return
         if self.number_input.value_str:
             viewport_header.set_numeric(
                 context,
@@ -369,10 +626,19 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
             w_snap = "ON" if self._snap_other_on else "OFF"
             plc = '3D' if self._ignore_draw_plane else 'Plane'
             axis = self._axis_lock if self._axis_lock else "—"
-            if self._chain_vert_indices and self.number_input.has_value():
+            ang = (
+                f"{self._edge_angle_deg:g}°"
+                if self._edge_angle_deg is not None
+                else ("type" if self._typing_angle or self.angle_input.has_value() else "—")
+            )
+            if self._chain_vert_indices and (
+                self.angle_input.has_value() or self._typing_angle
+            ):
+                num_part = "typing angle"
+            elif self._chain_vert_indices and self.number_input.has_value():
                 num_part = "typing length"
             elif self._chain_vert_indices:
-                num_part = "digits=length • Enter=text apply • plain Enter=exit"
+                num_part = "[A]angle [B]90° • digits=length"
             else:
                 num_part = ""
             sep = " " if num_part else ""
@@ -381,7 +647,7 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
                 f"[LMB]Add [Bksp]Undo/buffer [RMB]Finish [C]Close "
                 f"[Shift]Ortho:{ortho} [V]ObjSnap:{v_snap} [W]WorldSnap:{w_snap} "
                 f"[Q]{plc}"
-                f" [X/Y/Z]Axis:{axis}{sep}{num_part} [Enter/Esc]Exit",
+                f" [X/Y/Z]Axis:{axis} [A]Ang:{ang} [B]90°{sep}{num_part} [Enter/Esc]Exit",
             )
         except Exception:
             pass
@@ -457,7 +723,7 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
                     float(self._screen_snap_radius_px),
                     snap_idx_for_draw,
                 )
-                if snap_idx_for_draw == -3 and snap_anchor_for_draw is not None:
+                if snap_idx_for_draw == snap_cache.SNAP_IDX_WORLD_VERT and snap_anchor_for_draw is not None:
                     p_src = location_3d_to_region_2d(
                         context.region, context.region_data, snap_anchor_for_draw
                     )
@@ -494,7 +760,17 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
         try:
             length = (pos - last_world).length
             mid = (last_world + pos) * 0.5
-            if self.number_input.has_value():
+            if self.angle_input.has_value() or self._typing_angle:
+                try:
+                    ang = self.angle_input.get_value(
+                        initial_value=self._mouse_edge_angle_deg(context)
+                    )
+                except ValueError:
+                    ang = self._mouse_edge_angle_deg(context)
+                text = f'> {self.angle_input.value_str}  →  {ang:.2f}°'
+            elif self._edge_angle_deg is not None:
+                text = f'{self._edge_angle_deg:g}°'
+            elif self.number_input.has_value():
                 unit_system = context.scene.unit_settings.system
                 try:
                     lens = bpy.utils.units.to_string(unit_system, 'LENGTH', length, precision=4)
@@ -566,6 +842,8 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
         self,
         context,
         coord,
+        *,
+        apply_edge_angle: bool = True,
     ) -> tuple[Vector, bool, int | None, bool, Vector | None]:
         """Returns (world_pos, hit_snap, snap_idx, constrained_ortho, snap_anchor_world).
 
@@ -618,8 +896,18 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
                         locked_axis=self._axis_lock if use_axis_lock else None,
                     )
                     if constrained is not None:
-                        return constrained, True, None, True, anchor
-            return snap_pos, True, snap_idx, False, anchor
+                        pos = constrained
+                        is_ortho = True
+                        if apply_edge_angle:
+                            pos, is_ortho = self._constrain_with_edge_angle(
+                                context, pos, is_ortho
+                            )
+                        return pos, True, None, is_ortho, anchor
+            pos = snap_pos
+            is_ortho = False
+            if apply_edge_angle:
+                pos, is_ortho = self._constrain_with_edge_angle(context, pos, is_ortho)
+            return pos, True, snap_idx, is_ortho, anchor
 
         if self._ignore_draw_plane:
             pos = self._free_preview_world(origin_w, direction_w, ray_hit_world, context)
@@ -642,6 +930,8 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
                     pos = constrained
                     is_ortho = True
 
+        if apply_edge_angle:
+            pos, is_ortho = self._constrain_with_edge_angle(context, pos, is_ortho)
         return pos, False, None, is_ortho, None
 
     def _apply_ortho_constraint(
@@ -785,6 +1075,39 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
             return best_world, -1, None
         return best_world, best_idx, raw_snap_world
 
+    def _merge_obj_perpendicular_snap(
+        self,
+        hit: snap_cache.SnapHit | None,
+        bm,
+        region,
+        rv3d,
+        coord,
+        occlusion_t: float | None,
+        origin_w: Vector,
+        dir_w: Vector,
+        context,
+    ) -> snap_cache.SnapHit | None:
+        if not self._snap_verts_on:
+            return hit
+        prev_world = self._last_chain_world_pos()
+        if prev_world is None:
+            return hit
+        perp = snap_cache.best_obj_perpendicular_snap(
+            bm,
+            self._obj.matrix_world,
+            region,
+            rv3d,
+            coord,
+            float(self._screen_snap_radius_px),
+            prev_world,
+            self._snap_occludes_candidate,
+            occlusion_t,
+            origin_w,
+            dir_w,
+            context,
+        )
+        return snap_cache.pick_closer_snap_hit(region, rv3d, coord, hit, perp)
+
     def _query_snap_cache(
         self,
         context,
@@ -848,6 +1171,9 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
                 use_obj=self._snap_verts_on,
                 use_world=self._snap_other_on,
             )
+            hit = self._merge_obj_perpendicular_snap(
+                hit, bm, region, rv3d, coord, occlusion_t, origin_w, dir_w, context
+            )
             if hit is not None:
                 return hit
 
@@ -908,13 +1234,31 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
                 d2 = dx * dx + dy * dy
                 if d2 < best_d2:
                     best_d2 = d2
-                    best_idx = -2
+                    best_idx = snap_cache.SNAP_IDX_EDGE_MID
                     best_world = mid_w
                     raw_snap_world = None
 
-        if best_idx is None or best_world is None:
-            return None
-        return snap_cache.SnapHit(best_world, best_idx, raw_snap_world)
+        hit = None
+        if best_idx is not None and best_world is not None:
+            hit = snap_cache.SnapHit(best_world, best_idx, raw_snap_world)
+        prev_world = self._last_chain_world_pos()
+        if prev_world is not None:
+            perp = snap_cache.best_obj_perpendicular_snap(
+                bm,
+                mw,
+                region,
+                rv3d,
+                coord,
+                float(self._screen_snap_radius_px),
+                prev_world,
+                self._snap_occludes_candidate,
+                occlusion_t,
+                origin_w,
+                dir_w,
+                context,
+            )
+            hit = snap_cache.pick_closer_snap_hit(region, rv3d, coord, hit, perp)
+        return hit
 
     def _invalidate_snap_cache(self) -> None:
         self._snap_cache.invalidate_mesh()
@@ -943,7 +1287,10 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
                 self._invalidate_snap_cache()
                 self._end_chain()
                 self._axis_lock = None
+                self._edge_angle_deg = None
+                self._typing_angle = False
                 self.number_input.reset()
+                self.angle_input.reset()
                 self._refresh_preview(context)
                 return True
             return False
@@ -977,6 +1324,8 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
         self._invalidate_snap_cache()
         self._axis_lock = None
         self.number_input.reset()
+        self._typing_angle = False
+        self.angle_input.reset()
         self._refresh_preview(context)
         return False
 
@@ -1015,7 +1364,10 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
         self._invalidate_snap_cache()
         self._end_chain()
         self._axis_lock = None
+        self._edge_angle_deg = None
+        self._typing_angle = False
         self.number_input.reset()
+        self.angle_input.reset()
         self._refresh_preview(context)
 
     def _undo_last_vert(self, context):

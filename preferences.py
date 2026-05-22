@@ -1,5 +1,5 @@
 import bpy
-from bpy.props import BoolProperty
+from bpy.props import BoolProperty, IntProperty
 from bpy.types import AddonPreferences
 
 
@@ -229,6 +229,37 @@ class ALECS_TB_AddonPreferences(AddonPreferences):
         update=_refresh_addon_keymaps,
     )
 
+    draw_mesh_snap_max_verts_per_object: IntProperty(
+        name="Max vertices per object (world snap)",
+        description=(
+            "Draw Mesh Edges: world snap ([W]) skips mesh objects whose evaluated "
+            "vertex count exceeds this limit."
+        ),
+        default=12_000,
+        min=1_000,
+        max=500_000,
+    )
+    draw_mesh_snap_max_verts_total: IntProperty(
+        name="Max vertices total (world snap)",
+        description=(
+            "Draw Mesh Edges: cap on how many vertices are indexed for world snap "
+            "across the whole scene (dense scenes show a limited notice)."
+        ),
+        default=40_000,
+        min=5_000,
+        max=2_000_000,
+    )
+    draw_mesh_snap_kdtree_min_elements: IntProperty(
+        name="KD-tree threshold (object snap)",
+        description=(
+            "Draw Mesh Edges: use screen-space KD-tree acceleration on the drawn mesh "
+            "when vert+edge count is at least this value."
+        ),
+        default=256,
+        min=32,
+        max=100_000,
+    )
+
     def draw(self, context):
         layout = self.layout
         layout.prop(self, "use_max_style_mesh_keys")
@@ -281,6 +312,13 @@ class ALECS_TB_AddonPreferences(AddonPreferences):
         col5 = box5.column(align=True)
         col5.prop(self, "shortcut_alt_a_align_origins")
         col5.prop(self, "shortcut_ctrl_alt_a_align_dialog")
+
+        box6 = layout.box()
+        box6.label(text="Draw Mesh Edges (snap)")
+        col6 = box6.column(align=True)
+        col6.prop(self, "draw_mesh_snap_max_verts_per_object")
+        col6.prop(self, "draw_mesh_snap_max_verts_total")
+        col6.prop(self, "draw_mesh_snap_kdtree_min_elements")
 
 
 classes = (ALECS_TB_AddonPreferences,)

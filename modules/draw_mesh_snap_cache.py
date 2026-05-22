@@ -6,10 +6,40 @@ from mathutils import Vector
 from mathutils.kdtree import KDTree
 from bpy_extras.view3d_utils import location_3d_to_region_2d
 
-# Above these counts, rebuild only when the view/mesh changes (not every mousemove).
-OBJ_SNAP_KDTREE_MIN = 256
-WORLD_SNAP_MAX_VERTS_PER_OBJECT = 12_000
-WORLD_SNAP_MAX_VERTS_TOTAL = 40_000
+# Defaults when addon preferences are unavailable.
+_DEFAULT_OBJ_SNAP_KDTREE_MIN = 256
+_DEFAULT_WORLD_SNAP_MAX_VERTS_PER_OBJECT = 12_000
+_DEFAULT_WORLD_SNAP_MAX_VERTS_TOTAL = 40_000
+
+
+def _snap_prefs():
+    try:
+        from .. import preferences
+
+        return preferences.prefs()
+    except Exception:
+        return None
+
+
+def obj_snap_kdtree_min() -> int:
+    p = _snap_prefs()
+    if p is not None:
+        return max(1, int(p.draw_mesh_snap_kdtree_min_elements))
+    return _DEFAULT_OBJ_SNAP_KDTREE_MIN
+
+
+def world_snap_max_verts_per_object() -> int:
+    p = _snap_prefs()
+    if p is not None:
+        return max(1, int(p.draw_mesh_snap_max_verts_per_object))
+    return _DEFAULT_WORLD_SNAP_MAX_VERTS_PER_OBJECT
+
+
+def world_snap_max_verts_total() -> int:
+    p = _snap_prefs()
+    if p is not None:
+        return max(1, int(p.draw_mesh_snap_max_verts_total))
+    return _DEFAULT_WORLD_SNAP_MAX_VERTS_TOTAL
 
 
 @dataclass(frozen=True)
@@ -17,6 +47,12 @@ class SnapHit:
     world: Vector
     snap_idx: int
     raw_world: Vector | None = None
+
+
+# snap_idx sentinels (draw_mesh_edges / edit_mesh_draw_state)
+SNAP_IDX_EDGE_MID = -2
+SNAP_IDX_WORLD_VERT = -3
+SNAP_IDX_EDGE_PERP = -4
 
 
 def _view_cache_key(region, rv3d) -> tuple:
@@ -35,6 +71,90 @@ def _project(region, rv3d, world_co: Vector):
         return location_3d_to_region_2d(region, rv3d, world_co)
     except Exception:
         return None
+
+
+def screen_dist_sq(region, rv3d, coord, world_co: Vector) -> float | None:
+    p2 = _project(region, rv3d, world_co)
+    if p2 is None:
+        return None
+    mx, my = float(coord[0]), float(coord[1])
+    dx = p2.x - mx
+    dy = p2.y - my
+    return dx * dx + dy * dy
+
+
+def edge_line_perpendicular_foot(
+    prev_world: Vector,
+    v0_world: Vector,
+    v1_world: Vector,
+) -> Vector | None:
+    """Foot on the infinite line through v0–v1 closest to prev_world (perpendicular from prev)."""
+    d = v1_world - v0_world
+    ll = d.length_squared
+    if ll < 1e-20:
+        return None
+    t = (prev_world - v0_world).dot(d) / ll
+    return v0_world + d * t
+
+
+def pick_closer_snap_hit(
+    region,
+    rv3d,
+    coord,
+    a: SnapHit | None,
+    b: SnapHit | None,
+) -> SnapHit | None:
+    if a is None:
+        return b
+    if b is None:
+        return a
+    da = screen_dist_sq(region, rv3d, coord, a.world)
+    db = screen_dist_sq(region, rv3d, coord, b.world)
+    if da is None:
+        return b
+    if db is None:
+        return a
+    return a if da <= db else b
+
+
+def best_obj_perpendicular_snap(
+    bm,
+    matrix_world,
+    region,
+    rv3d,
+    coord,
+    radius_px: float,
+    prev_world: Vector,
+    occludes_fn,
+    occlusion_t: float | None,
+    origin_w: Vector,
+    dir_w: Vector,
+    context,
+) -> SnapHit | None:
+    """Screen-closest perpendicular foot on any mesh edge (from prev_world onto edge line)."""
+    radius_sq = radius_px * radius_px
+    best_d2 = radius_sq
+    best: SnapHit | None = None
+    mw = matrix_world
+
+    for e in bm.edges:
+        try:
+            v0w = mw @ e.verts[0].co
+            v1w = mw @ e.verts[1].co
+        except Exception:
+            continue
+        foot = edge_line_perpendicular_foot(prev_world, v0w, v1w)
+        if foot is None:
+            continue
+        if occludes_fn(occlusion_t, origin_w, dir_w, foot, context):
+            continue
+        d2 = screen_dist_sq(region, rv3d, coord, foot)
+        if d2 is None or d2 >= best_d2:
+            continue
+        best_d2 = d2
+        best = SnapHit(foot, SNAP_IDX_EDGE_PERP, None)
+
+    return best
 
 
 def _occlusion_test_co(hit: SnapHit) -> Vector:
@@ -179,7 +299,7 @@ class DrawMeshSnapCache:
                 p2 = _project(region, rv3d, mw @ mid)
                 if p2 is None:
                     continue
-                hits.append(SnapHit(mw @ mid, -2, None))
+                hits.append(SnapHit(mw @ mid, SNAP_IDX_EDGE_MID, None))
                 screen_pts.append((p2.x, p2.y))
 
         self._obj_tree = _build_kdtree(screen_pts)
@@ -211,7 +331,7 @@ class DrawMeshSnapCache:
 
         if depsgraph is not None:
             for obj_inst in depsgraph.object_instances:
-                if total >= WORLD_SNAP_MAX_VERTS_TOTAL:
+                if total >= world_snap_max_verts_total():
                     truncated = True
                     break
                 obj_eval = obj_inst.object
@@ -247,12 +367,13 @@ class DrawMeshSnapCache:
                 except Exception:
                     continue
                 n = len(verts)
-                if n > WORLD_SNAP_MAX_VERTS_PER_OBJECT:
+                if n > world_snap_max_verts_per_object():
                     truncated = True
                     continue
-                if total + n > WORLD_SNAP_MAX_VERTS_TOTAL:
+                max_total = world_snap_max_verts_total()
+                if total + n > max_total:
                     truncated = True
-                    n = WORLD_SNAP_MAX_VERTS_TOTAL - total
+                    n = max_total - total
                 inst_mw = obj_inst.matrix_world
                 for i in range(n):
                     v = verts[i]
@@ -267,7 +388,7 @@ class DrawMeshSnapCache:
                     p2 = _project(region, rv3d, v_world)
                     if p2 is None:
                         continue
-                    hits.append(SnapHit(snap_w, -3, raw))
+                    hits.append(SnapHit(snap_w, SNAP_IDX_WORLD_VERT, raw))
                     screen_pts.append((p2.x, p2.y))
                 total += n
 
@@ -289,4 +410,4 @@ def should_use_obj_kdtree(bm) -> bool:
         n = len(bm.verts) + len(bm.edges)
     except Exception:
         return False
-    return n >= OBJ_SNAP_KDTREE_MIN
+    return n >= obj_snap_kdtree_min()
