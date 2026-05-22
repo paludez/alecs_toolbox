@@ -314,8 +314,8 @@ def register_focal_lens_scene_props() -> None:
     bpy.types.Scene.alec_focal_lens_ui = bpy.props.FloatProperty(
         name="Focal (mm)",
         description=(
-            "Scene camera focal length. "
-            "Editing here optionally dollies the camera (see toggle below)."
+            "Focal length of the scene camera (Render Properties camera). "
+            "Use with \"Dolly focal\" below to move the camera when you change this value"
         ),
         default=50.0,
         min=1.0,
@@ -327,10 +327,9 @@ def register_focal_lens_scene_props() -> None:
     bpy.types.Scene.alec_focal_dolly_compensate = bpy.props.BoolProperty(
         name="Dolly focal",
         description=(
-            "When on: changing focal length in this panel also moves the scene camera "
-            "along its view axis so framing stays similar toward the active object. "
-            "Camera does not need to be selected. Has no effect when editing focal "
-            "length elsewhere (e.g. Properties)."
+            "On: changing \"Focal (mm)\"  changes the scene camera lens and "
+            "slides that camera forward or back so the active object (selected in "
+            "the viewport) stays about the same size in frame."
         ),
         default=False,
         update=_alec_focal_dolly_toggle_update,
