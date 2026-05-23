@@ -266,8 +266,25 @@ class ALEC_MT_edit_menu(bpy.types.Menu):
         col_geom = pie.column()
         box_geom = col_geom.box()
         box_geom.label(text="Geometry", icon='MESH_CIRCLE')
-        col_geom_inner = box_geom.column(align=True)
-        col_geom_inner.operator("alec.three_point_circle", text="3pt to Circle")
+        row_geom = box_geom.row(align=True)
+        col_geom_arcs = row_geom.column(align=True)
+        col_geom_circles = row_geom.column(align=True)
+        col_geom_arcs.label(text="Arc")
+        col_geom_circles.label(text="Circle")
+        prev_ctx = col_geom_arcs.operator_context
+        col_geom_arcs.operator_context = "INVOKE_DEFAULT"
+        col_geom_circles.operator_context = "INVOKE_DEFAULT"
+
+        col_geom_arcs.operator("alec.two_point_arc", text="2 Pts Rad")
+        col_geom_arcs.operator("alec.three_point_arc", text="3 Pts")
+        col_geom_circles.operator("alec.center_circle", text="Cen. Rad")
+        col_geom_circles.operator("alec.two_point_circle", text="2 Pts")
+        col_geom_circles.operator("alec.three_point_circle", text="3 Pts")
+        col_geom_circles.operator("alec.tan_tan_radius_circle", text="2 Tan Rad")
+        col_geom_circles.operator("alec.three_tan_circle", text="3 Tan")
+
+        col_geom_arcs.operator_context = prev_ctx
+        col_geom_circles.operator_context = prev_ctx
 
         # --- Slice 4 (Top): Dimensions ---
         col = pie.column()

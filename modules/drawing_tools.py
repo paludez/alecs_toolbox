@@ -69,6 +69,52 @@ def draw_angle_pie(center, dir_base, normal, angle, radius, color=(0.1, 0.6, 1.0
     
     gpu.state.blend_set('NONE')
 
+def draw_wire_circle_loop(center, u_axis, v_axis, radius, segments=48, color=(0.2, 0.85, 1.0, 0.85)):
+    """Wire circle in world space using orthonormal u/v in the circle plane."""
+    if radius < 1e-9:
+        return
+    u = u_axis.normalized()
+    v = v_axis.normalized()
+    lines = []
+    for i in range(segments):
+        a0 = (2.0 * math.pi * i) / segments
+        a1 = (2.0 * math.pi * (i + 1)) / segments
+        p0 = center + u * (math.cos(a0) * radius) + v * (math.sin(a0) * radius)
+        p1 = center + u * (math.cos(a1) * radius) + v * (math.sin(a1) * radius)
+        lines.append(p0)
+        lines.append(p1)
+    _draw_simple_lines(lines, color, width=2.0)
+
+
+def draw_wire_arc_loop(
+    center,
+    u_axis,
+    v_axis,
+    radius,
+    theta_start,
+    sweep,
+    segments=32,
+    color=(0.2, 0.85, 1.0, 0.85),
+):
+    """Wire arc in world space (open polyline)."""
+    if radius < 1e-9 or abs(sweep) < 1e-12:
+        return
+    u = u_axis.normalized()
+    v = v_axis.normalized()
+    n = max(1, int(segments))
+    lines = []
+    for i in range(n):
+        t0 = i / n
+        t1 = (i + 1) / n
+        a0 = theta_start + sweep * t0
+        a1 = theta_start + sweep * t1
+        p0 = center + u * (math.cos(a0) * radius) + v * (math.sin(a0) * radius)
+        p1 = center + u * (math.cos(a1) * radius) + v * (math.sin(a1) * radius)
+        lines.append(p0)
+        lines.append(p1)
+    _draw_simple_lines(lines, color, width=2.0)
+
+
 def draw_mesh_wireframe(world_matrix, coords, normals, edges, offset, color=(0.0, 0.5, 1.0, 0.6)):
     """Draws a wireframe of a mesh with a normal-based offset."""
     new_coords = [world_matrix @ (co + normal * offset) for co, normal in zip(coords, normals)]

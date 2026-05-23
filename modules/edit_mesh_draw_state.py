@@ -135,6 +135,10 @@ def has_dim_overlay_data():
         return True
     if _draw_data.get('draw_snap_source_screen') is not None:
         return True
+    if _draw_data.get('three_pt_picked_world'):
+        return True
+    if _draw_data.get('two_pt_circle_preview'):
+        return True
     return False
 
 
@@ -305,7 +309,7 @@ def draw_callback_px(context):
 
 def draw_callback_3d(context):
     """Draw handler to display 3D graphics in the Viewport."""
-    if getattr(context, 'mode', '') != 'EDIT_MESH':
+    if bpy.context.mode != 'EDIT_MESH':
         return
     sphere_data = _draw_data.get('falloff_sphere')
     if sphere_data:
@@ -318,6 +322,63 @@ def draw_callback_3d(context):
         from .drawing_tools import draw_angle_pie
         center, dir_base, normal, angle, radius = pie_data
         draw_angle_pie(center, dir_base, normal, angle, radius, color=(0.1, 0.6, 1.0, 0.3))
+
+    picked_world = _draw_data.get('three_pt_picked_world')
+    if picked_world:
+        try:
+            from .drawing_tools import _draw_simple_points
+            _draw_simple_points(
+                [p.copy() for p in picked_world],
+                (0.15, 1.0, 0.45, 0.9),
+                size=9.0,
+            )
+        except Exception:
+            pass
+
+    two_pt = _draw_data.get('two_pt_circle_preview')
+    if two_pt:
+        try:
+            from .drawing_tools import (
+                draw_wire_arc_loop,
+                draw_wire_circle_loop,
+                _draw_simple_lines,
+                _draw_simple_points,
+            )
+            center = two_pt['center']
+            sweep = two_pt.get('sweep')
+            if sweep is not None and abs(float(sweep)) < (2.0 * math.pi - 1e-4):
+                draw_wire_arc_loop(
+                    center,
+                    two_pt['u'],
+                    two_pt['v'],
+                    float(two_pt['radius']),
+                    float(two_pt['theta_start']),
+                    float(sweep),
+                    segments=int(two_pt.get('segments', 48)),
+                    color=(0.2, 0.85, 1.0, 0.9),
+                )
+            else:
+                draw_wire_circle_loop(
+                    center,
+                    two_pt['u'],
+                    two_pt['v'],
+                    float(two_pt['radius']),
+                    segments=int(two_pt.get('segments', 48)),
+                    color=(0.2, 0.85, 1.0, 0.9),
+                )
+            if 'p1' in two_pt and 'p2' in two_pt:
+                _draw_simple_lines(
+                    [two_pt['p1'].copy(), two_pt['p2'].copy()],
+                    (1.0, 1.0, 1.0, 0.35),
+                    width=1.25,
+                )
+                _draw_simple_points(
+                    [two_pt['p1'].copy(), two_pt['p2'].copy()],
+                    (0.15, 1.0, 0.45, 0.95),
+                    size=9.0,
+                )
+        except Exception:
+            pass
 
     cp = _draw_data.get('cursor_plane')
     if cp:
