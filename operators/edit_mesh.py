@@ -225,7 +225,7 @@ class ALEC_OT_dimension_action(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return emh.poll_edit_mesh_mode_only(context)
+        return emh.poll_active_mesh_edit_mode(context)
 
     def execute(self, context):
 
@@ -285,7 +285,7 @@ class ALEC_OT_select_dimension_edges(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return emh.poll_edit_mesh_mode_only(context)
+        return emh.poll_active_mesh_edit_mode(context)
 
     def execute(self, context):
         obj = context.edit_object
@@ -1174,6 +1174,192 @@ class ALEC_OT_make_coplanar(ProportionalFalloffMixin, bpy.types.Operator):
 def update_circle_rotation(self, context):
     self.rotation = 0.0
 
+
+_three_pt_circle_session = None
+
+
+def clear_three_point_circle_session():
+    global _three_pt_circle_session
+    _three_pt_circle_session = None
+
+
+def _three_pt_circle_session_valid(context, session):
+    if session is None:
+        return False
+    obj = context.active_object
+    if obj is None or obj.type != 'MESH':
+        return False
+    return (
+        obj.name == session.get('object_name')
+        and obj.data.name == session.get('mesh_name')
+    )
+
+
+def _three_pt_verts_from_session(bm, session):
+    indices = session.get('vert_indices')
+    if not indices or len(indices) != 3:
+        return None
+    bm.verts.ensure_lookup_table()
+    verts = []
+    for idx in indices:
+        try:
+            v = bm.verts[idx]
+            if not v.is_valid:
+                return None
+            verts.append(v)
+        except (IndexError, ReferenceError):
+            return None
+    return verts
+
+
+def _three_pt_remove_created_circle(bm, session):
+    if not session.get('applied'):
+        return
+    src = set(session.get('vert_indices', ()))
+    for key in list(session.get('created_edge_keys', [])):
+        edge = emh.bm_edge_from_key(bm, key)
+        if edge is not None:
+            try:
+                bm.edges.remove(edge)
+            except (ValueError, ReferenceError):
+                pass
+    session['created_edge_keys'] = []
+    bm.verts.ensure_lookup_table()
+    for idx in list(session.get('created_vert_indices', [])):
+        if idx in src:
+            continue
+        try:
+            if idx < len(bm.verts):
+                vert = bm.verts[idx]
+                if vert.is_valid and len(vert.link_edges) == 0:
+                    bm.verts.remove(vert)
+        except (IndexError, ReferenceError, ValueError):
+            pass
+    session['created_vert_indices'] = []
+
+
+def _three_pt_create_circle_ring(bm, mw, definition_verts, segments, session):
+    inv_mw = mw.inverted_safe()
+    p0_w = mw @ definition_verts[0].co
+    p1_w = mw @ definition_verts[1].co
+    p2_w = mw @ definition_verts[2].co
+    circle = emh.circumcircle_from_three_points(p0_w, p1_w, p2_w)
+    if circle is None:
+        return False
+    center_w, radius_w, u_axis, v_axis = circle
+    phase = emh.circle_phase_for_point(center_w, u_axis, v_axis, p0_w)
+
+    ring = []
+    for i in range(segments):
+        theta = phase + (2.0 * math.pi * i) / segments
+        co_w = center_w + u_axis * (math.cos(theta) * radius_w) + v_axis * (math.sin(theta) * radius_w)
+        vert = bm.verts.new(inv_mw @ co_w)
+        ring.append(vert)
+        session['created_vert_indices'].append(vert.index)
+
+    for i in range(segments):
+        try:
+            edge = bm.edges.new((ring[i], ring[(i + 1) % segments]))
+            session['created_edge_keys'].append(emh.bm_edge_key(edge))
+        except ValueError:
+            pass
+    return True
+
+
+class ALEC_OT_three_point_circle(bpy.types.Operator):
+    """Circumcircle through the last three selected vertices (live edge count in redo panel)"""
+    bl_idname = "alec.three_point_circle"
+    bl_label = "3pt to Circle"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    segments: bpy.props.IntProperty(
+        name="Edges",
+        description="Number of edges on the circumcircle",
+        min=3,
+        max=256,
+        default=32,
+    )  # type: ignore
+
+    @classmethod
+    def poll(cls, context):
+        return emh.poll_active_mesh_edit_mode(context)
+
+    def draw(self, context):
+        self.layout.prop(self, "segments")
+
+    def invoke(self, context, event):
+        global _three_pt_circle_session
+        obj = context.active_object
+        bm = bmesh.from_edit_mesh(obj.data)
+        definition_verts = emh.resolve_three_definition_verts(bm)
+        if definition_verts is None:
+            self.report(
+                {'WARNING'},
+                "Select at least 3 vertices (last three in selection order are used)",
+            )
+            return {'CANCELLED'}
+
+        _three_pt_circle_session = {
+            'object_name': obj.name,
+            'mesh_name': obj.data.name,
+            'vert_indices': tuple(v.index for v in definition_verts),
+            'created_vert_indices': [],
+            'created_edge_keys': [],
+            'applied': False,
+        }
+        return self.execute(context)
+
+    def check(self, context):
+        self.execute(context)
+        return True
+
+    def execute(self, context):
+        global _three_pt_circle_session
+        if not _three_pt_circle_session_valid(context, _three_pt_circle_session):
+            obj = context.active_object
+            if obj is None:
+                return {'CANCELLED'}
+            bm = bmesh.from_edit_mesh(obj.data)
+            definition_verts = emh.resolve_three_definition_verts(bm)
+            if definition_verts is None:
+                self.report(
+                    {'WARNING'},
+                    "Select at least 3 vertices (last three in selection order are used)",
+                )
+                return {'CANCELLED'}
+            _three_pt_circle_session = {
+                'object_name': obj.name,
+                'mesh_name': obj.data.name,
+                'vert_indices': tuple(v.index for v in definition_verts),
+                'created_vert_indices': [],
+                'created_edge_keys': [],
+                'applied': False,
+            }
+
+        session = _three_pt_circle_session
+        obj = context.active_object
+        bm = bmesh.from_edit_mesh(obj.data)
+        bm.verts.ensure_lookup_table()
+        bm.edges.ensure_lookup_table()
+
+        definition_verts = _three_pt_verts_from_session(bm, session)
+        if definition_verts is None:
+            self.report({'WARNING'}, "Definition vertices are no longer valid")
+            return {'CANCELLED'}
+
+        _three_pt_remove_created_circle(bm, session)
+
+        if not _three_pt_create_circle_ring(
+            bm, obj.matrix_world, definition_verts, int(self.segments), session,
+        ):
+            self.report({'WARNING'}, "The three points are collinear")
+            return {'CANCELLED'}
+
+        session['applied'] = True
+        bmesh.update_edit_mesh(obj.data)
+        return {'FINISHED'}
+
+
 class ALEC_OT_make_circle(ProportionalFalloffMixin, bpy.types.Operator):
     """Selected vertices into a perfect circle"""
     bl_idname = "alec.make_circle"
@@ -1190,7 +1376,7 @@ class ALEC_OT_make_circle(ProportionalFalloffMixin, bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return emh.poll_make_circle(context)
+        return emh.poll_active_mesh_edit_mode(context)
 
     def draw(self, context):
         layout = self.layout
@@ -1330,7 +1516,7 @@ class ALEC_OT_clean_mesh(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return emh.poll_clean_mesh(context)
+        return emh.poll_active_mesh_edit_mode(context)
 
     def execute(self, context):
         bpy.ops.mesh.remove_doubles()
@@ -1345,7 +1531,7 @@ class ALEC_OT_extract_and_solidify(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return emh.poll_extract_and_solidify(context)
+        return emh.poll_active_mesh_edit_mode(context)
 
     def execute(self, context):
         bpy.ops.mesh.duplicate()
@@ -1378,11 +1564,8 @@ class ALEC_OT_select_similar_face_material(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        obj = context.active_object
         return (
-            obj is not None
-            and obj.type == 'MESH'
-            and context.mode == 'EDIT_MESH'
+            emh.poll_active_mesh_edit_mode(context)
             and context.tool_settings.mesh_select_mode[2]
         )
 
@@ -1473,6 +1656,7 @@ classes = (
     ALEC_OT_distribute_vertices,
     ALEC_OT_make_collinear,
     ALEC_OT_make_coplanar,
+    ALEC_OT_three_point_circle,
     ALEC_OT_make_circle,
     ALEC_OT_clean_mesh,
     ALEC_OT_extract_and_solidify,

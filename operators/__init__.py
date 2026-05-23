@@ -1,6 +1,7 @@
 import bpy
 
 from . import align
+from . import angle_rays
 from . import auto_linked_mode
 from . import batch_materials
 from . import bbox
@@ -22,6 +23,7 @@ from . import viewport_tools
 
 classes = (
     *align.classes,
+    *angle_rays.classes,
     *auto_linked_mode.classes,
     *batch_materials.classes,
     *bbox.classes,
@@ -52,6 +54,7 @@ def register():
     camera_tools.register_focal_lens_scene_props()
     camera_tools.register_camera_sphere_object_props()
     light_tools.register_light_rig_object_props()
+    angle_rays.post_register()
 
     depsgraph_handler = edit_mesh.depsgraph_update_handler
     bpy.app.handlers.depsgraph_update_post.append(depsgraph_handler)
@@ -69,6 +72,8 @@ def unregister():
     camera_tools.unregister_focal_lens_scene_props()
     camera_tools.unregister_camera_sphere_object_props()
     light_tools.unregister_light_rig_object_props()
+    angle_rays.post_unregister()
+    edit_mesh.clear_three_point_circle_session()
 
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)

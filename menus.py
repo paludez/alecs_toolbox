@@ -262,8 +262,12 @@ class ALEC_MT_edit_menu(bpy.types.Menu):
         box_clean.label(text="Cleanup", icon='BRUSH_DATA')
         box_clean.operator("alec.clean_mesh", text="Clean Planar")
 
-        # --- Slice 3 (Bottom): intentionally empty ---
-        pie.column()
+        # --- Slice 3 (Bottom): Geometry ---
+        col_geom = pie.column()
+        box_geom = col_geom.box()
+        box_geom.label(text="Geometry", icon='MESH_CIRCLE')
+        col_geom_inner = box_geom.column(align=True)
+        col_geom_inner.operator("alec.three_point_circle", text="3pt to Circle")
 
         # --- Slice 4 (Top): Dimensions ---
         col = pie.column()

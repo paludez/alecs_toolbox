@@ -1,4 +1,6 @@
 """Poll and bmesh helpers for edit-mesh operators."""
+import math
+
 import bmesh
 from mathutils import Vector, Matrix
 from bpy_extras.view3d_utils import location_3d_to_region_2d
@@ -105,8 +107,17 @@ def get_equalize_reference_edge(bm):
     return None
 
 
+def poll_active_mesh_edit_mode(context):
+    obj = context.active_object
+    return (
+        obj is not None
+        and obj.type == 'MESH'
+        and context.mode == 'EDIT_MESH'
+    )
+
+
 def poll_two_edges_in_select_history(context):
-    if not (context.active_object and context.mode == 'EDIT_MESH'):
+    if not poll_active_mesh_edit_mode(context):
         return False
     try:
         bm = bmesh.from_edit_mesh(context.active_object.data)
@@ -145,36 +156,8 @@ def angle_pivot_for_edge_pair(stationary_edge, moving_edge):
     return pivot.co.copy(), t0.angle(t1), (moving_edge.index, stationary_edge.index)
 
 
-def poll_active_mesh_edit_mode(context):
-    return (
-        context.active_object is not None
-        and context.active_object.type == 'MESH'
-        and context.mode == 'EDIT_MESH'
-    )
-
-
 def poll_mesh_or_curve_collinear_coplanar(context):
     return poll_active_mesh_edit_mode(context) or ech.poll_active_curve_edit_mode(context)
-
-
-def poll_edit_mesh_mode_only(context):
-    return context.mode == 'EDIT_MESH'
-
-
-def poll_clean_mesh(context):
-    return bool(context.active_object and context.mode == 'EDIT_MESH')
-
-
-def poll_extract_and_solidify(context):
-    return context.mode == 'EDIT_MESH' and context.active_object
-
-
-def poll_make_circle(context):
-    return bool(
-        context.active_object
-        and context.active_object.type == 'MESH'
-        and context.mode == 'EDIT_MESH'
-    )
 
 
 def bm_edge_key(edge):
@@ -316,3 +299,44 @@ def working_plane_for_edges(edge_a, edge_b, mw):
     u_ax = d1.normalized()
     v_ax = normal.cross(u_ax).normalized()
     return (pa0.copy(), normal, u_ax, v_ax)
+
+
+def resolve_three_definition_verts(bm):
+    """Last three verts in select history, else last three selected."""
+    history = select_history_verts(bm)
+    if len(history) >= 3:
+        return history[-3:]
+    selected = [v for v in bm.verts if v.select]
+    if len(selected) >= 3:
+        return selected[-3:]
+    return None
+
+
+def circumcircle_from_three_points(p0, p1, p2, eps=1e-10):
+    """Circumcircle through three world-space points.
+
+    Returns (center, radius, u_axis, v_axis) with u/v an orthonormal basis in the
+  plane, or None when the points are collinear.
+    """
+    ab = p1 - p0
+    ac = p2 - p0
+    n = ab.cross(ac)
+    n_len_sq = n.length_squared
+    if n_len_sq < eps * eps:
+        return None
+    denom = 2.0 * n_len_sq
+    center = p0 + (ab.length_squared * ac.cross(n) + ac.length_squared * n.cross(ab)) / denom
+    radius = (p0 - center).length
+    if radius < eps:
+        return None
+    u = p0 - center
+    u.normalize()
+    v = n.normalized().cross(u)
+    v.normalize()
+    return center, radius, u, v
+
+
+def circle_phase_for_point(center, u_axis, v_axis, point):
+    """Angle on the (u, v) circle parameterization for a point on the circumference."""
+    offset = point - center
+    return math.atan2(offset.dot(v_axis), offset.dot(u_axis))

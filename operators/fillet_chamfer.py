@@ -287,10 +287,15 @@ def _compute_fillet_data(
 
         # CORNER mode (r == 0)
         if radius <= _EPS:
+            arm_a_w = (e_A_unit.x * u_ax + e_A_unit.y * v_ax).normalized()
+            arm_b_w = (e_B_unit.x * u_ax + e_B_unit.y * v_ax).normalized()
             return {
                 'invalid': False,
                 'mode': 'CORNER',
                 'apex_w': apex_w,
+                'arm_a_w': arm_a_w,
+                'arm_b_w': arm_b_w,
+                'plane_normal_w': _normal.copy(),
                 'bis_unit_w': bis_unit_w,
                 'sin_half_angle': sin_h,
                 'radius': 0.0,

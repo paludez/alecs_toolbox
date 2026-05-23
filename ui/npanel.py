@@ -363,6 +363,7 @@ def _draw_2d_drafting(layout, _context):
     col = layout.column(align=True)
     col.operator("alec.draw_mesh_edges", text="Draw Mesh Edges", icon="GREASEPENCIL")
     col.operator("alec.trim_extend_edges", text="Trim / Extend", icon="UV_EDGESEL")
+    col.operator("alec.angle_rays", text="Angle Rays", icon="EMPTY_AXIS")
     col.operator("alec.fillet_edges", text="Fillet / Chamfer", icon="MOD_BEVEL")
 
 
