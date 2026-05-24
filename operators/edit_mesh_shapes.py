@@ -334,6 +334,8 @@ class ALEC_OT_make_square(ProportionalFalloffMixin, bpy.types.Operator):
     relax_interior: bpy.props.FloatProperty(name="Relax Interior", default=0.0, min=0.0, max=1.0, subtype='FACTOR', description="Relax interior vertices within the projection plane") # type: ignore
     regular: bpy.props.BoolProperty(name="Regular", default=True, description="Distribute vertices evenly along each edge") # type: ignore
     rotation: bpy.props.FloatProperty(name="Rotation", default=0.0, subtype='ANGLE', description="Rotate the square in the selection plane") # type: ignore
+    spin: bpy.props.FloatProperty(name="Spin", default=0.0, unit='LENGTH', description="Slide vertex mapping along the square perimeter") # type: ignore
+    offset: bpy.props.IntProperty(name="Offset", default=0, description="Shift all corner assignments along the boundary loop") # type: ignore
     corner_0: bpy.props.IntProperty(name="Corner 1", default=0, min=0) # type: ignore
     corner_1: bpy.props.IntProperty(name="Corner 2", default=0, min=0) # type: ignore
     corner_2: bpy.props.IntProperty(name="Corner 3", default=0, min=0) # type: ignore
@@ -351,9 +353,7 @@ class ALEC_OT_make_square(ProportionalFalloffMixin, bpy.types.Operator):
         self.corner_0, self.corner_1, self.corner_2, self.corner_3 = corners
         self.size = _boundary_loop_length(ordered) * 0.25
         self.rotation = 0.0
-        c0_vert = ordered[self.corner_0]
-        u0, w0, _ = _project_vert_2d(c0_vert, center, normal, tangent, bitangent)
-        self.base_rotation = math.atan2(w0, u0) + math.pi * 0.75
+        self.base_rotation = 0.0
         self.ref_center = center
         self.ref_normal = normal
         self.ref_tangent = tangent
@@ -374,6 +374,8 @@ class ALEC_OT_make_square(ProportionalFalloffMixin, bpy.types.Operator):
             layout.prop(self, "relax_interior")
         layout.prop(self, "regular")
         layout.prop(self, "rotation")
+        layout.prop(self, "spin")
+        layout.prop(self, "offset")
 
         obj = context.active_object
         if obj and obj.mode == 'EDIT':
@@ -392,7 +394,7 @@ class ALEC_OT_make_square(ProportionalFalloffMixin, bpy.types.Operator):
                     ("corner_3", "Corner 4"),
                 )
                 for attr, label in corner_labels:
-                    idx = getattr(self, attr)
+                    idx = (getattr(self, attr) + self.offset) % len(ordered)
                     vert_idx = ordered[idx].index if 0 <= idx < len(ordered) else idx
                     row = layout.row(align=True)
                     row.label(text=f"{label} (V{vert_idx})")
@@ -404,6 +406,8 @@ class ALEC_OT_make_square(ProportionalFalloffMixin, bpy.types.Operator):
         self.reset_proportional_falloff()
         self.flatten_interior = 0.0
         self.relax_interior = 0.0
+        self.spin = 0.0
+        self.offset = 0
         self.init_done = False
         obj = context.active_object
         if obj and obj.mode == 'EDIT':
@@ -437,16 +441,22 @@ class ALEC_OT_make_square(ProportionalFalloffMixin, bpy.types.Operator):
             center = Vector(self.ref_center)
 
         n = len(ordered)
-        corners = (
+        base_corners = (
             self.corner_0, self.corner_1, self.corner_2, self.corner_3,
         )
-        if corners == (0, 0, 0, 0):
-            corners = _find_boundary_corners(ordered, center, normal, tangent, bitangent)
-        corners = _clamp_corners_to_valid(corners, n)
-        self.corner_0, self.corner_1, self.corner_2, self.corner_3 = corners
+        if base_corners == (0, 0, 0, 0):
+            base_corners = _find_boundary_corners(ordered, center, normal, tangent, bitangent)
+            base_corners = _clamp_corners_to_valid(base_corners, n)
+            self.corner_0, self.corner_1, self.corner_2, self.corner_3 = base_corners
+        else:
+            base_corners = _clamp_corners_to_valid(base_corners, n)
+            self.corner_0, self.corner_1, self.corner_2, self.corner_3 = base_corners
+
+        corners = tuple((c + self.offset) % n for c in base_corners)
 
         half_size = self.size * 0.5
         effective_rotation = self.base_rotation + self.rotation
+        perimeter = max(self.size * 4.0, 1e-9)
         corner_arcs = [0.0, self.size, 2.0 * self.size, 3.0 * self.size]
 
         for seg in range(4):
@@ -491,6 +501,8 @@ class ALEC_OT_make_square(ProportionalFalloffMixin, bpy.types.Operator):
                 else:
                     t = local_i / (len(seg_indices) - 1)
                     arc_s = arc_start + t * edge_arc_len
+
+                arc_s = (arc_s + self.spin) % perimeter
 
                 target = _square_target_3d(
                     center, tangent, bitangent, normal,
