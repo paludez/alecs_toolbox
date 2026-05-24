@@ -32,39 +32,51 @@ def _get_plane_normal(bm, context, verts):
     return Vector((0, 0, 1))
 
 
+def _project_to_local_tangent(co, anchor, normal):
+    return co - normal * (co - anchor).dot(normal)
+
+
+def _build_square_frame(bm, context, boundary_verts):
+    center = sum((v.co for v in boundary_verts), Vector()) / len(boundary_verts)
+    normal = _get_plane_normal(bm, context, boundary_verts)
+    tangent = normal.orthogonal().normalized()
+    bitangent = normal.cross(tangent).normalized()
+    ordered = _order_boundary_verts(bm, boundary_verts, center, tangent, bitangent)
+    corners = _find_boundary_corners(ordered, center, normal, tangent, bitangent)
+
+    c0 = _project_to_local_tangent(ordered[corners[0]].co, center, normal)
+    c1 = _project_to_local_tangent(ordered[corners[1]].co, center, normal)
+    edge = c1 - c0
+    if edge.length_squared > 1e-12:
+        tangent = edge.normalized()
+        bitangent = normal.cross(tangent).normalized()
+
+    return center, normal, tangent, bitangent, ordered, corners
+
+
+def _find_corners_by_quadrants(ordered, center, normal, tangent, bitangent):
+    n = len(ordered)
+    if n < 4:
+        return _init_square_corners(n)
+
+    quadrants = [[] for _ in range(4)]
+    for i, v in enumerate(ordered):
+        u, w, _ = _project_vert_2d(v, center, normal, tangent, bitangent)
+        angle = math.atan2(w, u)
+        q = int((angle + math.pi) / (math.pi / 2)) % 4
+        quadrants[q].append((u * u + w * w, i))
+
+    corners = []
+    for q in quadrants:
+        if q:
+            corners.append(max(q)[1])
+    if len(corners) < 4:
+        return _init_square_corners(n)
+    corners.sort()
+    return tuple(corners)
+
+
 def _order_boundary_verts(bm, boundary_verts, center, tangent, bitangent):
-    boundary_set = set(boundary_verts)
-    adj = {v: [] for v in boundary_verts}
-
-    for f in bm.faces:
-        if not f.select:
-            continue
-        for e in f.edges:
-            if sum(1 for lf in e.link_faces if lf.select) != 1:
-                continue
-            v0, v1 = e.verts
-            if v0 in boundary_set and v1 in boundary_set:
-                adj[v0].append(v1)
-                adj[v1].append(v0)
-
-    if any(adj[v] for v in boundary_verts):
-        start = max(boundary_verts, key=lambda v: len(adj[v]))
-        ordered = [start]
-        prev = None
-        current = start
-        while len(ordered) < len(boundary_verts):
-            neighbors = [n for n in adj[current] if n != prev]
-            if not neighbors:
-                break
-            nxt = neighbors[0]
-            if nxt in ordered:
-                break
-            ordered.append(nxt)
-            prev, current = current, nxt
-
-        if len(ordered) == len(boundary_verts):
-            return ordered
-
     def _angle_key(v):
         d = v.co - center
         return math.atan2(d.dot(bitangent), d.dot(tangent))
@@ -104,6 +116,51 @@ def _square_target_3d(center, tangent, bitangent, normal, half_size, rotation, a
     return target
 
 
+def _vertex_turn_sharpness(ordered, i):
+    n = len(ordered)
+    e1 = ordered[i].co - ordered[(i - 1) % n].co
+    e2 = ordered[(i + 1) % n].co - ordered[i].co
+    if e1.length_squared < 1e-12 or e2.length_squared < 1e-12:
+        return 0.0
+    cross = e1.cross(e2)
+    dot = e1.dot(e2)
+    return math.atan2(cross.length, dot)
+
+
+def _find_boundary_corners(ordered, center, normal, tangent, bitangent):
+    n = len(ordered)
+    if n < 4:
+        return _init_square_corners(n)
+
+    sharpness = [_vertex_turn_sharpness(ordered, i) for i in range(n)]
+    min_turn = math.radians(45.0)
+    candidates = []
+    for i in range(n):
+        s_curr = sharpness[i]
+        if s_curr < min_turn:
+            continue
+        if s_curr >= sharpness[(i - 1) % n] and s_curr >= sharpness[(i + 1) % n]:
+            candidates.append((i, s_curr))
+
+    if len(candidates) >= 4:
+        if len(candidates) > 4:
+            candidates = sorted(candidates, key=lambda x: -x[1])[:4]
+        candidates.sort(key=lambda x: x[0])
+        return tuple(c[0] for c in candidates[:4])
+
+    return _find_corners_by_quadrants(ordered, center, normal, tangent, bitangent)
+
+
+def _boundary_loop_length(ordered):
+    n = len(ordered)
+    if n < 2:
+        return 0.0
+    length = 0.0
+    for i in range(n):
+        length += (ordered[(i + 1) % n].co - ordered[i].co).length
+    return length
+
+
 def _init_square_corners(n):
     if n < 4:
         return 0, 0, 0, 0
@@ -117,19 +174,6 @@ def _clamp_corners_to_valid(corners, n):
     c2 = max(c1, min(c2, n - 1))
     c3 = max(c2, min(c3, n - 1))
     return c0, c1, c2, c3
-
-
-def _step_corner(corners, slot, delta, n):
-    c = list(_clamp_corners_to_valid(corners, n))
-    lo = c[slot - 1] if slot > 0 else 0
-    hi = c[slot + 1] if slot < 3 else n - 1
-    new_val = c[slot] + delta
-    if new_val < lo:
-        new_val = hi
-    elif new_val > hi:
-        new_val = lo
-    c[slot] = new_val
-    return _clamp_corners_to_valid(c, n)
 
 
 def _segment_order_indices(c_start, c_end, n):
@@ -294,6 +338,27 @@ class ALEC_OT_make_square(ProportionalFalloffMixin, bpy.types.Operator):
     corner_1: bpy.props.IntProperty(name="Corner 2", default=0, min=0) # type: ignore
     corner_2: bpy.props.IntProperty(name="Corner 3", default=0, min=0) # type: ignore
     corner_3: bpy.props.IntProperty(name="Corner 4", default=0, min=0) # type: ignore
+    init_done: bpy.props.BoolProperty(name="", default=False, options={'HIDDEN'}) # type: ignore
+    base_rotation: bpy.props.FloatProperty(name="", default=0.0, options={'HIDDEN'}) # type: ignore
+    ref_center: bpy.props.FloatVectorProperty(name="", size=3, default=(0.0, 0.0, 0.0), options={'HIDDEN'}) # type: ignore
+    ref_normal: bpy.props.FloatVectorProperty(name="", size=3, default=(0.0, 0.0, 1.0), options={'HIDDEN'}) # type: ignore
+    ref_tangent: bpy.props.FloatVectorProperty(name="", size=3, default=(1.0, 0.0, 0.0), options={'HIDDEN'}) # type: ignore
+
+    def _init_square_reference(self, bm, context, boundary_verts):
+        center, normal, tangent, bitangent, ordered, corners = _build_square_frame(
+            bm, context, boundary_verts
+        )
+        self.corner_0, self.corner_1, self.corner_2, self.corner_3 = corners
+        self.size = _boundary_loop_length(ordered) * 0.25
+        self.rotation = 0.0
+        c0_vert = ordered[self.corner_0]
+        u0, w0, _ = _project_vert_2d(c0_vert, center, normal, tangent, bitangent)
+        self.base_rotation = math.atan2(w0, u0) + math.pi * 0.75
+        self.ref_center = center
+        self.ref_normal = normal
+        self.ref_tangent = tangent
+        self.init_done = True
+        return ordered, normal, tangent, bitangent, corners
 
     @classmethod
     def poll(cls, context):
@@ -326,19 +391,12 @@ class ALEC_OT_make_square(ProportionalFalloffMixin, bpy.types.Operator):
                     ("corner_2", "Corner 3"),
                     ("corner_3", "Corner 4"),
                 )
-                for slot, (attr, label) in enumerate(corner_labels):
+                for attr, label in corner_labels:
                     idx = getattr(self, attr)
                     vert_idx = ordered[idx].index if 0 <= idx < len(ordered) else idx
                     row = layout.row(align=True)
                     row.label(text=f"{label} (V{vert_idx})")
-                    sub = row.row(align=True)
-                    op = sub.operator("alec.make_square_corner_step", text="", icon='TRIA_LEFT')
-                    op.slot = slot
-                    op.delta = -1
-                    sub.prop(self, attr, text="")
-                    op = sub.operator("alec.make_square_corner_step", text="", icon='TRIA_RIGHT')
-                    op.slot = slot
-                    op.delta = 1
+                    row.prop(self, attr, text="")
 
         self.draw_falloff(layout)
 
@@ -346,27 +404,13 @@ class ALEC_OT_make_square(ProportionalFalloffMixin, bpy.types.Operator):
         self.reset_proportional_falloff()
         self.flatten_interior = 0.0
         self.relax_interior = 0.0
+        self.init_done = False
         obj = context.active_object
         if obj and obj.mode == 'EDIT':
             bm = bmesh.from_edit_mesh(obj.data)
             boundary_verts, _, _ = get_boundary_and_interior_verts(bm, context)
-            n = len(boundary_verts)
-            if n >= 4:
-                center = sum((v.co for v in boundary_verts), Vector()) / n
-                normal = _get_plane_normal(bm, context, boundary_verts)
-                tangent = normal.orthogonal().normalized()
-                bitangent = normal.cross(tangent).normalized()
-                ordered = _order_boundary_verts(bm, boundary_verts, center, tangent, bitangent)
-                self.corner_0, self.corner_1, self.corner_2, self.corner_3 = _init_square_corners(n)
-                max_extent = 0.0
-                for v in ordered:
-                    u, w, _ = _project_vert_2d(v, center, normal, tangent, bitangent)
-                    max_extent = max(max_extent, abs(u), abs(w))
-                self.size = max_extent * 2.0
-                c0_vert = ordered[self.corner_0]
-                u0, w0, _ = _project_vert_2d(c0_vert, center, normal, tangent, bitangent)
-                corner_angle = math.atan2(w0, u0)
-                self.rotation = corner_angle + math.pi * 0.75
+            if len(boundary_verts) >= 4:
+                self._init_square_reference(bm, context, boundary_verts)
         return self.execute(context)
 
     def execute(self, context):
@@ -380,19 +424,29 @@ class ALEC_OT_make_square(ProportionalFalloffMixin, bpy.types.Operator):
             self.report({'WARNING'}, "Select at least 4 vertices")
             return {'CANCELLED'}
 
-        center = sum((v.co for v in boundary_verts), Vector()) / len(boundary_verts)
-        normal = _get_plane_normal(bm, context, boundary_verts)
-        tangent = normal.orthogonal().normalized()
-        bitangent = normal.cross(tangent).normalized()
+        if self.init_done:
+            center = Vector(self.ref_center)
+            normal = Vector(self.ref_normal).normalized()
+            tangent = Vector(self.ref_tangent).normalized()
+            bitangent = normal.cross(tangent).normalized()
+            ordered = _order_boundary_verts(bm, boundary_verts, center, tangent, bitangent)
+        else:
+            ordered, normal, tangent, bitangent, _ = self._init_square_reference(
+                bm, context, boundary_verts
+            )
+            center = Vector(self.ref_center)
 
-        ordered = _order_boundary_verts(bm, boundary_verts, center, tangent, bitangent)
         n = len(ordered)
-        corners = _clamp_corners_to_valid(
-            (self.corner_0, self.corner_1, self.corner_2, self.corner_3), n
+        corners = (
+            self.corner_0, self.corner_1, self.corner_2, self.corner_3,
         )
+        if corners == (0, 0, 0, 0):
+            corners = _find_boundary_corners(ordered, center, normal, tangent, bitangent)
+        corners = _clamp_corners_to_valid(corners, n)
         self.corner_0, self.corner_1, self.corner_2, self.corner_3 = corners
 
         half_size = self.size * 0.5
+        effective_rotation = self.base_rotation + self.rotation
         corner_arcs = [0.0, self.size, 2.0 * self.size, 3.0 * self.size]
 
         for seg in range(4):
@@ -414,6 +468,13 @@ class ALEC_OT_make_square(ProportionalFalloffMixin, bpy.types.Operator):
             total_source_len = source_dists[-1]
 
             for local_i, order_idx in enumerate(seg_indices):
+                # Corner already placed as the last vertex of the previous segment.
+                if seg > 0 and local_i == 0:
+                    continue
+                # corner_0 wrap-around - already placed as the first vertex of seg 0.
+                if seg == 3 and local_i == len(seg_indices) - 1:
+                    continue
+
                 v = ordered[order_idx]
                 _, _, dist_normal = _project_vert_2d(v, center, normal, tangent, bitangent)
 
@@ -433,7 +494,7 @@ class ALEC_OT_make_square(ProportionalFalloffMixin, bpy.types.Operator):
 
                 target = _square_target_3d(
                     center, tangent, bitangent, normal,
-                    half_size, self.rotation, arc_s, dist_normal, self.flatten,
+                    half_size, effective_rotation, arc_s, dist_normal, self.flatten,
                 )
                 v.co = v.co.lerp(target, self.influence)
 
@@ -458,37 +519,7 @@ class ALEC_OT_make_square(ProportionalFalloffMixin, bpy.types.Operator):
         return {'FINISHED'}
 
 
-class ALEC_OT_make_square_corner_step(bpy.types.Operator):
-    """Step a square corner to the previous or next boundary vertex"""
-    bl_idname = "alec.make_square_corner_step"
-    bl_label = "Adjust Square Corner"
-    bl_options = {'REGISTER', 'UNDO', 'INTERNAL'}
-
-    slot: bpy.props.IntProperty(name="Corner Slot", default=0, min=0, max=3) # type: ignore
-    delta: bpy.props.IntProperty(name="Delta", default=1) # type: ignore
-
-    @classmethod
-    def poll(cls, context):
-        op = context.active_operator
-        return op is not None and op.bl_idname == "alec.make_square"
-
-    def execute(self, context):
-        op = context.active_operator
-        obj = context.active_object
-        bm = bmesh.from_edit_mesh(obj.data)
-        boundary_verts, _, _ = get_boundary_and_interior_verts(bm, context)
-        n = len(boundary_verts)
-        if n < 4:
-            return {'CANCELLED'}
-
-        corners = (op.corner_0, op.corner_1, op.corner_2, op.corner_3)
-        new_corners = _step_corner(corners, self.slot, self.delta, n)
-        op.corner_0, op.corner_1, op.corner_2, op.corner_3 = new_corners
-        return op.execute(context)
-
-
 classes = (
     ALEC_OT_make_circle,
     ALEC_OT_make_square,
-    ALEC_OT_make_square_corner_step,
 )
