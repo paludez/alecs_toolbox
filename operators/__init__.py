@@ -9,8 +9,8 @@ from . import camera_tools
 from . import draw_mesh_edges
 from . import edit_curve
 from . import edit_mesh
-from . import geom_arcs
-from . import geom_circles
+from . import edit_mesh_shapes
+from . import edit_mesh_circle_arc
 from . import fillet_chamfer
 from . import light_tools
 from . import materials
@@ -33,8 +33,8 @@ classes = (
     *draw_mesh_edges.classes,
     *edit_curve.classes,
     *edit_mesh.classes,
-    *geom_arcs.classes,
-    *geom_circles.classes,
+    *edit_mesh_shapes.classes,
+    *edit_mesh_circle_arc.classes,
     *fillet_chamfer.classes,
     *light_tools.classes,
     *materials.classes,
@@ -77,13 +77,13 @@ def unregister():
     camera_tools.unregister_camera_sphere_object_props()
     light_tools.unregister_light_rig_object_props()
     angle_rays.post_unregister()
-    edit_mesh.clear_three_point_circle_session()
-    edit_mesh.clear_two_point_circle_session()
-    geom_arcs.clear_three_point_arc_session()
-    geom_arcs.clear_two_point_arc_session()
-    geom_circles.clear_center_circle_session()
-    geom_circles.clear_tan_tan_radius_circle_session()
-    geom_circles.clear_three_tan_circle_session()
+    edit_mesh_circle_arc.clear_three_point_circle_session()
+    edit_mesh_circle_arc.clear_two_point_circle_session()
+    edit_mesh_circle_arc.clear_three_point_arc_session()
+    edit_mesh_circle_arc.clear_two_point_arc_session()
+    edit_mesh_circle_arc.clear_center_circle_session()
+    edit_mesh_circle_arc.clear_tan_tan_radius_circle_session()
+    edit_mesh_circle_arc.clear_three_tan_circle_session()
 
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
