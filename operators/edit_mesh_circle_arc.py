@@ -20,6 +20,7 @@ from .circle_arc_common import (
     EDGE_PICK_RADIUS_PX,
     PICK_RADIUS_PX,
     SNAP_RING_RADIUS_PX,
+    VertexPickMixin,
     append_closed_ring,
     circumcenter_world_from_session,
     clear_curve_preview_overlay,
@@ -255,11 +256,14 @@ def _arc_preview_from_geom(geom, p1_w, p2_w, sweep, segments, context):
         draw_state._draw_data.pop('cursor_plane', None)
 
 
-class ALEC_OT_three_point_arc(bpy.types.Operator):
+class ALEC_OT_three_point_arc(VertexPickMixin, bpy.types.Operator):
     """Pick three vertices; arc through them in pick order (live tweak in redo panel)"""
     bl_idname = "alec.three_point_arc"
     bl_label = "3pt Arc"
     bl_options = {'REGISTER', 'UNDO'}
+
+    _pick_tool_name = '3pt Arc'
+    _pick_count = 3
 
     segments: bpy.props.IntProperty(
         name="Edges",
@@ -286,109 +290,35 @@ class ALEC_OT_three_point_arc(bpy.types.Operator):
         layout.prop(self, "segments")
         layout.prop(self, "anchor_point", slider=True)
 
-    def invoke(self, context, event):
-        global _three_pt_arc_pick_session, _three_pt_arc_session
-        _three_pt_arc_session = None
-        obj = context.active_object
-        if obj is None or obj.type != 'MESH':
-            return {'CANCELLED'}
-        try:
-            bm = bmesh.from_edit_mesh(obj.data)
-        except Exception:
-            self.report({'ERROR'}, "Could not access edit mesh")
-            return {'CANCELLED'}
-        bm.verts.ensure_lookup_table()
-        bm.edges.ensure_lookup_table()
-        bm.faces.ensure_lookup_table()
-        for e in bm.edges:
-            e.select = False
-        for v in bm.verts:
-            v.select = False
-        for f in bm.faces:
-            f.select = False
-        bmesh.update_edit_mesh(obj.data)
+    def _get_pick_session(self):
+        return _three_pt_arc_pick_session
 
-        _three_pt_arc_pick_session = {
-            'object_name': obj.name,
-            'mesh_name': obj.data.name,
-            'picked_indices': [],
-        }
-        self._obj = obj
-        self._last_mouse = (event.mouse_region_x, event.mouse_region_y)
-        refresh_vertex_pick_visual(context, obj, [], self._last_mouse)
-        status_bar.set_message(context, vertex_pick_status('3pt Arc', 0, 3))
-        context.window_manager.modal_handler_add(self)
-        tag_view3d_redraw(context)
+    def _set_pick_session(self, session):
+        global _three_pt_arc_pick_session
+        _three_pt_arc_pick_session = session
+
+    def invoke(self, context, event):
+        global _three_pt_arc_session
+        _three_pt_arc_session = None
+        if not self._prepare_vertex_pick_invoke(context, event):
+            return {'CANCELLED'}
         return {'RUNNING_MODAL'}
 
     def modal(self, context, event):
-        global _three_pt_arc_pick_session
-        if event.type == 'MIDDLEMOUSE':
+        if self._pass_wheel(event):
             return {'PASS_THROUGH'}
-        if event.type in {'WHEELUPMOUSE', 'WHEELDOWNMOUSE'}:
-            return {'PASS_THROUGH'}
-        if _three_pt_arc_pick_session is None:
-            return {'CANCELLED'}
-        if event.type == 'ESC' and event.value == 'PRESS':
-            _three_pt_arc_pick_session = None
-            clear_vertex_pick_overlay()
-            status_bar.clear_message(context)
-            tag_view3d_redraw(context)
-            return {'CANCELLED'}
-        if event.type == 'MOUSEMOVE':
-            self._last_mouse = (event.mouse_region_x, event.mouse_region_y)
-            refresh_vertex_pick_visual(
-                context, self._obj, _three_pt_arc_pick_session['picked_indices'], self._last_mouse,
-            )
-            return {'RUNNING_MODAL'}
-        if event.type == 'RIGHTMOUSE' and event.value == 'PRESS':
-            picked = _three_pt_arc_pick_session['picked_indices']
-            if picked:
-                picked.pop()
-                status_bar.set_message(context, vertex_pick_status('3pt Arc', len(picked), 3))
-                refresh_vertex_pick_visual(context, self._obj, picked, self._last_mouse)
-                return {'RUNNING_MODAL'}
-            _three_pt_arc_pick_session = None
-            clear_vertex_pick_overlay()
-            status_bar.clear_message(context)
-            tag_view3d_redraw(context)
-            return {'CANCELLED'}
-        if event.type == 'LEFTMOUSE' and event.value == 'PRESS':
-            if self._on_lmb_pick(context):
-                return self._finish_pick_and_apply(context)
-            return {'RUNNING_MODAL'}
+        result = self._modal_pick_vertex(context, event)
+        if result == 'COMPLETE':
+            return self._finish_pick_and_apply(context)
+        if result == 'CANCELLED':
+            return self._pick_cancel_result(context)
         return {'RUNNING_MODAL'}
-
-    def _on_lmb_pick(self, context) -> bool:
-        global _three_pt_arc_pick_session
-        if _three_pt_arc_pick_session is None or context.region is None or context.region_data is None:
-            return False
-        if self._last_mouse is None:
-            return False
-        try:
-            bm = bmesh.from_edit_mesh(self._obj.data)
-        except Exception:
-            return False
-        bm.verts.ensure_lookup_table()
-        mw = self._obj.matrix_world
-        picked = _three_pt_arc_pick_session['picked_indices']
-        if len(picked) >= 3:
-            return True
-        vert, _d2 = emh.hovered_vert(
-            bm, mw, context.region, context.region_data, self._last_mouse,
-            threshold_px=PICK_RADIUS_PX, exclude_indices=picked,
-        )
-        if vert is None:
-            return False
-        picked.append(vert.index)
-        status_bar.set_message(context, vertex_pick_status('3pt Arc', len(picked), 3))
-        refresh_vertex_pick_visual(context, self._obj, picked, self._last_mouse)
-        return len(picked) >= 3
 
     def _finish_pick_and_apply(self, context):
         global _three_pt_arc_pick_session, _three_pt_arc_session
-        picked = list(_three_pt_arc_pick_session['picked_indices']) if _three_pt_arc_pick_session else []
-        _three_pt_arc_pick_session = None
+        session = self._get_pick_session()
+        picked = list(session['picked_indices']) if session else []
+        self._clear_pick_session()
         clear_vertex_pick_overlay()
         status_bar.clear_message(context)
         if len(picked) != 3:
@@ -435,11 +365,14 @@ class ALEC_OT_three_point_arc(bpy.types.Operator):
         return {'FINISHED'}
 
 
-class ALEC_OT_two_point_arc(bpy.types.Operator):
+class ALEC_OT_two_point_arc(VertexPickMixin, bpy.types.Operator):
     """Pick two vertices, move mouse as third arc point on the cursor plane"""
     bl_idname = "alec.two_point_arc"
     bl_label = "2pt Arc"
     bl_options = {'REGISTER', 'UNDO'}
+
+    _pick_tool_name = '2pt Arc'
+    _pick_count = 2
 
     _bulge_modal_instance = None
 
@@ -506,113 +439,48 @@ class ALEC_OT_two_point_arc(bpy.types.Operator):
         except Exception:
             pass
 
-    def invoke(self, context, event):
-        global _two_pt_arc_pick_session
-        _reset_two_pt_arc_live_state(context)
-        obj = context.active_object
-        if obj is None or obj.type != 'MESH':
-            return {'CANCELLED'}
-        try:
-            bm = bmesh.from_edit_mesh(obj.data)
-        except Exception:
-            self.report({'ERROR'}, "Could not access edit mesh")
-            return {'CANCELLED'}
-        bm.verts.ensure_lookup_table()
-        bm.edges.ensure_lookup_table()
-        bm.faces.ensure_lookup_table()
-        for e in bm.edges:
-            e.select = False
-        for v in bm.verts:
-            v.select = False
-        for f in bm.faces:
-            f.select = False
-        bmesh.update_edit_mesh(obj.data)
+    def _get_pick_session(self):
+        return _two_pt_arc_pick_session
 
-        _two_pt_arc_pick_session = {
-            'object_name': obj.name,
-            'mesh_name': obj.data.name,
-            'picked_indices': [],
-        }
-        self._obj = obj
+    def _set_pick_session(self, session):
+        global _two_pt_arc_pick_session
+        _two_pt_arc_pick_session = session
+
+    def _pick_cancel_result(self, context):
+        return self.cancel(context)
+
+    def invoke(self, context, event):
+        _reset_two_pt_arc_live_state(context)
         self._phase = 'pick'
-        self._last_mouse = (event.mouse_region_x, event.mouse_region_y)
         self._bulge_w = None
         self._bulge_hint_w = None
         self._plane_n = Vector((0.0, 0.0, 1.0))
         self._radius = 1.0
         self._center_w = Vector((0.0, 0.0, 0.0))
         self._snap_verts = True
-        refresh_vertex_pick_visual(context, obj, [], self._last_mouse)
-        status_bar.set_message(context, vertex_pick_status('2pt Arc', 0, 2))
-        context.window_manager.modal_handler_add(self)
-        tag_view3d_redraw(context)
+        if not self._prepare_vertex_pick_invoke(context, event):
+            return {'CANCELLED'}
         return {'RUNNING_MODAL'}
 
     def modal(self, context, event):
-        if event.type == 'MIDDLEMOUSE':
-            return {'PASS_THROUGH'}
-        if event.type in {'WHEELUPMOUSE', 'WHEELDOWNMOUSE'}:
+        if self._pass_wheel(event):
             return {'PASS_THROUGH'}
         if self._phase == 'pick':
-            return self._modal_pick(context, event)
+            if self._get_pick_session() is None:
+                return self.cancel(context)
+            result = self._modal_pick_vertex(context, event)
+            if result == 'COMPLETE':
+                self._enter_bulge_phase(context)
+                return {'RUNNING_MODAL'}
+            if result == 'CANCELLED':
+                return self._pick_cancel_result(context)
+            return {'RUNNING_MODAL'}
         return self._modal_bulge(context, event)
 
-    def _modal_pick(self, context, event):
-        global _two_pt_arc_pick_session
-        if _two_pt_arc_pick_session is None:
-            return self.cancel(context)
-        if event.type == 'ESC' and event.value == 'PRESS':
-            return self.cancel(context)
-        if event.type == 'MOUSEMOVE':
-            self._last_mouse = (event.mouse_region_x, event.mouse_region_y)
-            refresh_vertex_pick_visual(
-                context, self._obj, _two_pt_arc_pick_session['picked_indices'], self._last_mouse,
-            )
-            return {'RUNNING_MODAL'}
-        if event.type == 'RIGHTMOUSE' and event.value == 'PRESS':
-            picked = _two_pt_arc_pick_session['picked_indices']
-            if picked:
-                picked.pop()
-                status_bar.set_message(context, vertex_pick_status('2pt Arc', len(picked), 2))
-                refresh_vertex_pick_visual(context, self._obj, picked, self._last_mouse)
-                return {'RUNNING_MODAL'}
-            return self.cancel(context)
-        if event.type == 'LEFTMOUSE' and event.value == 'PRESS':
-            if self._on_pick_lmb(context):
-                self._enter_bulge_phase(context)
-            return {'RUNNING_MODAL'}
-        return {'RUNNING_MODAL'}
-
-    def _on_pick_lmb(self, context) -> bool:
-        global _two_pt_arc_pick_session
-        if _two_pt_arc_pick_session is None or context.region is None or context.region_data is None:
-            return False
-        if self._last_mouse is None:
-            return False
-        try:
-            bm = bmesh.from_edit_mesh(self._obj.data)
-        except Exception:
-            return False
-        bm.verts.ensure_lookup_table()
-        mw = self._obj.matrix_world
-        picked = _two_pt_arc_pick_session['picked_indices']
-        if len(picked) >= 2:
-            return True
-        vert, _d2 = emh.hovered_vert(
-            bm, mw, context.region, context.region_data, self._last_mouse,
-            threshold_px=PICK_RADIUS_PX, exclude_indices=picked,
-        )
-        if vert is None:
-            return False
-        picked.append(vert.index)
-        status_bar.set_message(context, vertex_pick_status('2pt Arc', len(picked), 2))
-        refresh_vertex_pick_visual(context, self._obj, picked, self._last_mouse)
-        return len(picked) >= 2
-
     def _enter_bulge_phase(self, context):
-        global _two_pt_arc_pick_session
-        picked = list(_two_pt_arc_pick_session['picked_indices']) if _two_pt_arc_pick_session else []
-        _two_pt_arc_pick_session = None
+        session = self._get_pick_session()
+        picked = list(session['picked_indices']) if session else []
+        self._clear_pick_session()
         draw_state._draw_data.pop('draw_snap_ring', None)
         draw_state._draw_data.pop('draw_snap_source_screen', None)
         if len(picked) != 2:
@@ -949,11 +817,14 @@ def _two_pt_radius_status_message() -> str:
     )
 
 
-class ALEC_OT_two_point_circle(bpy.types.Operator):
+class ALEC_OT_two_point_circle(VertexPickMixin, bpy.types.Operator):
     """Pick two vertices, set radius, then build the circle (live tweak in redo panel)"""
     bl_idname = "alec.two_point_circle"
     bl_label = "2pt Circle"
     bl_options = {'REGISTER', 'UNDO'}
+
+    _pick_tool_name = '2pt Circle'
+    _pick_count = 2
 
     radius: bpy.props.FloatProperty(
         name="Radius",
@@ -989,149 +860,48 @@ class ALEC_OT_two_point_circle(bpy.types.Operator):
         layout.prop(self, "segments")
         layout.prop(self, "anchor_point", slider=True)
 
+    def _pick_cancel_cleanup(self, context):
+        clear_curve_preview_overlay()
+        draw_state._draw_data.pop('three_pt_picked_world', None)
+        status_bar.clear_message(context)
+        tag_view3d_redraw(context)
+
+    def _get_pick_session(self):
+        return _two_pt_pick_session
+
+    def _set_pick_session(self, session):
+        global _two_pt_pick_session
+        _two_pt_pick_session = session
+
     def invoke(self, context, event):
-        global _two_pt_pick_session, _two_pt_circle_session
+        global _two_pt_circle_session
         _two_pt_circle_session = None
-
-        obj = context.active_object
-        if obj is None or obj.type != 'MESH':
-            return {'CANCELLED'}
-
-        try:
-            bm = bmesh.from_edit_mesh(obj.data)
-        except Exception:
-            self.report({'ERROR'}, "Could not access edit mesh")
-            return {'CANCELLED'}
-        bm.verts.ensure_lookup_table()
-        bm.edges.ensure_lookup_table()
-        bm.faces.ensure_lookup_table()
-
-        for e in bm.edges:
-            e.select = False
-        for v in bm.verts:
-            v.select = False
-        for f in bm.faces:
-            f.select = False
-        bmesh.update_edit_mesh(obj.data)
-
-        _two_pt_pick_session = {
-            'object_name': obj.name,
-            'mesh_name': obj.data.name,
-            'picked_indices': [],
-        }
-
-        self._obj = obj
         self._phase = 'pick'
-        self._last_mouse = (event.mouse_region_x, event.mouse_region_y)
         self._plane_n = Vector((0.0, 0.0, 1.0))
         self._bisect_sign = 1.0
-
-        refresh_vertex_pick_visual(context, obj, [], self._last_mouse)
-        status_bar.set_message(context, vertex_pick_status('2pt Circle', 0, 2))
-        context.window_manager.modal_handler_add(self)
-        tag_view3d_redraw(context)
+        if not self._prepare_vertex_pick_invoke(context, event):
+            return {'CANCELLED'}
         return {'RUNNING_MODAL'}
 
     def modal(self, context, event):
-        if event.type == 'MIDDLEMOUSE':
+        if self._pass_wheel(event):
             return {'PASS_THROUGH'}
-        if event.type in {'WHEELUPMOUSE', 'WHEELDOWNMOUSE'}:
-            return {'PASS_THROUGH'}
-
         if self._phase == 'pick':
-            return self._modal_pick(context, event)
+            if self._get_pick_session() is None:
+                return {'CANCELLED'}
+            result = self._modal_pick_vertex(context, event)
+            if result == 'COMPLETE':
+                self._enter_radius_phase(context)
+                return {'RUNNING_MODAL'}
+            if result == 'CANCELLED':
+                return self._pick_cancel_result(context)
+            return {'RUNNING_MODAL'}
         return self._modal_radius(context, event)
 
-    def _modal_pick(self, context, event):
-        global _two_pt_pick_session
-
-        if _two_pt_pick_session is None:
-            return {'CANCELLED'}
-
-        if event.type == 'ESC' and event.value == 'PRESS':
-            _two_pt_pick_session = None
-            clear_curve_preview_overlay()
-            draw_state._draw_data.pop('three_pt_picked_world', None)
-            status_bar.clear_message(context)
-            tag_view3d_redraw(context)
-            return {'CANCELLED'}
-
-        if event.type == 'MOUSEMOVE':
-            self._last_mouse = (event.mouse_region_x, event.mouse_region_y)
-            refresh_vertex_pick_visual(
-                context,
-                self._obj,
-                _two_pt_pick_session['picked_indices'],
-                self._last_mouse,
-            )
-            return {'RUNNING_MODAL'}
-
-        if event.type == 'RIGHTMOUSE' and event.value == 'PRESS':
-            picked = _two_pt_pick_session['picked_indices']
-            if picked:
-                picked.pop()
-                status_bar.set_message(
-                    context, vertex_pick_status('2pt Circle', len(picked), 2),
-                )
-                refresh_vertex_pick_visual(
-                    context, self._obj, picked, self._last_mouse,
-                )
-                return {'RUNNING_MODAL'}
-            _two_pt_pick_session = None
-            clear_curve_preview_overlay()
-            draw_state._draw_data.pop('three_pt_picked_world', None)
-            status_bar.clear_message(context)
-            tag_view3d_redraw(context)
-            return {'CANCELLED'}
-
-        if event.type == 'LEFTMOUSE' and event.value == 'PRESS':
-            if self._on_pick_lmb(context):
-                self._enter_radius_phase(context)
-            return {'RUNNING_MODAL'}
-
-        return {'RUNNING_MODAL'}
-
-    def _on_pick_lmb(self, context) -> bool:
-        global _two_pt_pick_session
-        if _two_pt_pick_session is None or context.region is None or context.region_data is None:
-            return False
-        if self._last_mouse is None:
-            return False
-
-        try:
-            bm = bmesh.from_edit_mesh(self._obj.data)
-        except Exception:
-            return False
-        bm.verts.ensure_lookup_table()
-        mw = self._obj.matrix_world
-        picked = _two_pt_pick_session['picked_indices']
-        if len(picked) >= 2:
-            return True
-
-        vert, _d2 = emh.hovered_vert(
-            bm,
-            mw,
-            context.region,
-            context.region_data,
-            self._last_mouse,
-            threshold_px=PICK_RADIUS_PX,
-            exclude_indices=picked,
-        )
-        if vert is None:
-            return False
-
-        picked.append(vert.index)
-        status_bar.set_message(
-            context, vertex_pick_status('2pt Circle', len(picked), 2),
-        )
-        refresh_vertex_pick_visual(context, self._obj, picked, self._last_mouse)
-        return len(picked) >= 2
-
     def _enter_radius_phase(self, context):
-        global _two_pt_pick_session
-
-        picked = list(_two_pt_pick_session['picked_indices']) if _two_pt_pick_session else []
-        _two_pt_pick_session = None
+        session = self._get_pick_session()
+        picked = list(session['picked_indices']) if session else []
+        self._clear_pick_session()
         draw_state._draw_data.pop('draw_snap_ring', None)
         draw_state._draw_data.pop('draw_snap_source_screen', None)
 
@@ -1192,7 +962,9 @@ class ALEC_OT_two_point_circle(bpy.types.Operator):
         mw = self._obj.matrix_world
         p1_w, p2_w, plane_n = two_pt_points_on_cursor_plane(context, mw, v0, v1)
         self._plane_n = plane_n
-        result = emh.radius_from_plane_hit(p1_w, p2_w, hit, plane_n)
+        result = emh.radius_from_plane_hit(
+            p1_w, p2_w, hit, plane_n, center_away_from_hit=False,
+        )
         if result[0] is None:
             return
         self._radius, self._bisect_sign = result
@@ -1396,11 +1168,14 @@ class ALEC_OT_two_point_circle(bpy.types.Operator):
         return {'FINISHED'}
 
 
-class ALEC_OT_three_point_circle(bpy.types.Operator):
+class ALEC_OT_three_point_circle(VertexPickMixin, bpy.types.Operator):
     """Pick three vertices, then build the circumcircle (live tweak in redo panel)"""
     bl_idname = "alec.three_point_circle"
     bl_label = "3pt to Circle"
     bl_options = {'REGISTER', 'UNDO'}
+
+    _pick_tool_name = '3pt Circle'
+    _pick_count = 3
 
     radius: bpy.props.FloatProperty(
         name="Raza",
@@ -1457,152 +1232,39 @@ class ALEC_OT_three_point_circle(bpy.types.Operator):
             return None
         return float(circle[1])
 
+    def _get_pick_session(self):
+        return _three_pt_pick_session
+
+    def _set_pick_session(self, session):
+        global _three_pt_pick_session
+        _three_pt_pick_session = session
+
     def invoke(self, context, event):
-        global _three_pt_pick_session, _three_pt_circle_session
+        global _three_pt_circle_session
         _three_pt_circle_session = None
-
-        obj = context.active_object
-        if obj is None or obj.type != 'MESH':
+        if not self._prepare_vertex_pick_invoke(context, event):
             return {'CANCELLED'}
-
-        try:
-            bm = bmesh.from_edit_mesh(obj.data)
-        except Exception:
-            self.report({'ERROR'}, "Could not access edit mesh")
-            return {'CANCELLED'}
-        bm.verts.ensure_lookup_table()
-        bm.edges.ensure_lookup_table()
-        bm.faces.ensure_lookup_table()
-
-        for e in bm.edges:
-            e.select = False
-        for v in bm.verts:
-            v.select = False
-        for f in bm.faces:
-            f.select = False
-        bmesh.update_edit_mesh(obj.data)
-
-        _three_pt_pick_session = {
-            'object_name': obj.name,
-            'mesh_name': obj.data.name,
-            'picked_indices': [],
-        }
-
-        self._obj = obj
-        self._last_mouse = (event.mouse_region_x, event.mouse_region_y)
-
-        refresh_vertex_pick_visual(context, obj, [], self._last_mouse)
-        status_bar.set_message(
-            context, vertex_pick_status('3pt Circle', 0, 3),
-        )
-        context.window_manager.modal_handler_add(self)
-        tag_view3d_redraw(context)
         return {'RUNNING_MODAL'}
 
     def modal(self, context, event):
-        global _three_pt_pick_session
-
-        if event.type == 'MIDDLEMOUSE':
+        if self._pass_wheel(event):
             return {'PASS_THROUGH'}
-
-        if event.type in {'WHEELUPMOUSE', 'WHEELDOWNMOUSE'}:
-            return {'PASS_THROUGH'}
-
-        if _three_pt_pick_session is None:
-            return {'CANCELLED'}
-
-        if event.type == 'ESC' and event.value == 'PRESS':
-            _three_pt_pick_session = None
-            clear_vertex_pick_overlay()
-            status_bar.clear_message(context)
-            tag_view3d_redraw(context)
-            return {'CANCELLED'}
-
-        if event.type == 'MOUSEMOVE':
-            self._last_mouse = (event.mouse_region_x, event.mouse_region_y)
-            refresh_vertex_pick_visual(
-                context,
-                self._obj,
-                _three_pt_pick_session['picked_indices'],
-                self._last_mouse,
-            )
-            return {'RUNNING_MODAL'}
-
-        if event.type == 'RIGHTMOUSE' and event.value == 'PRESS':
-            picked = _three_pt_pick_session['picked_indices']
-            if picked:
-                picked.pop()
-                status_bar.set_message(
-                    context, vertex_pick_status('3pt Circle', len(picked), 3),
-                )
-                refresh_vertex_pick_visual(
-                    context, self._obj, picked, self._last_mouse,
-                )
-                return {'RUNNING_MODAL'}
-            _three_pt_pick_session = None
-            clear_vertex_pick_overlay()
-            status_bar.clear_message(context)
-            tag_view3d_redraw(context)
-            return {'CANCELLED'}
-
-        if event.type == 'LEFTMOUSE' and event.value == 'PRESS':
-            if self._on_lmb_pick(context):
-                return self._finish_pick_and_apply(context)
-            return {'RUNNING_MODAL'}
-
+        result = self._modal_pick_vertex(context, event)
+        if result == 'COMPLETE':
+            return self._finish_pick_and_apply(context)
+        if result == 'CANCELLED':
+            return self._pick_cancel_result(context)
         return {'RUNNING_MODAL'}
 
-    def _on_lmb_pick(self, context) -> bool:
-        """Add hovered vertex to pick list. True when three points are chosen."""
-        global _three_pt_pick_session
-        if _three_pt_pick_session is None:
-            return False
-        if context.region is None or context.region_data is None:
-            return False
-        if self._last_mouse is None:
-            return False
-
-        try:
-            bm = bmesh.from_edit_mesh(self._obj.data)
-        except Exception:
-            return False
-        bm.verts.ensure_lookup_table()
-        mw = self._obj.matrix_world
-
-        picked = _three_pt_pick_session['picked_indices']
-        if len(picked) >= 3:
-            return True
-
-        vert, _d2 = emh.hovered_vert(
-            bm,
-            mw,
-            context.region,
-            context.region_data,
-            self._last_mouse,
-            threshold_px=PICK_RADIUS_PX,
-            exclude_indices=picked,
-        )
-        if vert is None:
-            return False
-
-        picked.append(vert.index)
-        status_bar.set_message(
-            context, vertex_pick_status('3pt Circle', len(picked), 3),
-        )
-        refresh_vertex_pick_visual(context, self._obj, picked, self._last_mouse)
-        return len(picked) >= 3
-
     def _finish_pick_and_apply(self, context):
-        global _three_pt_pick_session, _three_pt_circle_session
-
-        picked = list(_three_pt_pick_session['picked_indices']) if _three_pt_pick_session else []
-        _three_pt_pick_session = None
+        global _three_pt_circle_session
+        session = self._get_pick_session()
+        picked = list(session['picked_indices']) if session else []
+        self._clear_pick_session()
         clear_vertex_pick_overlay()
         status_bar.clear_message(context)
-
         if len(picked) != 3:
             return {'CANCELLED'}
-
         obj = self._obj
         _three_pt_circle_session = {
             'object_name': obj.name,
@@ -1612,7 +1274,6 @@ class ALEC_OT_three_point_circle(bpy.types.Operator):
             'created_edge_keys': [],
             'applied': False,
         }
-
         result = self.execute(context)
         tag_view3d_redraw(context)
         return result

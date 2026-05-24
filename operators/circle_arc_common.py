@@ -11,6 +11,7 @@ from mathutils import Vector
 from ..modules import cursor_plane as cp
 from ..modules import edit_mesh_draw_state as draw_state
 from ..modules import edit_mesh_helpers as emh
+from ..modules import status_bar
 
 PICK_RADIUS_PX = 12
 SNAP_RING_RADIUS_PX = 12.0
@@ -449,3 +450,123 @@ def pick_hovered_vert_index(context, obj, mouse_xy, exclude_indices=()):
         exclude_indices=exclude_indices,
     )
     return vert.index if vert is not None else None
+
+
+class VertexPickMixin:
+    """Shared modal vertex-pick workflow for circle/arc tools."""
+
+    _pick_tool_name: str = "Pick"
+    _pick_count: int = 3
+
+    def _get_pick_session(self):
+        raise NotImplementedError
+
+    def _set_pick_session(self, session):
+        raise NotImplementedError
+
+    def _clear_pick_session(self):
+        self._set_pick_session(None)
+
+    def _pick_cancel_cleanup(self, context):
+        clear_vertex_pick_overlay()
+        status_bar.clear_message(context)
+        tag_view3d_redraw(context)
+
+    def _pick_cancel_result(self, context):
+        self._pick_cancel_cleanup(context)
+        return {'CANCELLED'}
+
+    @staticmethod
+    def _pass_wheel(event):
+        return event.type in {'MIDDLEMOUSE', 'WHEELUPMOUSE', 'WHEELDOWNMOUSE'}
+
+    def _prepare_vertex_pick_invoke(self, context, event) -> bool:
+        obj = context.active_object
+        if obj is None or obj.type != 'MESH':
+            return False
+        try:
+            bm = bmesh.from_edit_mesh(obj.data)
+        except Exception:
+            self.report({'ERROR'}, "Could not access edit mesh")
+            return False
+        deselect_all_mesh_elements(bm, obj)
+        self._set_pick_session({
+            'object_name': obj.name,
+            'mesh_name': obj.data.name,
+            'picked_indices': [],
+        })
+        self._obj = obj
+        self._last_mouse = (event.mouse_region_x, event.mouse_region_y)
+        refresh_vertex_pick_visual(context, obj, [], self._last_mouse)
+        status_bar.set_message(
+            context,
+            vertex_pick_status(self._pick_tool_name, 0, self._pick_count),
+        )
+        context.window_manager.modal_handler_add(self)
+        tag_view3d_redraw(context)
+        return True
+
+    def _modal_pick_vertex(self, context, event):
+        """Handle pick-phase events. Returns RUNNING_MODAL, CANCELLED, or COMPLETE."""
+        session = self._get_pick_session()
+        if session is None:
+            return 'CANCELLED'
+        if event.type == 'ESC' and event.value == 'PRESS':
+            self._clear_pick_session()
+            return 'CANCELLED'
+        if event.type == 'MOUSEMOVE':
+            self._last_mouse = (event.mouse_region_x, event.mouse_region_y)
+            refresh_vertex_pick_visual(
+                context, self._obj, session['picked_indices'], self._last_mouse,
+            )
+            return 'RUNNING_MODAL'
+        if event.type == 'RIGHTMOUSE' and event.value == 'PRESS':
+            picked = session['picked_indices']
+            if picked:
+                picked.pop()
+                status_bar.set_message(
+                    context,
+                    vertex_pick_status(self._pick_tool_name, len(picked), self._pick_count),
+                )
+                refresh_vertex_pick_visual(context, self._obj, picked, self._last_mouse)
+                return 'RUNNING_MODAL'
+            self._clear_pick_session()
+            return 'CANCELLED'
+        if event.type == 'LEFTMOUSE' and event.value == 'PRESS':
+            if self._try_pick_vertex(context):
+                return 'COMPLETE'
+            return 'RUNNING_MODAL'
+        return 'RUNNING_MODAL'
+
+    def _try_pick_vertex(self, context) -> bool:
+        session = self._get_pick_session()
+        if session is None or context.region is None or context.region_data is None:
+            return False
+        if self._last_mouse is None:
+            return False
+        try:
+            bm = bmesh.from_edit_mesh(self._obj.data)
+        except Exception:
+            return False
+        bm.verts.ensure_lookup_table()
+        picked = session['picked_indices']
+        if len(picked) >= self._pick_count:
+            return True
+        vert, _d2 = emh.hovered_vert(
+            bm,
+            self._obj.matrix_world,
+            context.region,
+            context.region_data,
+            self._last_mouse,
+            threshold_px=PICK_RADIUS_PX,
+            exclude_indices=picked,
+        )
+        if vert is None:
+            return False
+        picked.append(vert.index)
+        status_bar.set_message(
+            context,
+            vertex_pick_status(self._pick_tool_name, len(picked), self._pick_count),
+        )
+        refresh_vertex_pick_visual(context, self._obj, picked, self._last_mouse)
+        return len(picked) >= self._pick_count
