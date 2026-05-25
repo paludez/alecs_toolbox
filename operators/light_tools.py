@@ -16,7 +16,35 @@ _LIGHT_RIG_PROP_NAMES = (
     "alec_lt_distance",
     "alec_lt_angle",
     "alec_lt_elevation",
+    "alec_lt_tgt_distance",
+    "alec_lt_tgt_angle",
+    "alec_lt_tgt_elevation",
 )
+
+
+def _world_sphere_direction(az: float, el: float) -> Vector:
+    c_el = math.cos(el)
+    return Vector((c_el * math.cos(az), c_el * math.sin(az), math.sin(el))).normalized()
+
+
+def _world_sphere_offset(az: float, el: float, dist: float) -> Vector:
+    return _world_sphere_direction(az, el) * max(1e-4, float(dist))
+
+
+def _world_sphere_az_el_dist_from_delta(
+    delta: Vector,
+    *,
+    fallback_az: float = 0.0,
+) -> tuple[float, float, float]:
+    dsq = delta.length_squared
+    if dsq < 1e-20:
+        return fallback_az, 0.0, 1e-3
+    vz = delta.normalized()
+    zn = max(-1.0, min(1.0, vz.z))
+    elev = math.asin(zn)
+    horiz = math.cos(elev)
+    azim = math.atan2(vz.y, vz.x) if abs(horiz) > 1e-6 else fallback_az
+    return azim, elev, math.sqrt(dsq)
 
 _ID_ALEC_LT_MANAGED_TRACK_EMPTY = "alec_lt_track_target"
 
@@ -53,6 +81,15 @@ def _alec_sphere_track_target(light_obj, context) -> bpy.types.Object | None:
     return track_target_object(light_obj, context)
 
 
+alec_sphere_track_target = _alec_sphere_track_target
+
+
+def _light_foot_world_xy(light_obj: bpy.types.Object) -> Vector:
+    """World XY projection of the lamp (Z = 0)."""
+    lw = light_obj.matrix_world.translation
+    return Vector((lw.x, lw.y, 0.0))
+
+
 def light_rig_world_position(light_obj, context):
     """Sphere around track target: azimuth around world Z from +X, elevation from XY toward +Z."""
     tgt = _alec_sphere_track_target(light_obj, context)
@@ -60,15 +97,21 @@ def light_rig_world_position(light_obj, context):
         return None
 
     tw = tgt.matrix_world.translation
-    dist = max(1e-4, float(getattr(light_obj, "alec_lt_distance", 1.0)))
+    dist = float(getattr(light_obj, "alec_lt_distance", 1.0))
     az = float(getattr(light_obj, "alec_lt_angle", 0.0))
     el = float(getattr(light_obj, "alec_lt_elevation", 0.0))
-    c_el = math.cos(el)
-    ox = c_el * math.cos(az)
-    oy = c_el * math.sin(az)
-    oz = math.sin(el)
-    light_dir = Vector((ox, oy, oz)).normalized()
-    return tw + light_dir * dist
+    return tw + _world_sphere_offset(az, el, dist)
+
+
+def light_target_foot_world_position(light_obj: bpy.types.Object) -> Vector | None:
+    """Track target on world sphere around lamp foot (Lx, Ly, 0)."""
+    if light_obj is None or light_obj.type != "LIGHT":
+        return None
+    foot = _light_foot_world_xy(light_obj)
+    dist = float(getattr(light_obj, "alec_lt_tgt_distance", 1.0))
+    az = float(getattr(light_obj, "alec_lt_tgt_angle", 0.0))
+    el = float(getattr(light_obj, "alec_lt_tgt_elevation", 0.0))
+    return foot + _world_sphere_offset(az, el, dist)
 
 
 def _upgrade_light_track_constraint(light_obj) -> bpy.types.Constraint | None:
@@ -142,26 +185,76 @@ def _sync_light_sphere_props_from_world(light_obj: bpy.types.Object, context) ->
     lw = light_obj.matrix_world.translation
     tw = tgt.matrix_world.translation
     delta = lw - tw
-    dsq = delta.length_squared
-    if dsq < 1e-20:
-        return
-
-    vz = delta.normalized()
-    zn = max(-1.0, min(1.0, vz.z))
-    elev = math.asin(zn)
-    horiz = math.cos(elev)
-    azim = (
-        math.atan2(vz.y, vz.x)
-        if abs(horiz) > 1e-6
-        else float(getattr(light_obj, "alec_lt_angle", 0.0))
+    azim, elev, dist = _world_sphere_az_el_dist_from_delta(
+        delta,
+        fallback_az=float(getattr(light_obj, "alec_lt_angle", 0.0)),
     )
-    dist = math.sqrt(dsq)
+    if delta.length_squared < 1e-20:
+        return
 
     _LIGHT_RIG_UPDATING = True
     try:
         light_obj.alec_lt_distance = dist
         light_obj.alec_lt_angle = azim
         light_obj.alec_lt_elevation = elev
+    finally:
+        _LIGHT_RIG_UPDATING = False
+
+
+def _apply_light_target_foot_sphere(light_obj, context) -> None:
+    global _LIGHT_RIG_UPDATING
+    if _LIGHT_RIG_UPDATING:
+        return
+    if light_obj is None or light_obj.type != "LIGHT":
+        return
+    tgt = _alec_sphere_track_target(light_obj, context)
+    if tgt is None:
+        return
+    pos = light_target_foot_world_position(light_obj)
+    if pos is None:
+        return
+    _LIGHT_RIG_UPDATING = True
+    try:
+        if tgt.parent is None:
+            tgt.location = pos
+        else:
+            mw = tgt.matrix_world.copy()
+            mw.translation = pos
+            tgt.matrix_world = mw
+    finally:
+        _LIGHT_RIG_UPDATING = False
+    try:
+        context.view_layer.update()
+    except Exception:
+        pass
+
+
+def _sync_light_target_foot_sphere_from_world(
+    light_obj: bpy.types.Object, context
+) -> None:
+    """Rebuild target Dist / Az / El from track empty vs lamp foot on world XY."""
+    global _LIGHT_RIG_UPDATING
+    if _LIGHT_RIG_UPDATING:
+        return
+    tgt = _alec_sphere_track_target(light_obj, context)
+    if tgt is None:
+        return
+
+    tw = tgt.matrix_world.translation
+    foot = _light_foot_world_xy(light_obj)
+    delta = tw - foot
+    azim, elev, dist = _world_sphere_az_el_dist_from_delta(
+        delta,
+        fallback_az=float(getattr(light_obj, "alec_lt_tgt_angle", 0.0)),
+    )
+    if delta.length_squared < 1e-20:
+        return
+
+    _LIGHT_RIG_UPDATING = True
+    try:
+        light_obj.alec_lt_tgt_distance = dist
+        light_obj.alec_lt_tgt_angle = azim
+        light_obj.alec_lt_tgt_elevation = elev
     finally:
         _LIGHT_RIG_UPDATING = False
 
@@ -176,6 +269,18 @@ def _alec_lt_angle_update(light_obj, context):
 
 def _alec_lt_elevation_update(light_obj, context):
     _apply_light_rig_props(light_obj, context)
+
+
+def _alec_lt_tgt_distance_update(light_obj, context):
+    _apply_light_target_foot_sphere(light_obj, context)
+
+
+def _alec_lt_tgt_angle_update(light_obj, context):
+    _apply_light_target_foot_sphere(light_obj, context)
+
+
+def _alec_lt_tgt_elevation_update(light_obj, context):
+    _apply_light_target_foot_sphere(light_obj, context)
 
 
 def _sync_empty_collections_with_light(scene, empty, light) -> None:
@@ -300,6 +405,7 @@ def _ensure_empty_and_light_damped_track(
     context.view_layer.update()
     if apply_sphere_orbit:
         _apply_light_rig_props(light_obj, context)
+    _sync_light_target_foot_sphere_from_world(light_obj, context)
 
 
 def _object_ok_for_bbox_target(obj: bpy.types.Object | None) -> bool:
@@ -358,6 +464,29 @@ def register_light_rig_object_props() -> None:
         default=0.0,
         subtype="ANGLE",
         update=_alec_lt_elevation_update,
+    )
+    bpy.types.Object.alec_lt_tgt_distance = bpy.props.FloatProperty(
+        name="Target Distance",
+        description="Distance from lamp XY foot on world Z=0 plane to track target",
+        default=3.0,
+        min=0.01,
+        soft_max=500.0,
+        unit="LENGTH",
+        update=_alec_lt_tgt_distance_update,
+    )
+    bpy.types.Object.alec_lt_tgt_angle = bpy.props.FloatProperty(
+        name="Target Azimuth",
+        description="Azimuth around world Z from +X (target sphere around lamp foot)",
+        default=0.0,
+        subtype="ANGLE",
+        update=_alec_lt_tgt_angle_update,
+    )
+    bpy.types.Object.alec_lt_tgt_elevation = bpy.props.FloatProperty(
+        name="Target Elevation",
+        description="Elevation from world XY toward +Z (target sphere around lamp foot)",
+        default=0.0,
+        subtype="ANGLE",
+        update=_alec_lt_tgt_elevation_update,
     )
 
 
@@ -496,6 +625,7 @@ class ALEC_OT_new_light_rig(bpy.types.Operator):
         light.alec_lt_angle = 0.0
         light.alec_lt_elevation = 0.0
         _apply_light_rig_props(light, context)
+        _sync_light_target_foot_sphere_from_world(light, context)
 
         light.select_set(True)
         context.view_layer.objects.active = light
@@ -636,6 +766,37 @@ class ALEC_OT_light_rig_read_sphere(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class ALEC_OT_light_target_read_foot_sphere(bpy.types.Operator):
+    """Set target Dist/Az/El from track empty vs lamp foot on world XY (does not move objects)."""
+
+    bl_idname = "alec.light_target_read_foot_sphere"
+    bl_label = "Sync target foot sphere"
+    bl_description = (
+        "Recompute target Distance, Azimuth, Elevation from the tracked empty "
+        "and the lamp's projection on world Z=0"
+    )
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        if context.mode != "OBJECT":
+            return False
+        obj = context.active_object
+        if obj is None or obj.type != "LIGHT":
+            return False
+        return _alec_sphere_track_target(obj, context) is not None
+
+    def execute(self, context):
+        obj = context.active_object
+        if obj is None or obj.type != "LIGHT":
+            return {"CANCELLED"}
+        if _alec_sphere_track_target(obj, context) is None:
+            self.report({"WARNING"}, "No Alec track constraint / target")
+            return {"CANCELLED"}
+        _sync_light_target_foot_sphere_from_world(obj, context)
+        return {"FINISHED"}
+
+
 def _light_track_constraints_to_clear(light):
     """All damped/track constraints on lamp (same types Alec orbit uses — not keyed by constraint name)."""
     return [c for c in light.constraints if c.type in _LIGHT_TRACK_CON_TYPES_FROZEN]
@@ -756,4 +917,5 @@ classes = (
     ALEC_OT_light_clear_track_target,
     ALEC_OT_light_select_track_target,
     ALEC_OT_light_rig_read_sphere,
+    ALEC_OT_light_target_read_foot_sphere,
 )

@@ -10,6 +10,7 @@ from ..operators.camera_tools import (
     focal_edit_camera,
     scene_persp_camera,
 )
+from ..operators.light_tools import alec_sphere_track_target
 
 _LIGHTS_UI_DUMMY_PROPS = {
     "alec_lights_ui_dummy_energy": bpy.props.FloatProperty(
@@ -45,6 +46,26 @@ _LIGHTS_UI_DUMMY_PROPS = {
     "alec_lights_ui_dummy_lt_elevation": bpy.props.FloatProperty(
         name="Elevation",
         description="Placeholder when no light is active",
+        default=0.0,
+        subtype="ANGLE",
+    ),
+    "alec_lights_ui_dummy_lt_tgt_distance": bpy.props.FloatProperty(
+        name="Target Distance",
+        description="Placeholder when no light track target",
+        default=3.0,
+        min=0.01,
+        soft_max=500.0,
+        unit="LENGTH",
+    ),
+    "alec_lights_ui_dummy_lt_tgt_angle": bpy.props.FloatProperty(
+        name="Target Azimuth",
+        description="Placeholder when no light track target",
+        default=0.0,
+        subtype="ANGLE",
+    ),
+    "alec_lights_ui_dummy_lt_tgt_elevation": bpy.props.FloatProperty(
+        name="Target Elevation",
+        description="Placeholder when no light track target",
         default=0.0,
         subtype="ANGLE",
     ),
@@ -329,18 +350,38 @@ def _draw_lights_tools(layout, context):
     row_rig = col.row(align=True)
     row_rig.enabled = light_data is not None
     if light_data is not None:
-        row_rig.prop(obj, "alec_lt_distance", text="Dist")
-        row_rig.prop(obj, "alec_lt_angle", text="Az")
-        row_rig.prop(obj, "alec_lt_elevation", text="El")
+        row_rig.prop(obj, "alec_lt_distance", text="Camera Distance")
+        row_rig.prop(obj, "alec_lt_angle", text="Camera Azimuth")
+        row_rig.prop(obj, "alec_lt_elevation", text="Camera Elevation")
         row_rig.operator(
             "alec.light_rig_read_sphere",
             text="",
             icon="FILE_REFRESH",
         )
     else:
-        row_rig.prop(scene, "alec_lights_ui_dummy_lt_distance", text="Dist")
-        row_rig.prop(scene, "alec_lights_ui_dummy_lt_angle", text="Az")
-        row_rig.prop(scene, "alec_lights_ui_dummy_lt_elevation", text="El")
+        row_rig.prop(scene, "alec_lights_ui_dummy_lt_distance", text="Camera Distance")
+        row_rig.prop(scene, "alec_lights_ui_dummy_lt_angle", text="Camera Azimuth")
+        row_rig.prop(scene, "alec_lights_ui_dummy_lt_elevation", text="Camera Elevation")
+
+    track_tgt_ok = (
+        light_data is not None
+        and alec_sphere_track_target(obj, context) is not None
+    )
+    row_tgt_rig = col.row(align=True)
+    row_tgt_rig.enabled = track_tgt_ok
+    if track_tgt_ok:
+        row_tgt_rig.prop(obj, "alec_lt_tgt_distance", text="Target Distance")
+        row_tgt_rig.prop(obj, "alec_lt_tgt_angle", text="Target Azimuth")
+        row_tgt_rig.prop(obj, "alec_lt_tgt_elevation", text="Target Elevation")
+        row_tgt_rig.operator(
+            "alec.light_target_read_foot_sphere",
+            text="",
+            icon="FILE_REFRESH",
+        )
+    else:
+        row_tgt_rig.prop(scene, "alec_lights_ui_dummy_lt_tgt_distance", text="Target Distance")
+        row_tgt_rig.prop(scene, "alec_lights_ui_dummy_lt_tgt_angle", text="Target Azimuth")
+        row_tgt_rig.prop(scene, "alec_lights_ui_dummy_lt_tgt_elevation", text="Target Elevation")
 
     col.separator()
     eng_block = col.column(align=True)
