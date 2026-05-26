@@ -87,6 +87,79 @@ _LIGHTS_UI_DUMMY_PROPS = {
     ),
 }
 
+_TRANSFORM_UI_DUMMY_PROPS = {
+    "alec_transform_ui_dummy_location": bpy.props.FloatVectorProperty(
+        name="Location",
+        description="Placeholder when no active object",
+        size=3,
+        default=(0.0, 0.0, 0.0),
+        subtype="TRANSLATION",
+    ),
+    "alec_transform_ui_dummy_rotation_euler": bpy.props.FloatVectorProperty(
+        name="Rotation",
+        description="Placeholder when no active object",
+        size=3,
+        default=(0.0, 0.0, 0.0),
+        subtype="EULER",
+    ),
+    "alec_transform_ui_dummy_scale": bpy.props.FloatVectorProperty(
+        name="Scale",
+        description="Placeholder when no active object",
+        size=3,
+        default=(1.0, 1.0, 1.0),
+    ),
+    "alec_transform_ui_dummy_dimensions": bpy.props.FloatVectorProperty(
+        name="Dimensions",
+        description="Placeholder when no active object",
+        size=3,
+        default=(1.0, 1.0, 1.0),
+        subtype="XYZ",
+    ),
+}
+
+_CAMERA_UI_DUMMY_PROPS = {
+    "alec_camera_ui_dummy_cam_distance": bpy.props.FloatProperty(
+        name="Distance",
+        description="Placeholder when scene camera has no Alec track target",
+        default=5.0,
+        min=1e-4,
+        soft_max=5000.0,
+        unit="LENGTH",
+    ),
+    "alec_camera_ui_dummy_cam_angle": bpy.props.FloatProperty(
+        name="Azimuth",
+        description="Placeholder when scene camera has no Alec track target",
+        default=0.0,
+        subtype="ANGLE",
+    ),
+    "alec_camera_ui_dummy_cam_elevation": bpy.props.FloatProperty(
+        name="Elevation",
+        description="Placeholder when scene camera has no Alec track target",
+        default=0.0,
+        subtype="ANGLE",
+    ),
+    "alec_camera_ui_dummy_tgt_distance": bpy.props.FloatProperty(
+        name="Target Distance",
+        description="Placeholder when scene camera has no Alec track target",
+        default=3.0,
+        min=0.01,
+        soft_max=500.0,
+        unit="LENGTH",
+    ),
+    "alec_camera_ui_dummy_tgt_angle": bpy.props.FloatProperty(
+        name="Target Azimuth",
+        description="Placeholder when scene camera has no Alec track target",
+        default=0.0,
+        subtype="ANGLE",
+    ),
+    "alec_camera_ui_dummy_tgt_elevation": bpy.props.FloatProperty(
+        name="Target Elevation",
+        description="Placeholder when scene camera has no Alec track target",
+        default=0.0,
+        subtype="ANGLE",
+    ),
+}
+
 
 def _register_lights_ui_dummy_props() -> None:
     for name, prop in _LIGHTS_UI_DUMMY_PROPS.items():
@@ -101,41 +174,84 @@ def _unregister_lights_ui_dummy_props() -> None:
             delattr(bpy.types.Scene, name)
 
 
+def _register_camera_ui_dummy_props() -> None:
+    for name, prop in _CAMERA_UI_DUMMY_PROPS.items():
+        if hasattr(bpy.types.Scene, name):
+            delattr(bpy.types.Scene, name)
+        setattr(bpy.types.Scene, name, prop)
+
+
+def _unregister_camera_ui_dummy_props() -> None:
+    for name in _CAMERA_UI_DUMMY_PROPS:
+        if hasattr(bpy.types.Scene, name):
+            delattr(bpy.types.Scene, name)
+
+
+def _register_transform_ui_dummy_props() -> None:
+    for name, prop in _TRANSFORM_UI_DUMMY_PROPS.items():
+        if hasattr(bpy.types.Scene, name):
+            delattr(bpy.types.Scene, name)
+        setattr(bpy.types.Scene, name, prop)
+
+
+def _unregister_transform_ui_dummy_props() -> None:
+    for name in _TRANSFORM_UI_DUMMY_PROPS:
+        if hasattr(bpy.types.Scene, name):
+            delattr(bpy.types.Scene, name)
+
+
 def _draw_transform_panel_fields(layout, context):
     """Object transform block like Sidebar ▸ Item ▸ Transform (split + decorate)."""
     col = layout.column()
     col.use_property_split = True
     col.use_property_decorate = True
 
+    scene = context.scene
     obj = context.active_object
-    if obj is None:
-        col.label(text="Select an object.", icon="INFO")
-        return
+    has_obj = obj is not None
 
-# transform row
     row = col.row(align=True)
-    row.label(text="", icon="OBJECT_ORIGIN")
-    row.prop(obj, "location", text="")
+    row.enabled = has_obj
+    left = row.column(align=True)
+    right = row.column(align=True)
 
-    row.label(text="", icon="DRIVER_ROTATIONAL_DIFFERENCE")
-    if obj.rotation_mode == "QUATERNION":
-        row.prop(obj, "rotation_quaternion", text="")
-    elif obj.rotation_mode == "AXIS_ANGLE":
-        row.prop(obj, "rotation_axis_angle", text="")
+    r = left.row(align=True)
+    r.label(text="", icon="OBJECT_ORIGIN")
+    if has_obj:
+        r.prop(obj, "location", text="")
     else:
-        row.prop(obj, "rotation_euler", text="")
+        r.prop(scene, "alec_transform_ui_dummy_location", text="")
+
+    r = right.row(align=True)
+    r.label(text="", icon="DRIVER_ROTATIONAL_DIFFERENCE")
+    if has_obj:
+        if obj.rotation_mode == "QUATERNION":
+            r.prop(obj, "rotation_quaternion", text="")
+        elif obj.rotation_mode == "AXIS_ANGLE":
+            r.prop(obj, "rotation_axis_angle", text="")
+        else:
+            r.prop(obj, "rotation_euler", text="")
+    else:
+        r.prop(scene, "alec_transform_ui_dummy_rotation_euler", text="")
 
     row = col.row(align=True)
+    row.enabled = has_obj
     left = row.column(align=True)
     right = row.column(align=True)
 
     r = left.row(align=True)
     r.label(text="", icon="FULLSCREEN_ENTER")
-    r.prop(obj, "scale", text="")
+    if has_obj:
+        r.prop(obj, "scale", text="")
+    else:
+        r.prop(scene, "alec_transform_ui_dummy_scale", text="")
 
     r = right.row(align=True)
     r.label(text="", icon="ARROW_LEFTRIGHT")
-    r.prop(obj, "dimensions", text="")
+    if has_obj:
+        r.prop(obj, "dimensions", text="")
+    else:
+        r.prop(scene, "alec_transform_ui_dummy_dimensions", text="")
 
     # cursor row
     layout.separator()
@@ -194,9 +310,9 @@ def _draw_camera_tools(layout, context):
     )
     col.separator()
     row_tgt = col.row(align=True)
-    row_tgt.operator("alec.camera_target_dist", text="Targ.Dist")
-    row_tgt.operator("alec.camera_target_obj", text="Target.Obj")
-    row_tgt.operator("alec.camera_target_cursor", text="Target.Curs")
+    row_tgt.operator("alec.camera_target_dist", text="Targ.Focus")
+    row_tgt.operator("alec.camera_target_obj", text="Targ.Obj")
+    row_tgt.operator("alec.camera_target_cursor", text="Targ.Curs")
     row_tgt.operator(
         "alec.camera_clear_track_target",
         text="",
@@ -210,18 +326,44 @@ def _draw_camera_tools(layout, context):
 
     scene = context.scene
     cam_scene = getattr(scene, "camera", None)
-    if cam_scene is not None and cam_scene.type == "CAMERA":
-        orbit_ok = camera_sphere_track_target(cam_scene, context) is not None
-        row_sp = col.row(align=True)
-        row_sp.enabled = orbit_ok
-        row_sp.prop(cam_scene, "alec_cam_distance", text="Dist")
-        row_sp.prop(cam_scene, "alec_cam_angle", text="Az")
-        row_sp.prop(cam_scene, "alec_cam_elevation", text="El")
-        row_sp.operator(
-            "alec.camera_rig_read_sphere",
-            text="",
-            icon="FILE_REFRESH",
-        )
+    if cam_scene is not None and cam_scene.type != "CAMERA":
+        cam_scene = None
+    orbit_ok = (
+        cam_scene is not None
+        and camera_sphere_track_target(cam_scene, context) is not None
+    )
+
+    row_sp = col.row(align=True)
+    row_sp.enabled = orbit_ok
+    row_sp.operator(
+        "alec.camera_rig_read_sphere",
+        text="",
+        icon="OUTLINER_OB_CAMERA",
+    )
+    if orbit_ok:
+        row_sp.prop(cam_scene, "alec_cam_distance", text="C.Distance")
+        row_sp.prop(cam_scene, "alec_cam_angle", text="C.Azimuth")
+        row_sp.prop(cam_scene, "alec_cam_elevation", text="C.Elevation")
+    else:
+        row_sp.prop(scene, "alec_camera_ui_dummy_cam_distance", text="C.Distance")
+        row_sp.prop(scene, "alec_camera_ui_dummy_cam_angle", text="C.Azimuth")
+        row_sp.prop(scene, "alec_camera_ui_dummy_cam_elevation", text="C.Elevation")
+
+    row_tgt_foot = col.row(align=True)
+    row_tgt_foot.enabled = orbit_ok
+    row_tgt_foot.operator(
+        "alec.camera_target_read_foot_sphere",
+        text="",
+        icon="EMPTY_AXIS",
+    )
+    if orbit_ok:
+        row_tgt_foot.prop(cam_scene, "alec_cam_tgt_distance", text="C.Targ.Distance")
+        row_tgt_foot.prop(cam_scene, "alec_cam_tgt_angle", text="C.Targ.Azimuth")
+        row_tgt_foot.prop(cam_scene, "alec_cam_tgt_elevation", text="C.Targ.Elevation")
+    else:
+        row_tgt_foot.prop(scene, "alec_camera_ui_dummy_tgt_distance", text="C.Targ.Distance")
+        row_tgt_foot.prop(scene, "alec_camera_ui_dummy_tgt_angle", text="C.Targ.Azimuth")
+        row_tgt_foot.prop(scene, "alec_camera_ui_dummy_tgt_elevation", text="C.Targ.Elevation")
 
     cam = focal_edit_camera(context)
 
@@ -281,6 +423,7 @@ def _draw_lights_tools(layout, context):
         else None
     )
     cur_type = light_data.type if light_data is not None else None
+    scene = context.scene
 
     row_types = col.row(align=True)
     row_types.operator("alec.new_light_rig", text="New Light")
@@ -298,26 +441,8 @@ def _draw_lights_tools(layout, context):
         )
         op.light_type = lt
 
-    row_lt_tgt = col.row(align=True)
-    row_lt_tgt.operator("alec.light_target_dist", text="Targ.Dist")
-    row_lt_tgt.operator("alec.light_target_obj", text="Target.Obj")
-    row_lt_tgt.operator("alec.light_target_cursor", text="Target.Curs")
-    row_lt_tgt.operator(
-        "alec.light_clear_track_target",
-        text="",
-        icon="UNLINKED",
-    )
-    row_lt_tgt.operator(
-        "alec.light_select_track_target",
-        text="",
-        icon="RESTRICT_SELECT_OFF",
-    )
-
-    scene = context.scene
     area_light_ok = light_data is not None and light_data.type == "AREA"
-    cur_area_shape = (
-        light_data.shape if area_light_ok else None
-    )
+    cur_area_shape = light_data.shape if area_light_ok else None
 
     area_block = col.column(align=True)
     area_block.enabled = area_light_ok
@@ -347,41 +472,57 @@ def _draw_lights_tools(layout, context):
         )
         op.shape = shape_id
 
-    row_rig = col.row(align=True)
-    row_rig.enabled = light_data is not None
-    if light_data is not None:
-        row_rig.prop(obj, "alec_lt_distance", text="Camera Distance")
-        row_rig.prop(obj, "alec_lt_angle", text="Camera Azimuth")
-        row_rig.prop(obj, "alec_lt_elevation", text="Camera Elevation")
-        row_rig.operator(
-            "alec.light_rig_read_sphere",
-            text="",
-            icon="FILE_REFRESH",
-        )
-    else:
-        row_rig.prop(scene, "alec_lights_ui_dummy_lt_distance", text="Camera Distance")
-        row_rig.prop(scene, "alec_lights_ui_dummy_lt_angle", text="Camera Azimuth")
-        row_rig.prop(scene, "alec_lights_ui_dummy_lt_elevation", text="Camera Elevation")
+    row_lt_tgt = col.row(align=True)
+    row_lt_tgt.operator("alec.light_target_dist", text="Targ.Dist")
+    row_lt_tgt.operator("alec.light_target_obj", text="Target.Obj")
+    row_lt_tgt.operator("alec.light_target_cursor", text="Target.Curs")
+    row_lt_tgt.operator(
+        "alec.light_clear_track_target",
+        text="",
+        icon="UNLINKED",
+    )
+    row_lt_tgt.operator(
+        "alec.light_select_track_target",
+        text="",
+        icon="RESTRICT_SELECT_OFF",
+    )
 
     track_tgt_ok = (
         light_data is not None
         and alec_sphere_track_target(obj, context) is not None
     )
+
+    row_rig = col.row(align=True)
+    row_rig.enabled = light_data is not None
+    row_rig.operator(
+        "alec.light_rig_read_sphere",
+        text="",
+        icon="LIGHT_DATA",
+    )
+    if light_data is not None:
+        row_rig.prop(obj, "alec_lt_distance", text="L.Distance")
+        row_rig.prop(obj, "alec_lt_angle", text="L.Azimuth")
+        row_rig.prop(obj, "alec_lt_elevation", text="L.Elevation")
+    else:
+        row_rig.prop(scene, "alec_lights_ui_dummy_lt_distance", text="L.Distance")
+        row_rig.prop(scene, "alec_lights_ui_dummy_lt_angle", text="L.Azimuth")
+        row_rig.prop(scene, "alec_lights_ui_dummy_lt_elevation", text="L.Elevation")
+
     row_tgt_rig = col.row(align=True)
     row_tgt_rig.enabled = track_tgt_ok
+    row_tgt_rig.operator(
+        "alec.light_target_read_foot_sphere",
+        text="",
+        icon="EMPTY_AXIS",
+    )
     if track_tgt_ok:
-        row_tgt_rig.prop(obj, "alec_lt_tgt_distance", text="Target Distance")
-        row_tgt_rig.prop(obj, "alec_lt_tgt_angle", text="Target Azimuth")
-        row_tgt_rig.prop(obj, "alec_lt_tgt_elevation", text="Target Elevation")
-        row_tgt_rig.operator(
-            "alec.light_target_read_foot_sphere",
-            text="",
-            icon="FILE_REFRESH",
-        )
+        row_tgt_rig.prop(obj, "alec_lt_tgt_distance", text="L.Targ.Distance")
+        row_tgt_rig.prop(obj, "alec_lt_tgt_angle", text="L.Targ.Azimuth")
+        row_tgt_rig.prop(obj, "alec_lt_tgt_elevation", text="L.Targ.Elevation")
     else:
-        row_tgt_rig.prop(scene, "alec_lights_ui_dummy_lt_tgt_distance", text="Target Distance")
-        row_tgt_rig.prop(scene, "alec_lights_ui_dummy_lt_tgt_angle", text="Target Azimuth")
-        row_tgt_rig.prop(scene, "alec_lights_ui_dummy_lt_tgt_elevation", text="Target Elevation")
+        row_tgt_rig.prop(scene, "alec_lights_ui_dummy_lt_tgt_distance", text="L.Targ.Distance")
+        row_tgt_rig.prop(scene, "alec_lights_ui_dummy_lt_tgt_angle", text="L.Targ.Azimuth")
+        row_tgt_rig.prop(scene, "alec_lights_ui_dummy_lt_tgt_elevation", text="L.Targ.Elevation")
 
     col.separator()
     eng_block = col.column(align=True)
@@ -472,7 +613,9 @@ class ALEC_PT_alec_misc_materials(bpy.types.Panel):
 
 
 def register():
+    _register_transform_ui_dummy_props()
     _register_lights_ui_dummy_props()
+    _register_camera_ui_dummy_props()
     bpy.utils.register_class(ALEC_PT_npanelMain)
     bpy.utils.register_class(ALEC_PT_alec_misc)
     bpy.utils.register_class(ALEC_PT_alec_misc_materials)
@@ -483,3 +626,5 @@ def unregister():
     bpy.utils.unregister_class(ALEC_PT_alec_misc)
     bpy.utils.unregister_class(ALEC_PT_npanelMain)
     _unregister_lights_ui_dummy_props()
+    _unregister_camera_ui_dummy_props()
+    _unregister_transform_ui_dummy_props()

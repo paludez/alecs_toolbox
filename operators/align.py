@@ -47,6 +47,18 @@ def _distribute_auto_sync_updated(self, context):
         self.manual_field_lock = False
 
 
+def _align_preset_center_axis_enum_updated(operator, context):
+    """Redo UI Axis → position toggles only (do not wipe offsets/refs like full preset reset)."""
+    operator.align_x = operator.align_y = operator.align_z = False
+    ax = getattr(operator, "axis", "X")
+    if ax == "X":
+        operator.align_x = True
+    elif ax == "Y":
+        operator.align_y = True
+    else:
+        operator.align_z = True
+
+
 class AlignBase:
     """Shared RNA, redo UI and execute() for Alec align operators."""
 
@@ -113,8 +125,17 @@ class AlignBase:
     reset_requested: bpy.props.BoolProperty(
         name="Reset defaults",
         description=(
-            "Reset Align: position X/Y/Z on, Current/Target = Origins, "
-            "clear rotation/scale and all offsets"
+            "Reset Align: turn off position/rotation/scale X/Y/Z, Current/Target = Origins/Centers "
+            "(per preset), clear offsets and Local (Active)"
+        ),
+        default=False,
+    )  # type: ignore
+
+    apply_requested: bpy.props.BoolProperty(
+        name="Apply baseline",
+        description=(
+            "Use current object transforms as the new baseline for interactive align "
+            "(same as reopening Align on this pose)"
         ),
         default=False,
     )  # type: ignore
@@ -220,8 +241,12 @@ class AlignBase:
         layout = self.layout
 
         top = layout.box()
-        top.row(align=True).prop(
+        row_top = top.row(align=True)
+        row_top.prop(
             self, "reset_requested", toggle=True, icon="FILE_REFRESH", text="Reset"
+        )
+        row_top.prop(
+            self, "apply_requested", toggle=True, icon="CHECKMARK", text="Apply"
         )
         top.prop(self, "use_active_orient")
 
@@ -246,8 +271,17 @@ class AlignBase:
 
     def check(self, context):
         if self.reset_requested:
-            self._reset_align_defaults(self._default_ref_point_for_reset(), match_rotation=False)
+            self._reset_align_defaults(
+                self._default_ref_point_for_reset(),
+                match_position=False,
+                match_rotation=False,
+                match_scale=False,
+            )
+        snap_baseline = self.apply_requested
         self.execute(context)
+        if snap_baseline:
+            self._capture_selection_snapshot(context)
+            self.apply_requested = False
         return True
 
     def _restore_state(self):
@@ -311,6 +345,13 @@ class ALEC_OT_align_dialog(AlignBase, bpy.types.Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def invoke(self, context, event):
+        # Fresh defaults each open: Blender keeps last op props for redo otherwise.
+        self._reset_align_defaults(
+            self._default_ref_point_for_reset(),
+            match_position=True,
+            match_rotation=False,
+            match_scale=False,
+        )
         self._is_modal = True
         self._capture_selection_snapshot(context)
         self.execute(context)
@@ -371,6 +412,70 @@ class ALEC_OT_align_preset_scale(AlignBase, bpy.types.Operator):
             match_rotation=False,
             match_scale=True,
         )
+
+
+class ALEC_OT_align_preset_center_axis(AlignBase, bpy.types.Operator):
+    """Preset: bbox centers to active bbox along one world axis, or perpendicular plane if Alt-held."""
+
+    bl_idname = "alec.align_preset_center_axis"
+    bl_label = "Align Centers (Axis)"
+    bl_description = (
+        "Match bbox centers along one world axis (X / Y / Z). "
+        "Hold Alt when choosing a pie button to use the perpendicular plane (e.g. Alt+X → Y+Z only)."
+    )
+    bl_options = {"REGISTER", "UNDO"}
+
+    axis: bpy.props.EnumProperty(
+        name="Axis",
+        items=[
+            ("X", "X", "World X (single axis); Alt-held from pie: perpendicular plane → Y + Z"),
+            ("Y", "Y", "World Y (single axis); Alt-held from pie: perpendicular plane → X + Z"),
+            ("Z", "Z", "World Z (single axis); Alt-held from pie: perpendicular plane → X + Y"),
+        ],
+        default="X",
+        update=_align_preset_center_axis_enum_updated,
+    )  # type: ignore
+
+    @classmethod
+    def poll(cls, context):
+        if context.mode != "OBJECT":
+            return False
+        active = context.active_object
+        if active is None or active not in context.selected_objects:
+            return False
+        return len(context.selected_objects) >= 2
+
+    def _apply_center_world_axis_preset(self):
+        self._reset_align_defaults("CENTER", match_position=True, match_rotation=False)
+        self.align_x = self.align_y = self.align_z = False
+        ax = getattr(self, "axis", "X")
+        if ax == "X":
+            self.align_x = True
+        elif ax == "Y":
+            self.align_y = True
+        else:
+            self.align_z = True
+
+    def _apply_center_world_axis_plane_preset(self, ax: str):
+        """Lock to active on the plane perpendicular to world axis *ax* (two position axes only)."""
+        self._reset_align_defaults("CENTER", match_position=True, match_rotation=False)
+        self.align_x = self.align_y = self.align_z = False
+        if ax == "X":
+            self.align_y = self.align_z = True
+        elif ax == "Y":
+            self.align_x = self.align_z = True
+        else:
+            self.align_x = self.align_y = True
+
+    def invoke(self, context, event):
+        if getattr(event, "alt", False):
+            self._apply_center_world_axis_plane_preset(getattr(self, "axis", "X"))
+        else:
+            self._apply_center_world_axis_preset()
+        self._is_modal = True
+        self._capture_selection_snapshot(context)
+        self.execute(context)
+        return {"FINISHED"}
 
 
 class ALEC_OT_distribute_objects_dialog(bpy.types.Operator):
@@ -819,5 +924,6 @@ classes = (
     ALEC_OT_align_preset_origins,
     ALEC_OT_align_preset_rotate,
     ALEC_OT_align_preset_scale,
+    ALEC_OT_align_preset_center_axis,
     ALEC_OT_distribute_objects_dialog,
 )  

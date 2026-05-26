@@ -1,7 +1,13 @@
 """Outliner-related operators: hidden collections, collection cleanup, data renaming."""
 
 import bpy
-from ..modules.utils import move_to_collection, find_layer_collection, collection_in_subtree
+from ..modules.utils import (
+    move_to_collection,
+    find_layer_collection,
+    collection_in_subtree,
+    get_or_create_collection,
+    bbox_helpers_collection_name,
+)
 
 
 def _selected_outliner_collections(context):
@@ -143,6 +149,28 @@ class ALEC_OT_hidden_collection_visibility(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class ALEC_OT_toggle_bbox_helpers_collection(bpy.types.Operator):
+    """Toggle View Layer visibility of the scene's BBox helpers collection."""
+
+    bl_idname = "alec.toggle_bbox_helpers_collection"
+    bl_label = "BBox Layer Toggle"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        coll = get_or_create_collection(context, coll_name="bbox_helpers")
+        layer_coll = find_layer_collection(
+            context.view_layer.layer_collection, coll
+        )
+        if layer_coll is None:
+            self.report(
+                {"WARNING"},
+                f"{bbox_helpers_collection_name(context.scene)} not in current View Layer",
+            )
+            return {"CANCELLED"}
+        layer_coll.exclude = not bool(layer_coll.exclude)
+        return {"FINISHED"}
+
+
 class ALEC_OT_move_to_hidden_obj(bpy.types.Operator):
     """Move selected objects to Hidden_Obj collection and exclude it from View Layer"""
     bl_idname = "alec.move_to_hidden_obj"
@@ -222,6 +250,7 @@ class ALEC_OT_delete_empty_collections(bpy.types.Operator):
 classes = (
     ALEC_OT_rename_data_to_object_name,
     ALEC_OT_hidden_collection_visibility,
+    ALEC_OT_toggle_bbox_helpers_collection,
     ALEC_OT_move_to_hidden_obj,
     ALEC_OT_delete_empty_collections,
 )

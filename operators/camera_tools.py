@@ -13,7 +13,52 @@ _CAM_SPHERE_PROP_NAMES = (
     "alec_cam_distance",
     "alec_cam_angle",
     "alec_cam_elevation",
+    "alec_cam_tgt_distance",
+    "alec_cam_tgt_angle",
+    "alec_cam_tgt_elevation",
 )
+
+
+def _world_sphere_unit_direction(az: float, el: float) -> Vector:
+    c_el = math.cos(el)
+    return Vector((c_el * math.cos(az), c_el * math.sin(az), math.sin(el))).normalized()
+
+
+def _world_sphere_offset(az: float, el: float, dist: float) -> Vector:
+    return _world_sphere_unit_direction(az, el) * max(1e-4, float(dist))
+
+
+def _world_sphere_az_el_dist_from_delta(
+    delta: Vector,
+    *,
+    fallback_az: float = 0.0,
+) -> tuple[float, float, float]:
+    dsq = delta.length_squared
+    if dsq < 1e-20:
+        return fallback_az, 0.0, 1e-3
+    vz = delta.normalized()
+    zn = max(-1.0, min(1.0, vz.z))
+    elev = math.asin(zn)
+    horiz = math.cos(elev)
+    azim = math.atan2(vz.y, vz.x) if abs(horiz) > 1e-6 else fallback_az
+    return azim, elev, math.sqrt(dsq)
+
+
+def _camera_foot_world_xy(cam_obj: bpy.types.Object) -> Vector:
+    """World XY projection of the camera (Z = 0), same pivot as lamp foot for lights."""
+    cw = cam_obj.matrix_world.translation
+    return Vector((cw.x, cw.y, 0.0))
+
+
+def camera_target_foot_world_position(cam_obj: bpy.types.Object) -> Vector | None:
+    """Alec track target on world sphere around camera foot (Cx, Cy, 0) — same model as lights."""
+    if cam_obj is None or cam_obj.type != "CAMERA":
+        return None
+    foot = _camera_foot_world_xy(cam_obj)
+    dist = float(getattr(cam_obj, "alec_cam_tgt_distance", 3.0))
+    az = float(getattr(cam_obj, "alec_cam_tgt_angle", 0.0))
+    el = float(getattr(cam_obj, "alec_cam_tgt_elevation", 0.0))
+    return foot + _world_sphere_offset(az, el, dist)
 
 def _object_in_view_layer(obj, context) -> bool:
     return obj is not None and obj.name in context.view_layer.objects
@@ -45,15 +90,10 @@ def camera_rig_world_position(cam_obj, context):
     tw = camera_orbit_pivot_world(cam_obj, context)
     if tw is None:
         return None
-    dist = max(1e-4, float(getattr(cam_obj, "alec_cam_distance", 5.0)))
+    dist = float(getattr(cam_obj, "alec_cam_distance", 5.0))
     az = float(getattr(cam_obj, "alec_cam_angle", 0.0))
     el = float(getattr(cam_obj, "alec_cam_elevation", 0.0))
-    c_el = math.cos(el)
-    ox = c_el * math.cos(az)
-    oy = c_el * math.sin(az)
-    oz = math.sin(el)
-    u = Vector((ox, oy, oz)).normalized()
-    return tw + u * dist
+    return tw + _world_sphere_offset(az, el, dist)
 
 
 def _apply_camera_sphere_props(cam_obj, context):
@@ -115,8 +155,11 @@ def _sync_camera_sphere_props_from_world(cam_obj, context):
         tw = tgt.matrix_world.translation.copy()
 
     delta = cw - tw
-    dsq = delta.length_squared
-    if dsq < 1e-20:
+    azim, elev, dist = _world_sphere_az_el_dist_from_delta(
+        delta,
+        fallback_az=float(getattr(cam_obj, "alec_cam_angle", 0.0)),
+    )
+    if delta.length_squared < 1e-20:
         _CAM_RIG_UPDATING = True
         try:
             cam_obj.alec_cam_distance = 1e-3
@@ -126,21 +169,67 @@ def _sync_camera_sphere_props_from_world(cam_obj, context):
             _CAM_RIG_UPDATING = False
         return
 
-    vz = delta.normalized()
-    zn = max(-1.0, min(1.0, vz.z))
-    elev = math.asin(zn)
-    horiz = math.cos(elev)
-    azim = (
-        math.atan2(vz.y, vz.x)
-        if abs(horiz) > 1e-6
-        else float(getattr(cam_obj, "alec_cam_angle", 0.0))
-    )
-    dist = max(1e-4, math.sqrt(dsq))
     _CAM_RIG_UPDATING = True
     try:
-        cam_obj.alec_cam_distance = dist
+        cam_obj.alec_cam_distance = max(1e-4, dist)
         cam_obj.alec_cam_angle = azim
         cam_obj.alec_cam_elevation = elev
+    finally:
+        _CAM_RIG_UPDATING = False
+
+
+def _apply_camera_target_foot_sphere(cam_obj, context) -> None:
+    global _CAM_RIG_UPDATING
+    if _CAM_RIG_UPDATING:
+        return
+    if cam_obj is None or cam_obj.type != "CAMERA":
+        return
+    tgt = camera_sphere_track_target(cam_obj, context)
+    if tgt is None:
+        return
+    pos = camera_target_foot_world_position(cam_obj)
+    if pos is None:
+        return
+    _CAM_RIG_UPDATING = True
+    try:
+        if tgt.parent is None:
+            tgt.location = pos
+        else:
+            mw = tgt.matrix_world.copy()
+            mw.translation = pos
+            tgt.matrix_world = mw
+    finally:
+        _CAM_RIG_UPDATING = False
+    try:
+        context.view_layer.update()
+    except Exception:
+        pass
+
+
+def _sync_camera_target_foot_sphere_from_world(
+    cam_obj: bpy.types.Object, context
+) -> None:
+    """Rebuild target Dist / Az / El from track empty vs camera foot on world XY."""
+    global _CAM_RIG_UPDATING
+    if _CAM_RIG_UPDATING:
+        return
+    tgt = camera_sphere_track_target(cam_obj, context)
+    if tgt is None:
+        return
+    tw = tgt.matrix_world.translation.copy()
+    foot = _camera_foot_world_xy(cam_obj)
+    delta = tw - foot
+    azim, elev, dist = _world_sphere_az_el_dist_from_delta(
+        delta,
+        fallback_az=float(getattr(cam_obj, "alec_cam_tgt_angle", 0.0)),
+    )
+    if delta.length_squared < 1e-20:
+        return
+    _CAM_RIG_UPDATING = True
+    try:
+        cam_obj.alec_cam_tgt_distance = max(1e-4, dist)
+        cam_obj.alec_cam_tgt_angle = azim
+        cam_obj.alec_cam_tgt_elevation = elev
     finally:
         _CAM_RIG_UPDATING = False
 
@@ -149,8 +238,23 @@ def _alec_cam_sphere_prop_update(cam_obj, context):
     _apply_camera_sphere_props(cam_obj, context)
 
 
+def _alec_cam_tgt_distance_update(cam_obj, context):
+    _apply_camera_target_foot_sphere(cam_obj, context)
+
+
+def _alec_cam_tgt_angle_update(cam_obj, context):
+    _apply_camera_target_foot_sphere(cam_obj, context)
+
+
+def _alec_cam_tgt_elevation_update(cam_obj, context):
+    _apply_camera_target_foot_sphere(cam_obj, context)
+
+
+_LEGACY_CAM_TGT_PROP_NAMES = ("alec_cam_tgt_height",)
+
+
 def register_camera_sphere_object_props() -> None:
-    for name in _CAM_SPHERE_PROP_NAMES:
+    for name in _LEGACY_CAM_TGT_PROP_NAMES + _CAM_SPHERE_PROP_NAMES:
         if hasattr(bpy.types.Object, name):
             try:
                 delattr(bpy.types.Object, name)
@@ -179,10 +283,36 @@ def register_camera_sphere_object_props() -> None:
         subtype="ANGLE",
         update=_alec_cam_sphere_prop_update,
     )
+    bpy.types.Object.alec_cam_tgt_distance = bpy.props.FloatProperty(
+        name="Target distance",
+        description=(
+            "Distance from camera XY foot on world Z=0 to Alec track target "
+            "(same sphere model as light target rig)"
+        ),
+        default=3.0,
+        min=0.01,
+        soft_max=500.0,
+        unit="LENGTH",
+        update=_alec_cam_tgt_distance_update,
+    )
+    bpy.types.Object.alec_cam_tgt_angle = bpy.props.FloatProperty(
+        name="Target azimuth",
+        description="Azimuth around world Z from +X (target sphere around camera foot)",
+        default=0.0,
+        subtype="ANGLE",
+        update=_alec_cam_tgt_angle_update,
+    )
+    bpy.types.Object.alec_cam_tgt_elevation = bpy.props.FloatProperty(
+        name="Target elevation",
+        description="Elevation from world XY toward +Z (target sphere around camera foot)",
+        default=0.0,
+        subtype="ANGLE",
+        update=_alec_cam_tgt_elevation_update,
+    )
 
 
 def unregister_camera_sphere_object_props() -> None:
-    for name in _CAM_SPHERE_PROP_NAMES:
+    for name in _LEGACY_CAM_TGT_PROP_NAMES + _CAM_SPHERE_PROP_NAMES:
         if hasattr(bpy.types.Object, name):
             try:
                 delattr(bpy.types.Object, name)
@@ -644,6 +774,7 @@ def _ensure_empty_and_camera_track_to(context, cam, loc: Vector) -> None:
     con.up_axis = "UP_Y"
     context.view_layer.update()
     _sync_camera_sphere_props_from_world(cam, context)
+    _sync_camera_target_foot_sphere_from_world(cam, context)
 
 
 def _view3d_window_region(context):
@@ -1093,6 +1224,39 @@ class ALEC_OT_cameras_bind_selected_to_end(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class ALEC_OT_camera_target_read_foot_sphere(bpy.types.Operator):
+    """Set target Dist/Az/El from track empty vs camera foot on world XY (does not move objects)."""
+
+    bl_idname = "alec.camera_target_read_foot_sphere"
+    bl_label = "Sync target foot sphere"
+    bl_description = (
+        "Recompute target distance, azimuth, and elevation from the tracked empty "
+        "and the scene camera projection on world Z=0 (same as lights)"
+    )
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        cam = context.scene.camera
+        if cam is None or cam.type != "CAMERA":
+            return False
+        return camera_sphere_track_target(cam, context) is not None
+
+    def execute(self, context):
+        cam = context.scene.camera
+        if cam is None or cam.type != "CAMERA":
+            return {"CANCELLED"}
+        if camera_sphere_track_target(cam, context) is None:
+            self.report({"WARNING"}, "No Alec track target on scene camera")
+            return {"CANCELLED"}
+        try:
+            context.view_layer.update()
+        except Exception:
+            pass
+        _sync_camera_target_foot_sphere_from_world(cam, context)
+        return {"FINISHED"}
+
+
 class ALEC_OT_camera_rig_read_sphere(bpy.types.Operator):
     """Set Dist/Az./El from scene camera vs Alec Target; camera does not move."""
 
@@ -1210,6 +1374,7 @@ classes = (
     ALEC_OT_new_camera_to_view,
     ALEC_OT_cameras_bind_all_to_timeline,
     ALEC_OT_cameras_bind_selected_to_end,
+    ALEC_OT_camera_target_read_foot_sphere,
     ALEC_OT_camera_rig_read_sphere,
     ALEC_OT_camera_crop_modal,
 )

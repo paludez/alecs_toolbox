@@ -40,14 +40,14 @@ def _pref(prefs, attr: str, default: bool = True) -> bool:
 _disabled_default_kmis: list = []
 
 
-def _iter_3d_view_window_keymaps(kc):
-    """All non-modal 3D View » Window keymaps (Blender may ship more than one name)."""
+def _iter_3d_view_keymaps(kc, region_type: str = "WINDOW"):
+    """All non-modal 3D View keymaps for the given region (WINDOW, UI, …)."""
     if kc is None:
         return
     find = getattr(kc.keymaps, "find", None)
     if find:
         try:
-            km = find("3D View", "VIEW_3D", "WINDOW")
+            km = find("3D View", "VIEW_3D", region_type)
             if km is not None:
                 yield km
                 return
@@ -56,8 +56,13 @@ def _iter_3d_view_window_keymaps(kc):
     for km in kc.keymaps:
         if getattr(km, "modal", False):
             continue
-        if km.space_type == "VIEW_3D" and km.region_type == "WINDOW":
+        if km.space_type == "VIEW_3D" and km.region_type == region_type:
             yield km
+
+
+def _iter_3d_view_window_keymaps(kc):
+    """All non-modal 3D View » Window keymaps (Blender may ship more than one name)."""
+    yield from _iter_3d_view_keymaps(kc, "WINDOW")
 
 
 def _is_sidebar_toggle_n(kmi) -> bool:
@@ -84,19 +89,18 @@ def _disable_default_n_key():
         kc = getattr(wm.keyconfigs, store_name, None)
         if kc is None:
             continue
-        for km in _iter_3d_view_window_keymaps(kc):
-            if km is None:
-                continue
-            for kmi in km.keymap_items:
-                if not _is_sidebar_toggle_n(kmi):
-                    continue
-                if kmi in _disabled_default_kmis:
-                    continue
-                try:
-                    kmi.active = False
-                    _disabled_default_kmis.append(kmi)
-                except Exception:
-                    pass
+        for region_type in ("WINDOW", "UI"):
+            for km in _iter_3d_view_keymaps(kc, region_type):
+                for kmi in km.keymap_items:
+                    if not _is_sidebar_toggle_n(kmi):
+                        continue
+                    if kmi in _disabled_default_kmis:
+                        continue
+                    try:
+                        kmi.active = False
+                        _disabled_default_kmis.append(kmi)
+                    except Exception:
+                        pass
 
 
 def _restore_default_n_key():
@@ -214,9 +218,19 @@ def _register_core_keymaps():
         )
         _addon_keymaps_core.append((km, kmi_frame_selected))
 
-    if km is not None and _pref(prefs, "shortcut_n_alec_panel"):
-        kmi_n = km.keymap_items.new("alec.open_alec_panel", "N", "PRESS")
-        _addon_keymaps_core.append((km, kmi_n))
+    if _pref(prefs, "shortcut_n_alec_panel"):
+        km_n_win = km
+        if km_n_win is None:
+            km_n_win = kc.keymaps.new(
+                name="3D View", space_type="VIEW_3D", region_type="WINDOW"
+            )
+        kmi_n = km_n_win.keymap_items.new("alec.open_alec_panel", "N", "PRESS")
+        _addon_keymaps_core.append((km_n_win, kmi_n))
+        km_n_ui = kc.keymaps.new(
+            name="3D View", space_type="VIEW_3D", region_type="UI"
+        )
+        kmi_n_ui = km_n_ui.keymap_items.new("alec.open_alec_panel", "N", "PRESS")
+        _addon_keymaps_core.append((km_n_ui, kmi_n_ui))
         _disable_default_n_key()
 
     if km is not None and _pref(prefs, "shortcut_alt_w_light_energy_modal"):

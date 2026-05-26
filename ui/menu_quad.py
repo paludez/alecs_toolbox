@@ -1,5 +1,9 @@
 import bpy
-from ..modules.utils import draw_hidden_coll_toggle, safe_operator_props
+from ..modules.utils import (
+    draw_bbox_helpers_coll_toggle,
+    draw_hidden_coll_toggle,
+    safe_operator_props,
+)
 
 _VIEW3D_TYPE_FILTER_UI = (
     ("mesh", 'MESH_DATA'),
@@ -185,6 +189,7 @@ class ALEC_MT_quad_menu(bpy.types.Menu):
         draw_hidden_coll_toggle(grid_vis_tools, context, "Hidden_Bools", "Bools Toggle", icon='OUTLINER_COLLECTION')
         draw_hidden_coll_toggle(grid_vis_tools, context, "Hidden_Obj", "Hidden_Obj Toggle")
         draw_hidden_coll_toggle(grid_vis_tools, context, "Hidden_Sources", "Sources Toggle")
+        draw_bbox_helpers_coll_toggle(grid_vis_tools, context, "BBox Layer", icon='MESH_CUBE')
 
         grid_vis_tools.operator("alec.move_to_hidden_obj", text="To Hidden_Obj", icon='HIDE_ON')
         grid_vis_tools.operator("alec.toggle_mesh_wire_textured", text="Wire Togg", icon='SHADING_WIRE')

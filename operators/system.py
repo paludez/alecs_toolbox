@@ -285,31 +285,29 @@ class ALEC_OT_open_alec_panel(bpy.types.Operator):
             return {"CANCELLED"}
 
         ui_region = next((r for r in area.regions if r.type == "UI"), None)
-        sidebar_open = bool(ui_region and ui_region.width > 1)
+        sidebar_open = bool(getattr(space, "show_region_ui", False))
         cur = (
             getattr(ui_region, "active_panel_category", None) if ui_region else None
         )
 
         if sidebar_open and cur == self._CATEGORY:
-            if hasattr(space, "show_region_ui"):
-                space.show_region_ui = False
+            space.show_region_ui = False
             area.tag_redraw()
             return {"FINISHED"}
 
-        if hasattr(space, "show_region_ui"):
-            space.show_region_ui = True
+        space.show_region_ui = True
+        category = self._CATEGORY
+        if ui_region is not None and hasattr(ui_region, "active_panel_category"):
+            try:
+                ui_region.active_panel_category = category
+            except Exception:
+                pass
+
         area.tag_redraw()
 
-        category = self._CATEGORY
-
         def apply_category():
-            ctx = bpy.context
-            ar = ctx.area
+            ar = area
             if ar is None or ar.type != "VIEW_3D":
-                ar = next(
-                    (a for a in ctx.screen.areas if a.type == "VIEW_3D"), None
-                )
-            if ar is None:
                 return None
             ui = next((r for r in ar.regions if r.type == "UI"), None)
             if ui is not None and hasattr(ui, "active_panel_category"):

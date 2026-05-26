@@ -428,6 +428,11 @@ def find_layer_collection(layer_coll, target_coll):
     return None
 
 
+def bbox_helpers_collection_name(scene):
+    """Per-scene collection name used by BBox helper cages (see get_or_create_collection)."""
+    return _per_scene_helpers_collection_name(scene, "bbox_helpers")
+
+
 def draw_hidden_coll_toggle(layout, context, coll_name, text, icon='HIDE_ON'):
     """Draw a toggle button for a hidden auxiliary collection's View Layer exclude state."""
     coll = bpy.data.collections.get(coll_name)
@@ -439,6 +444,17 @@ def draw_hidden_coll_toggle(layout, context, coll_name, text, icon='HIDE_ON'):
     op = layout.operator("alec.hidden_collection_visibility", text=text, icon=icon)
     op.coll_name = coll_name
     op.action = 'TOGGLE'
+
+
+def draw_bbox_helpers_coll_toggle(layout, context, text="BBox Layer", icon='MESH_CUBE'):
+    """Toggle View Layer exclude for the scene's bbox_helpers collection."""
+    coll = bpy.data.collections.get(bbox_helpers_collection_name(context.scene))
+    if coll is not None:
+        layer_coll = find_layer_collection(context.view_layer.layer_collection, coll)
+        if layer_coll is not None:
+            layout.prop(layer_coll, "exclude", text=text, toggle=True, icon=icon)
+            return
+    layout.operator("alec.toggle_bbox_helpers_collection", text=text, icon=icon)
 
 
 def move_to_collection(obj, target_collection):

@@ -1,44 +1,92 @@
 import bpy
 
+
+def _assign_material_to_selected_meshes(context, mat) -> None:
+    for obj in context.selected_objects:
+        if obj.type != "MESH":
+            continue
+        if not obj.data.materials:
+            obj.data.materials.append(mat)
+        else:
+            obj.material_slots[obj.active_material_index].material = mat
+
+
 class ALEC_OT_assign_gray_material(bpy.types.Operator):
-    """Create and assign a 70% Gray material to selected objects"""
+    """Create a new 70% gray material and assign it to selected meshes (each press adds Gray, Gray.001, …)."""
     bl_idname = "alec.assign_gray_material"
     bl_label = "Assign Gray Material"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
-        mat_name = "Gray"
-        if mat_name in bpy.data.materials:
-            mat = bpy.data.materials[mat_name]
-        else:
-            mat = bpy.data.materials.new(name=mat_name)
-            mat.use_nodes = True
-            bsdf = mat.node_tree.nodes.get("Principled BSDF")
-            if bsdf:
-                val = 0.7
-                bsdf.inputs['Base Color'].default_value = (val, val, val, 1.0)
-        
-        for obj in context.selected_objects:
-            if obj.type == 'MESH':
-                if not obj.data.materials:
-                    obj.data.materials.append(mat)
-                else:
-                    obj.material_slots[obj.active_material_index].material = mat
-        return {'FINISHED'}
+        mat = bpy.data.materials.new(name="Gray")
+        mat.use_nodes = True
+        bsdf = mat.node_tree.nodes.get("Principled BSDF")
+        if bsdf:
+            val = 0.7
+            bsdf.inputs["Base Color"].default_value = (val, val, val, 1.0)
 
-class ALEC_OT_remove_orphan_materials(bpy.types.Operator):
-    """Remove materials that have 0 users"""
-    bl_idname = "alec.remove_orphan_materials"
-    bl_label = "Remove Unused Materials"
-    bl_options = {'REGISTER', 'UNDO'}
+        _assign_material_to_selected_meshes(context, mat)
+        return {"FINISHED"}
+
+
+class ALEC_OT_assign_emissive_material(bpy.types.Operator):
+    """Create a new emissive material and assign it to selected meshes (each press adds Emissive, Emissive.001, …)."""
+
+    bl_idname = "alec.assign_emissive_material"
+    bl_label = "Assign Emissive Material"
+    bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
-        to_remove = [m for m in bpy.data.materials if m.users == 0 and not m.use_fake_user]
-        count = len(to_remove)
-        for m in to_remove:
-            bpy.data.materials.remove(m)
-        self.report({'INFO'}, f"Removed {count} materials")
-        return {'FINISHED'}
+        mat = bpy.data.materials.new(name="Emissive")
+        mat.use_nodes = True
+        bsdf = mat.node_tree.nodes.get("Principled BSDF")
+        if bsdf:
+            bsdf.inputs["Base Color"].default_value = (0.0, 0.0, 0.0, 1.0)
+            bsdf.inputs["Emission Color"].default_value = (1.0, 1.0, 1.0, 1.0)
+            bsdf.inputs["Emission Strength"].default_value = 1.0
+        _assign_material_to_selected_meshes(context, mat)
+        return {"FINISHED"}
+
+
+def _remove_unused_material_slots(obj) -> int:
+    """Drop mesh material slots not referenced by any face (Blender Clean Slots)."""
+    if obj.type != "MESH" or obj.data is None:
+        return 0
+    mesh = obj.data
+    used = {poly.material_index for poly in mesh.polygons}
+    removed = 0
+    for slot_idx in range(len(mesh.materials) - 1, -1, -1):
+        if slot_idx in used:
+            continue
+        mesh.materials.pop(index=slot_idx)
+        for poly in mesh.polygons:
+            if poly.material_index > slot_idx:
+                poly.material_index -= 1
+        removed += 1
+    if removed:
+        mesh.update()
+    return removed
+
+
+class ALEC_OT_remove_orphan_materials(bpy.types.Operator):
+    """Remove unused material slots on selected mesh objects."""
+    bl_idname = "alec.remove_orphan_materials"
+    bl_label = "Remove Unused Slots"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return any(o.type == "MESH" for o in context.selected_objects)
+
+    def execute(self, context):
+        meshes = [o for o in context.selected_objects if o.type == "MESH"]
+        if not meshes:
+            self.report({"WARNING"}, "No mesh selected")
+            return {"CANCELLED"}
+
+        removed = sum(_remove_unused_material_slots(obj) for obj in meshes)
+        self.report({"INFO"}, f"Removed {removed} unused slot(s)")
+        return {"FINISHED"}
 
 class ALEC_OT_select_material_users(bpy.types.Operator):
     """Select all objects in the scene that use the active material"""
@@ -275,6 +323,7 @@ class ALEC_OT_material_linker(bpy.types.Operator):
 
 classes = (
     ALEC_OT_assign_gray_material,
+    ALEC_OT_assign_emissive_material,
     ALEC_OT_remove_orphan_materials,
     ALEC_OT_select_material_users,
     ALEC_OT_modify_material_slot,

@@ -431,6 +431,17 @@ class ALEC_MT_object_menu(bpy.types.Menu):
         )
         row_align.operator_context = prev_ctx
 
+        row_cent_axis = box_align.row(align=True)
+        prev_ca = row_cent_axis.operator_context
+        row_cent_axis.operator_context = "INVOKE_DEFAULT"
+        op_ca_x = row_cent_axis.operator("alec.align_preset_center_axis", text="X")
+        op_ca_x.axis = "X"
+        op_ca_y = row_cent_axis.operator("alec.align_preset_center_axis", text="Y")
+        op_ca_y.axis = "Y"
+        op_ca_z = row_cent_axis.operator("alec.align_preset_center_axis", text="Z")
+        op_ca_z.axis = "Z"
+        row_cent_axis.operator_context = prev_ca
+
         row_distrib = box_align.row(align=True)
         row_distrib.operator(
             "alec.distribute_objects_dialog",
@@ -490,11 +501,22 @@ class ALEC_MT_object_menu(bpy.types.Menu):
         box_mat.label(text="Materials", icon='MATERIAL')
         col_inner = box_mat.column(align=True)
         col_inner.operator("alec.material_linker", text="Material Linker")
+        row_links = col_inner.row(align=True)
         safe_operator_props(
-            col_inner.operator("object.make_links_data", text="Link Materials", icon='LINKED'),
+            row_links.operator("object.make_links_data", text="Link Mats", icon='LINKED'),
             type='MATERIAL',
         )
-        col_inner.operator("alec.assign_gray_material", text="Gray Material (70%)", icon='SHADING_SOLID')
+        safe_operator_props(
+            row_links.operator("object.make_links_data", text="Link Modif.", icon='MODIFIER'),
+            type='MODIFIERS',
+        )
+        row_mat_quick = col_inner.row(align=True)
+        row_mat_quick.operator(
+            "alec.assign_gray_material", text="Gray (70%)", icon="SHADING_SOLID"
+        )
+        row_mat_quick.operator(
+            "alec.assign_emissive_material", text="Emissive", icon="LIGHT"
+        )
         col_inner.operator("alec.remove_orphan_materials", text="Clean Unused", icon='TRASH')
         col_inner.operator("alec.select_material_users", text="Select Users", icon='RESTRICT_SELECT_OFF')
 
