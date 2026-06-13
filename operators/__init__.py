@@ -1,6 +1,7 @@
 import bpy
 
 from . import align
+from . import attributes
 from . import distribute
 from . import angle_rays
 from . import auto_linked_mode
@@ -26,6 +27,7 @@ from . import viewport_tools
 
 classes = (
     *align.classes,
+    *attributes.classes,
     *distribute.classes,
     *angle_rays.classes,
     *auto_linked_mode.classes,
@@ -55,6 +57,7 @@ _app_handlers = []
 def register():
     for cls in classes:
         bpy.utils.register_class(cls)
+    attributes.post_register()
     batch_materials.post_register()
     triplanar_mapping.post_register()
     camera_tools.register_focal_lens_scene_props()
@@ -74,6 +77,7 @@ def unregister():
     notice_overlay.unregister()
     edit_mesh.unregister_draw_handler()
     auto_linked_mode._exit_auto_linked()
+    attributes.post_unregister()
     batch_materials.post_unregister()
     camera_tools.unregister_focal_lens_scene_props()
     camera_tools.unregister_camera_sphere_object_props()

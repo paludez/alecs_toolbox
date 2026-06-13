@@ -1,4 +1,4 @@
-"""N-panel Alec tab: Camera Tools + Lights + 2D Drafting + Misc submenu."""
+"""N-panel Alec tab: Camera Tools + Lights + 2D Drafting + Misc Attributes/Materials."""
 
 import bpy
 
@@ -587,12 +587,34 @@ class ALEC_PT_alec_misc(bpy.types.Panel):
         pass
 
 
+class ALEC_PT_alec_misc_attributes(bpy.types.Panel):
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "Alec"
+    bl_label = "Attributes"
+    bl_parent_id = "ALEC_PT_alec_misc"
+    bl_order = 0
+
+    @classmethod
+    def poll(cls, context):
+        return context.area and context.area.type == "VIEW_3D"
+
+    def draw(self, _context):
+        layout = self.layout
+        layout.operator(
+            "alec.list_mesh_attributes",
+            text="List Attributes",
+            icon="LINENUMBERS_OFF",
+        )
+
+
 class ALEC_PT_alec_misc_materials(bpy.types.Panel):
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "Alec"
     bl_label = "Materials"
     bl_parent_id = "ALEC_PT_alec_misc"
+    bl_order = 1
 
     @classmethod
     def poll(cls, context):
@@ -619,11 +641,13 @@ def register():
     _register_camera_ui_dummy_props()
     bpy.utils.register_class(ALEC_PT_npanelMain)
     bpy.utils.register_class(ALEC_PT_alec_misc)
+    bpy.utils.register_class(ALEC_PT_alec_misc_attributes)
     bpy.utils.register_class(ALEC_PT_alec_misc_materials)
 
 
 def unregister():
     bpy.utils.unregister_class(ALEC_PT_alec_misc_materials)
+    bpy.utils.unregister_class(ALEC_PT_alec_misc_attributes)
     bpy.utils.unregister_class(ALEC_PT_alec_misc)
     bpy.utils.unregister_class(ALEC_PT_npanelMain)
     _unregister_lights_ui_dummy_props()
