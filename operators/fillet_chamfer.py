@@ -14,7 +14,8 @@ Corner selection is derived purely from the two click positions — no separate
 quadrant UI needed. The four geometric cases are handled automatically:
   1. Shared vertex (L): Va==Vb, standard arc, shared vertex removed.
   2. Not touching (V): Va extended toward apex if radius small, else split.
-  3. Crossing (X): click near an endpoint trims the FAR half (opposite quadrant);
+  3. Crossing (X): click on a segment half picks that quadrant at the intersection
+     (param along edge vs. crossing point, not nearest endpoint).
      L/V/shared-apex still use nearest endpoint as corner-side.
   4. Parallel: fixed-radius semicircle; chord from Va/Vb (mid projected),
      bulge faces the corner-intent side (midpoint Va–Vb). Wheel adjusts segments.
@@ -50,31 +51,63 @@ def _perp_2d(v: Vector) -> Vector:
     return Vector((-v.y, v.x))
 
 
+def _segment_intersection_params_uv(
+    a0_uv: Vector, a1_uv: Vector, b0_uv: Vector, b1_uv: Vector,
+) -> tuple[float, float] | None:
+    """Intersection of infinite lines through both segments in UV. Returns (s_on_a, t_on_b)."""
+    d_a = a1_uv - a0_uv
+    d_b = b1_uv - b0_uv
+    cross_ab = _cross_2d(d_a, d_b)
+    if abs(cross_ab) < 1e-9 * max(d_a.length, d_b.length, 1.0):
+        return None
+    rhs = b0_uv - a0_uv
+    s_on_a = _cross_2d(rhs, d_b) / cross_ab
+    t_on_b = _cross_2d(rhs, d_a) / cross_ab
+    return float(s_on_a), float(t_on_b)
+
+
 def _intersection_inside_both_segments(
     a0_uv: Vector, a1_uv: Vector, b0_uv: Vector, b1_uv: Vector,
 ) -> bool:
     """True iff infinite lines through A and B meet strictly inside BOTH
     finite segments (proper X; not touching at an endpoint only).
     """
+    params = _segment_intersection_params_uv(a0_uv, a1_uv, b0_uv, b1_uv)
+    if params is None:
+        return False
+    s_on_a, t_on_b = params
     d_a = a1_uv - a0_uv
     d_b = b1_uv - b0_uv
-    cross_ab = _cross_2d(d_a, d_b)
-    if abs(cross_ab) < 1e-9 * max(d_a.length, d_b.length, 1.0):
-        return False
-    rhs = b0_uv - a0_uv
-    s_on_a = _cross_2d(rhs, d_b) / cross_ab
-    t_on_b = _cross_2d(rhs, d_a) / cross_ab
     tol = max(_EPS, 1e-8 * max(d_a.length, d_b.length, 1.0))
     return (
         tol < s_on_a < 1.0 - tol and tol < t_on_b < 1.0 - tol
     )
 
 
+def _crossing_va_endpoint_uv(
+    a0_uv: Vector,
+    a1_uv: Vector,
+    click_uv: Vector,
+    s_intersection: float,
+) -> int:
+    """Endpoint index for Va when segments cross: fillet opens toward the clicked half."""
+    d = a1_uv - a0_uv
+    len_sq = d.length_squared
+    if len_sq < 1e-18:
+        return 0
+    t_click = (click_uv - a0_uv).dot(d) / len_sq
+    # Click on the a0 side of the intersection -> Va is a1 (rays aim toward a0).
+    if t_click <= s_intersection:
+        return 1
+    return 0
+
+
 def _classify_pair(edge_a, edge_b, mw, click_a_w=None, click_b_w=None):
     """Return per-edge endpoint roles in 2D working-plane coords.
 
     *click_a_w* / *click_b_w*: world clicks. Nearer endpoint becomes Va/Vb (L/V).
-    When finite segments properly cross (X), the farther endpoint becomes Va/Vb.
+    When finite segments properly cross (X), the click's position along each edge
+    relative to the intersection picks the fillet quadrant.
 
     Returns a dict with keys:
         'plane', 'Va_uv', 'Wa_uv', 'Vb_uv', 'Wb_uv',
@@ -97,12 +130,21 @@ def _classify_pair(edge_a, edge_b, mw, click_a_w=None, click_b_w=None):
     b1 = Vector(cp.to_uv(b1_w, origin, u_ax, v_ax))
 
     is_crossing = _intersection_inside_both_segments(a0, a1, b0, b1)
+    # Compute intersection params for ALL non-parallel cases — used for both X and V/T.
+    ix_params = _segment_intersection_params_uv(a0, a1, b0, b1)
 
     if click_a_w is not None:
-        pa_near = (
-            0 if (a0_w - click_a_w).length_squared <= (a1_w - click_a_w).length_squared else 1
-        )
-        pa = (1 - pa_near) if is_crossing else pa_near
+        if ix_params is not None:
+            # Use param-based side: compare click position along edge vs intersection param.
+            # Works for X, V, T and L — parallel (ix_params=None) falls through to distance.
+            click_a_uv = Vector(cp.to_uv(Vector(click_a_w), origin, u_ax, v_ax))
+            pa = _crossing_va_endpoint_uv(a0, a1, click_a_uv, ix_params[0])
+        else:
+            pa = (
+                0
+                if (a0_w - click_a_w).length_squared <= (a1_w - click_a_w).length_squared
+                else 1
+            )
     else:
         d_a0 = min((a0_w - b0_w).length_squared, (a0_w - b1_w).length_squared)
         d_a1 = min((a1_w - b0_w).length_squared, (a1_w - b1_w).length_squared)
@@ -110,10 +152,15 @@ def _classify_pair(edge_a, edge_b, mw, click_a_w=None, click_b_w=None):
         pa = (1 - pa_near) if is_crossing else pa_near
 
     if click_b_w is not None:
-        pb_near = (
-            0 if (b0_w - click_b_w).length_squared <= (b1_w - click_b_w).length_squared else 1
-        )
-        pb = (1 - pb_near) if is_crossing else pb_near
+        if ix_params is not None:
+            click_b_uv = Vector(cp.to_uv(Vector(click_b_w), origin, u_ax, v_ax))
+            pb = _crossing_va_endpoint_uv(b0, b1, click_b_uv, ix_params[1])
+        else:
+            pb = (
+                0
+                if (b0_w - click_b_w).length_squared <= (b1_w - click_b_w).length_squared
+                else 1
+            )
     else:
         d_b0 = min((b0_w - a0_w).length_squared, (b0_w - a1_w).length_squared)
         d_b1 = min((b1_w - a0_w).length_squared, (b1_w - a1_w).length_squared)

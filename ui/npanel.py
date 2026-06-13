@@ -601,6 +601,7 @@ class ALEC_PT_alec_misc_materials(bpy.types.Panel):
     def draw(self, _context):
         layout = self.layout
         col = layout.column(align=True)
+        col.operator("alec.material_linker", text="Material Linker", icon="MATERIAL")
         col.operator("alec.make_mat_from_tex", text="Make Mat From Tex", icon="MATERIAL_DATA")
         col.operator("alec.open_material_preview_scene", text="Open Material Preview Scene", icon="FILE_BLEND")
         row = col.row(align=True)

@@ -500,7 +500,6 @@ class ALEC_MT_object_menu(bpy.types.Menu):
         box_mat = col_down.box()
         box_mat.label(text="Materials", icon='MATERIAL')
         col_inner = box_mat.column(align=True)
-        col_inner.operator("alec.material_linker", text="Material Linker")
         row_links = col_inner.row(align=True)
         safe_operator_props(
             row_links.operator("object.make_links_data", text="Link Mats", icon='LINKED'),

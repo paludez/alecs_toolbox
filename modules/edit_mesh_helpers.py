@@ -799,6 +799,27 @@ def _plane_cross_2d(vec_a, vec_b, plane_n) -> float:
     return Vector(vec_a).cross(Vector(vec_b)).dot(Vector(plane_n).normalized())
 
 
+def segments_intersection_params_plane(
+    p0: Vector,
+    p1: Vector,
+    q0: Vector,
+    q1: Vector,
+    plane_n,
+    eps: float = 1e-9,
+) -> tuple[float, float] | None:
+    """Parametric intersection of infinite lines through p0–p1 and q0–q1. Returns (s, t) or None."""
+    plane_n = Vector(plane_n).normalized()
+    d_a = Vector(p1) - Vector(p0)
+    d_b = Vector(q1) - Vector(q0)
+    cross_ab = _plane_cross_2d(d_a, d_b, plane_n)
+    if abs(cross_ab) < eps * max(d_a.length, d_b.length, 1.0):
+        return None
+    rhs = Vector(q0) - Vector(p0)
+    s_on_a = _plane_cross_2d(rhs, d_b, plane_n) / cross_ab
+    t_on_b = _plane_cross_2d(rhs, d_a, plane_n) / cross_ab
+    return float(s_on_a), float(t_on_b)
+
+
 def segments_cross_inside_plane(
     p0: Vector,
     p1: Vector,
@@ -808,17 +829,31 @@ def segments_cross_inside_plane(
     eps: float = 1e-9,
 ) -> bool:
     """True when infinite lines through both segments meet strictly inside both."""
-    plane_n = Vector(plane_n).normalized()
+    params = segments_intersection_params_plane(p0, p1, q0, q1, plane_n, eps)
+    if params is None:
+        return False
+    s_on_a, t_on_b = params
     d_a = Vector(p1) - Vector(p0)
     d_b = Vector(q1) - Vector(q0)
-    cross_ab = _plane_cross_2d(d_a, d_b, plane_n)
-    if abs(cross_ab) < eps * max(d_a.length, d_b.length, 1.0):
-        return False
-    rhs = Vector(q0) - Vector(p0)
-    s_on_a = _plane_cross_2d(rhs, d_b, plane_n) / cross_ab
-    t_on_b = _plane_cross_2d(rhs, d_a, plane_n) / cross_ab
     tol = max(eps, 1e-8 * max(d_a.length, d_b.length, 1.0))
     return tol < s_on_a < 1.0 - tol and tol < t_on_b < 1.0 - tol
+
+
+def crossing_endpoint_from_click_plane(
+    p0: Vector,
+    p1: Vector,
+    click: Vector,
+    s_intersection: float,
+) -> int:
+    """Endpoint index for Va when segments cross: fillet opens toward the clicked half."""
+    d = Vector(p1) - Vector(p0)
+    len_sq = d.length_squared
+    if len_sq < 1e-18:
+        return 0
+    t_click = (Vector(click) - Vector(p0)).dot(d) / len_sq
+    if t_click <= s_intersection:
+        return 1
+    return 0
 
 
 def tan_tan_side_signs(point, origin_a, dir_a, origin_b, dir_b, plane_n):
@@ -850,13 +885,20 @@ def tan_tan_oriented_lines(context, mw, edge_a, edge_b, click_a_w=None, click_b_
     b0, b1 = _proj(b0_w), _proj(b1_w)
 
     is_crossing = segments_cross_inside_plane(a0, a1, b0, b1, plane_n)
+    # Compute intersection params for ALL non-parallel cases — used for X, V/T and L.
+    ix_params = segments_intersection_params_plane(a0, a1, b0, b1, plane_n)
 
     if click_a_w is not None:
         click_a_w = Vector(click_a_w)
-        pa_near = (
-            0 if (a0_w - click_a_w).length_squared <= (a1_w - click_a_w).length_squared else 1
-        )
-        pa = (1 - pa_near) if is_crossing else pa_near
+        if ix_params is not None:
+            click_a_p = cp.project_onto_cursor_plane(context, click_a_w)
+            pa = crossing_endpoint_from_click_plane(a0, a1, click_a_p, ix_params[0])
+        else:
+            pa = (
+                0
+                if (a0_w - click_a_w).length_squared <= (a1_w - click_a_w).length_squared
+                else 1
+            )
     else:
         d_a0 = min((a0 - b0).length_squared, (a0 - b1).length_squared)
         d_a1 = min((a1 - b0).length_squared, (a1 - b1).length_squared)
@@ -865,10 +907,15 @@ def tan_tan_oriented_lines(context, mw, edge_a, edge_b, click_a_w=None, click_b_
 
     if click_b_w is not None:
         click_b_w = Vector(click_b_w)
-        pb_near = (
-            0 if (b0_w - click_b_w).length_squared <= (b1_w - click_b_w).length_squared else 1
-        )
-        pb = (1 - pb_near) if is_crossing else pb_near
+        if ix_params is not None:
+            click_b_p = cp.project_onto_cursor_plane(context, click_b_w)
+            pb = crossing_endpoint_from_click_plane(b0, b1, click_b_p, ix_params[1])
+        else:
+            pb = (
+                0
+                if (b0_w - click_b_w).length_squared <= (b1_w - click_b_w).length_squared
+                else 1
+            )
     else:
         d_b0 = min((b0 - a0).length_squared, (b0 - a1).length_squared)
         d_b1 = min((b1 - a0).length_squared, (b1 - a1).length_squared)

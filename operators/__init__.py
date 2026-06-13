@@ -1,6 +1,7 @@
 import bpy
 
 from . import align
+from . import distribute
 from . import angle_rays
 from . import auto_linked_mode
 from . import batch_materials
@@ -25,6 +26,7 @@ from . import viewport_tools
 
 classes = (
     *align.classes,
+    *distribute.classes,
     *angle_rays.classes,
     *auto_linked_mode.classes,
     *batch_materials.classes,
