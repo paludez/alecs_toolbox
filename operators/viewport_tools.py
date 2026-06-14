@@ -131,6 +131,90 @@ class ALEC_OT_viewport_toggle_overlay_wireframes(bpy.types.Operator):
         return {"FINISHED"}
 
 
+_WIREFRAME_COLOR_CYCLE = ("THEME", "OBJECT", "RANDOM")
+_WIREFRAME_COLOR_LABELS = {
+    "THEME": "Theme",
+    "OBJECT": "Object",
+    "RANDOM": "Random",
+}
+
+
+class ALEC_OT_viewport_cycle_wireframe_color_type(bpy.types.Operator):
+    """Cycle viewport wireframe color: Theme → Object → Random."""
+
+    bl_idname = "alec.viewport_cycle_wireframe_color_type"
+    bl_label = "Cycle Wireframe Color"
+    bl_description = "Cycle wireframe color type: Theme, Object, Random"
+    bl_options = {"REGISTER"}
+
+    @classmethod
+    def poll(cls, context):
+        return _view3d_space(context) is not None
+
+    def execute(self, context):
+        space = _view3d_space(context)
+        if space is None:
+            return {"CANCELLED"}
+        shading = space.shading
+        current = shading.wireframe_color_type
+        try:
+            idx = _WIREFRAME_COLOR_CYCLE.index(current)
+        except ValueError:
+            idx = -1
+        new_mode = _WIREFRAME_COLOR_CYCLE[(idx + 1) % len(_WIREFRAME_COLOR_CYCLE)]
+        shading.wireframe_color_type = new_mode
+        status_bar.show_toggle_notice("Wire", _WIREFRAME_COLOR_LABELS[new_mode])
+        return {"FINISHED"}
+
+
+_COLOR_TYPE_CYCLE = (
+    "MATERIAL",
+    "OBJECT",
+    "RANDOM",
+    "VERTEX",
+    "TEXTURE",
+    "SINGLE",
+)
+_COLOR_TYPE_LABELS = {
+    "MATERIAL": "Material",
+    "OBJECT": "Object",
+    "RANDOM": "Random",
+    "VERTEX": "Attribute",
+    "TEXTURE": "Texture",
+    "SINGLE": "Custom",
+}
+
+
+class ALEC_OT_viewport_cycle_color_type(bpy.types.Operator):
+    """Cycle viewport color type through all six Solid shading modes."""
+
+    bl_idname = "alec.viewport_cycle_color_type"
+    bl_label = "Cycle Object Color"
+    bl_description = (
+        "Cycle color type: Material, Object, Random, Attribute, Texture, Custom"
+    )
+    bl_options = {"REGISTER"}
+
+    @classmethod
+    def poll(cls, context):
+        return _view3d_space(context) is not None
+
+    def execute(self, context):
+        space = _view3d_space(context)
+        if space is None:
+            return {"CANCELLED"}
+        shading = space.shading
+        current = shading.color_type
+        try:
+            idx = _COLOR_TYPE_CYCLE.index(current)
+        except ValueError:
+            idx = -1
+        new_mode = _COLOR_TYPE_CYCLE[(idx + 1) % len(_COLOR_TYPE_CYCLE)]
+        shading.color_type = new_mode
+        status_bar.show_toggle_notice("Color", _COLOR_TYPE_LABELS[new_mode])
+        return {"FINISHED"}
+
+
 class ALEC_OT_viewport_toggle_curve_bezier_handles(bpy.types.Operator):
     """Toggle Bezier handle overlay: hidden, or only for selected control points (SELECTED / NONE)."""
 
@@ -154,36 +238,6 @@ class ALEC_OT_viewport_toggle_curve_bezier_handles(bpy.types.Operator):
             ov.display_handle = "SELECTED"
         else:
             ov.display_handle = "NONE"
-        return {"FINISHED"}
-
-
-class ALEC_OT_viewport_toggle_shading_solid(bpy.types.Operator):
-    """Solid shading, then Solid + overlay wireframes; third press clears overlay."""
-
-    bl_idname = "alec.viewport_toggle_shading_solid"
-    bl_label = "Toggle Solid Shading"
-    bl_description = "Solid, then Solid with overlay wireframes (Alt+F3 toggles overlay in any mode)"
-    bl_options = {"REGISTER"}
-
-    @classmethod
-    def poll(cls, context):
-        return _view3d_space(context) is not None
-
-    def execute(self, context):
-        space = _view3d_space(context)
-        if space is None:
-            return {"CANCELLED"}
-        shading = space.shading
-        ov = space.overlay
-        if shading.type == "SOLID" and ov.show_wireframes:
-            ov.show_wireframes = False
-            _apply_solid_shading(shading)
-        elif shading.type == "SOLID":
-            _apply_solid_shading(shading)
-            ov.show_wireframes = True
-        else:
-            _apply_solid_shading(shading)
-            ov.show_wireframes = False
         return {"FINISHED"}
 
 
@@ -509,8 +563,9 @@ classes = (
     ALEC_OT_viewport_toggle_wireframe_xray,
     ALEC_OT_viewport_toggle_overlay_axes,
     ALEC_OT_viewport_toggle_overlay_wireframes,
+    ALEC_OT_viewport_cycle_wireframe_color_type,
+    ALEC_OT_viewport_cycle_color_type,
     ALEC_OT_viewport_toggle_curve_bezier_handles,
-    ALEC_OT_viewport_toggle_shading_solid,
     ALEC_OT_viewport_toggle_shading_rendered,
     ALEC_OT_viewport_toggle_shading_material,
     ALEC_OT_light_energy_modal,

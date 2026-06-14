@@ -635,6 +635,24 @@ class ALEC_PT_alec_misc_materials(bpy.types.Panel):
         )
 
 
+class ALEC_PT_alec_misc_modifiers(bpy.types.Panel):
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "Alec"
+    bl_label = "Modifiers"
+    bl_parent_id = "ALEC_PT_alec_misc"
+    bl_order = 2
+
+    @classmethod
+    def poll(cls, context):
+        return context.area and context.area.type == "VIEW_3D"
+
+    def draw(self, _context):
+        col = self.layout.column(align=True)
+        col.operator("alec.list_modifier_types", text="List Modifiers", icon="MODIFIER")
+        col.operator("alec.modifier_linker", text="Modifier Linker", icon="MODIFIER_DATA")
+
+
 def register():
     _register_transform_ui_dummy_props()
     _register_lights_ui_dummy_props()
@@ -643,9 +661,11 @@ def register():
     bpy.utils.register_class(ALEC_PT_alec_misc)
     bpy.utils.register_class(ALEC_PT_alec_misc_attributes)
     bpy.utils.register_class(ALEC_PT_alec_misc_materials)
+    bpy.utils.register_class(ALEC_PT_alec_misc_modifiers)
 
 
 def unregister():
+    bpy.utils.unregister_class(ALEC_PT_alec_misc_modifiers)
     bpy.utils.unregister_class(ALEC_PT_alec_misc_materials)
     bpy.utils.unregister_class(ALEC_PT_alec_misc_attributes)
     bpy.utils.unregister_class(ALEC_PT_alec_misc)

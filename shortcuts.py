@@ -22,6 +22,11 @@ _km_move_tool_mesh = None
 _km_move_tool_curve = None
 _km_move_tool_curves = None
 _km_move_tool_uv = None
+_km_move_tool_armature = None
+_km_move_tool_pose = None
+_km_move_tool_lattice = None
+_km_move_tool_surface = None
+_km_move_tool_metaball = None
 
 
 def _addon_prefs():
@@ -133,10 +138,11 @@ def _register_core_keymaps():
             _pref(prefs, "shortcut_alt_rmb_quad"),
             _pref(prefs, "shortcut_f1_search"),
             _pref(prefs, "shortcut_f3_wireframe_xray"),
-            _pref(prefs, "shortcut_f4_solid"),
+            _pref(prefs, "shortcut_f4_overlay_wireframes"),
+            _pref(prefs, "shortcut_alt_f3_wireframe_color"),
+            _pref(prefs, "shortcut_ctrl_alt_f3_color_type"),
             _pref(prefs, "shortcut_f5_rendered"),
             _pref(prefs, "shortcut_f6_material"),
-            _pref(prefs, "shortcut_alt_f3_overlay_wireframes"),
             _pref(prefs, "shortcut_c_camera"),
             _pref(prefs, "shortcut_grave_isolate"),
             _pref(prefs, "shortcut_alt_grave_orientation"),
@@ -170,11 +176,23 @@ def _register_core_keymaps():
         )
         _addon_keymaps_core.append((km, kmi_f3))
 
-    if km is not None and _pref(prefs, "shortcut_f4_solid"):
+    if km is not None and _pref(prefs, "shortcut_f4_overlay_wireframes"):
         kmi_f4 = km.keymap_items.new(
-            "alec.viewport_toggle_shading_solid", "F4", "PRESS"
+            "alec.viewport_toggle_overlay_wireframes", "F4", "PRESS"
         )
         _addon_keymaps_core.append((km, kmi_f4))
+
+    if km is not None and _pref(prefs, "shortcut_alt_f3_wireframe_color"):
+        kmi_alt_f3 = km.keymap_items.new(
+            "alec.viewport_cycle_wireframe_color_type", "F3", "PRESS", alt=True
+        )
+        _addon_keymaps_core.append((km, kmi_alt_f3))
+
+    if km is not None and _pref(prefs, "shortcut_ctrl_alt_f3_color_type"):
+        kmi_ctrl_alt_f3 = km.keymap_items.new(
+            "alec.viewport_cycle_color_type", "F3", "PRESS", ctrl=True, alt=True
+        )
+        _addon_keymaps_core.append((km, kmi_ctrl_alt_f3))
 
     if km is not None and _pref(prefs, "shortcut_f5_rendered"):
         kmi_f5 = km.keymap_items.new(
@@ -187,12 +205,6 @@ def _register_core_keymaps():
             "alec.viewport_toggle_shading_material", "F6", "PRESS"
         )
         _addon_keymaps_core.append((km, kmi_f6))
-
-    if km is not None and _pref(prefs, "shortcut_alt_f3_overlay_wireframes"):
-        kmi_alt_f3 = km.keymap_items.new(
-            "alec.viewport_toggle_overlay_wireframes", "F3", "PRESS", alt=True
-        )
-        _addon_keymaps_core.append((km, kmi_alt_f3))
 
     if km is not None and _pref(prefs, "shortcut_c_camera"):
         kmi_camera_view = km.keymap_items.new(
@@ -296,7 +308,7 @@ def _register_core_keymaps():
 
 
 def _register_toolbar_tool_keymaps():
-    """W → Move, E → Rotate (left toolbar); Mesh/Curve/Curves: Alt+E → extrude (was E)."""
+    """W → Move, E → Rotate (left toolbar); Alt+E → extrude where applicable (was E)."""
     prefs = _addon_prefs()
     need = (
         _pref(prefs, "shortcut_w_move_tool")
@@ -309,6 +321,8 @@ def _register_toolbar_tool_keymaps():
     global _km_move_tool_object, _km_move_tool_mesh
     global _km_move_tool_curve, _km_move_tool_curves
     global _km_move_tool_uv
+    global _km_move_tool_armature, _km_move_tool_pose
+    global _km_move_tool_lattice, _km_move_tool_surface, _km_move_tool_metaball
     wm = bpy.context.window_manager
     kc = wm.keyconfigs.addon
     if not kc:
@@ -334,12 +348,37 @@ def _register_toolbar_tool_keymaps():
         _km_move_tool_uv = kc.keymaps.new(
             "UV Editor", space_type="EMPTY", region_type="WINDOW"
         )
+    if _km_move_tool_armature is None:
+        _km_move_tool_armature = kc.keymaps.new(
+            "Armature", space_type="EMPTY", region_type="WINDOW"
+        )
+    if _km_move_tool_pose is None:
+        _km_move_tool_pose = kc.keymaps.new(
+            "Pose", space_type="EMPTY", region_type="WINDOW"
+        )
+    if _km_move_tool_lattice is None:
+        _km_move_tool_lattice = kc.keymaps.new(
+            "Lattice", space_type="EMPTY", region_type="WINDOW"
+        )
+    if _km_move_tool_surface is None:
+        _km_move_tool_surface = kc.keymaps.new(
+            "Surface", space_type="EMPTY", region_type="WINDOW"
+        )
+    if _km_move_tool_metaball is None:
+        _km_move_tool_metaball = kc.keymaps.new(
+            "Metaball", space_type="EMPTY", region_type="WINDOW"
+        )
     _toolbar_kms = (
         _km_move_tool_object,
         _km_move_tool_mesh,
         _km_move_tool_curve,
         _km_move_tool_curves,
         _km_move_tool_uv,
+        _km_move_tool_armature,
+        _km_move_tool_pose,
+        _km_move_tool_lattice,
+        _km_move_tool_surface,
+        _km_move_tool_metaball,
     )
     if _pref(prefs, "shortcut_w_move_tool"):
         for km in _toolbar_kms:
@@ -369,6 +408,14 @@ def _register_toolbar_tool_keymaps():
             "curves.extrude_move", "E", "PRESS", alt=True
         )
         _addon_keymaps_toolbar_tools.append((_km_move_tool_curves, kmi_curves_alt))
+        kmi_armature_alt = _km_move_tool_armature.keymap_items.new(
+            "armature.extrude_move", "E", "PRESS", alt=True
+        )
+        _addon_keymaps_toolbar_tools.append((_km_move_tool_armature, kmi_armature_alt))
+        kmi_surface_alt = _km_move_tool_surface.keymap_items.new(
+            "surface.extrude_move", "E", "PRESS", alt=True
+        )
+        _addon_keymaps_toolbar_tools.append((_km_move_tool_surface, kmi_surface_alt))
 
 
 def _unregister_toolbar_tool_keymaps():

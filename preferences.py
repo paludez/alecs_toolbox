@@ -69,9 +69,23 @@ class ALECS_TB_AddonPreferences(AddonPreferences):
         default=True,
         update=_refresh_addon_keymaps,
     )
-    shortcut_f4_solid: BoolProperty(
-        name="F4 — Solid / Solid + overlay wire",
-        description="Solid, then Solid with overlay wireframes; again clears overlay.",
+    shortcut_f4_overlay_wireframes: BoolProperty(
+        name="F4 — Toggle overlay wireframes",
+        description="Overlay wireframes on/off in any shading mode.",
+        default=True,
+        update=_refresh_addon_keymaps,
+    )
+    shortcut_alt_f3_wireframe_color: BoolProperty(
+        name="Alt+F3 — Cycle wireframe color",
+        description="Cycle wireframe color type: Theme, Object, Random.",
+        default=True,
+        update=_refresh_addon_keymaps,
+    )
+    shortcut_ctrl_alt_f3_color_type: BoolProperty(
+        name="Ctrl+Alt+F3 — Cycle object color",
+        description=(
+            "Cycle color type: Material, Object, Random, Attribute, Texture, Custom."
+        ),
         default=True,
         update=_refresh_addon_keymaps,
     )
@@ -84,12 +98,6 @@ class ALECS_TB_AddonPreferences(AddonPreferences):
     shortcut_f6_material: BoolProperty(
         name="F6 — Toggle Material Preview",
         description="Material Preview; press again for Solid.",
-        default=True,
-        update=_refresh_addon_keymaps,
-    )
-    shortcut_alt_f3_overlay_wireframes: BoolProperty(
-        name="Alt+F3 — Toggle overlay wireframes",
-        description="Overlay wireframes on/off in any shading mode.",
         default=True,
         update=_refresh_addon_keymaps,
     )
@@ -171,11 +179,13 @@ class ALECS_TB_AddonPreferences(AddonPreferences):
         update=_refresh_addon_keymaps,
     )
     shortcut_alt_e_extrude: BoolProperty(
-        name="Alt+E / Shift+Alt+E — Extrude (Edit Mesh / Curves)",
+        name="Alt+E / Shift+Alt+E — Extrude (Edit Mesh / Curves / Armature / Surface)",
         description=(
             "Edit Mesh: Alt+E extrude along normal; Shift+Alt+E extrude menu. "
             "Edit Curve (legacy): Alt+E → curve.extrude_move. "
-            "Edit Curves (hair): Alt+E → curves.extrude_move. Only when E is Rotate."
+            "Edit Curves (hair): Alt+E → curves.extrude_move. "
+            "Edit Armature: Alt+E → armature.extrude_move. "
+            "Edit Surface: Alt+E → surface.extrude_move. Only when E is Rotate."
         ),
         default=True,
         update=_refresh_addon_keymaps,
@@ -268,10 +278,11 @@ class ALECS_TB_AddonPreferences(AddonPreferences):
         col_shading = box_shading.column(align=True)
         col_shading.prop(self, "shortcut_f1_search")
         col_shading.prop(self, "shortcut_f3_wireframe_xray")
-        col_shading.prop(self, "shortcut_f4_solid")
+        col_shading.prop(self, "shortcut_f4_overlay_wireframes")
+        col_shading.prop(self, "shortcut_alt_f3_wireframe_color")
+        col_shading.prop(self, "shortcut_ctrl_alt_f3_color_type")
         col_shading.prop(self, "shortcut_f5_rendered")
         col_shading.prop(self, "shortcut_f6_material")
-        col_shading.prop(self, "shortcut_alt_f3_overlay_wireframes")
 
         box_nav = layout.box()
         box_nav.label(text="Navigare 3D")

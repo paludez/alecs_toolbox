@@ -17,6 +17,7 @@ from . import fillet_chamfer
 from . import light_tools
 from . import materials
 from . import modifiers
+from . import modifiers_dialog
 from . import object_origin
 from . import object_tools
 from . import outliner
@@ -43,6 +44,7 @@ classes = (
     *light_tools.classes,
     *materials.classes,
     *modifiers.classes,
+    *modifiers_dialog.classes,
     *object_origin.classes,
     *object_tools.classes,
     *outliner.classes,
@@ -58,6 +60,7 @@ def register():
     for cls in classes:
         bpy.utils.register_class(cls)
     attributes.post_register()
+    modifiers_dialog.post_register()
     batch_materials.post_register()
     triplanar_mapping.post_register()
     camera_tools.register_focal_lens_scene_props()
@@ -78,6 +81,7 @@ def unregister():
     edit_mesh.unregister_draw_handler()
     auto_linked_mode._exit_auto_linked()
     attributes.post_unregister()
+    modifiers_dialog.post_unregister()
     batch_materials.post_unregister()
     camera_tools.unregister_focal_lens_scene_props()
     camera_tools.unregister_camera_sphere_object_props()
