@@ -3,10 +3,7 @@ import math
 import bpy
 from mathutils import Vector
 
-from .camera_tools import (
-    _empty_world_location_on_camera_axis,
-    _object_bbox_center_world,
-)
+from ..modules.utils import empty_world_location_on_camera_axis, object_bbox_center_world
 
 _LIGHT_RIG_UPDATING = False
 _ALEC_LT_CON_NAME = "Alec Track Target"
@@ -662,7 +659,7 @@ class ALEC_OT_light_target_dist(bpy.types.Operator):
             return {"CANCELLED"}
         pt = obj.matrix_world.translation.copy()
         for light in lights:
-            loc = _empty_world_location_on_camera_axis(light, pt)
+            loc = empty_world_location_on_camera_axis(light, pt)
             _ensure_empty_and_light_damped_track(
                 context, light, loc, apply_sphere_orbit=False
             )
@@ -698,7 +695,7 @@ class ALEC_OT_light_target_obj(bpy.types.Operator):
         if not lights:
             self.report({"WARNING"}, "Include at least one light in selection")
             return {"CANCELLED"}
-        loc = _object_bbox_center_world(tgt)
+        loc = object_bbox_center_world(tgt)
         for light in lights:
             _ensure_empty_and_light_damped_track(
                 context, light, loc, apply_sphere_orbit=False

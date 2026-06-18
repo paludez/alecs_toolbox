@@ -15,6 +15,7 @@ from mathutils import Matrix, Vector
 from ..modules import edit_mesh_draw_state as draw_state
 from ..modules import edit_mesh_helpers as emh
 from ..modules import status_bar
+from ..modules.utils import tag_view3d_redraw
 from .fillet_chamfer import (
     avg_edge_length,
     compute_fillet_data,
@@ -26,17 +27,6 @@ _EDGE_B_COLOR = (0.15, 0.85, 1.0, 0.95)
 # Active edge pick between tool start and apply (kept for F9 redo).
 _pick_session: dict | None = None
 _suppress_prop_update: int = 0
-
-
-def _tag_view3d_redraw(context):
-    if context is None:
-        return
-    screen = getattr(context, 'screen', None)
-    if screen is None:
-        return
-    for area in screen.areas:
-        if area.type == 'VIEW_3D':
-            area.tag_redraw()
 
 
 def _session_clear():
@@ -601,14 +591,14 @@ def _compute_geometry(
 def _push_angle_rays_draw(context, obj, state: dict | None) -> None:
     if state is None:
         _clear_preview()
-        _tag_view3d_redraw(context)
+        tag_view3d_redraw(context)
         return
     draw_state._draw_data['object_name'] = obj.name
     draw_state._draw_data['mesh_name'] = obj.data.name
     draw_state.register_3d_draw_handler()
     draw_state._draw_data['angle_rays_preview'] = True
     draw_state._draw_data['trim_extend_state'] = state
-    _tag_view3d_redraw(context)
+    tag_view3d_redraw(context)
 
 
 def _trim_extend_state_from_geom(
@@ -638,7 +628,7 @@ def refresh_angle_rays_modal_visual(context, op) -> None:
     edge_a_key = getattr(op, '_edge_a_key', None)
     if obj is None or edge_a_key is None:
         _clear_preview()
-        _tag_view3d_redraw(context)
+        tag_view3d_redraw(context)
         return
 
     if context.region is None or context.region_data is None:
@@ -652,7 +642,7 @@ def refresh_angle_rays_modal_visual(context, op) -> None:
         bm = bmesh.from_edit_mesh(obj.data)
     except Exception:
         _clear_preview()
-        _tag_view3d_redraw(context)
+        tag_view3d_redraw(context)
         return
     bm.verts.ensure_lookup_table()
     bm.edges.ensure_lookup_table()
@@ -661,7 +651,7 @@ def refresh_angle_rays_modal_visual(context, op) -> None:
     edge_a = emh.bm_edge_from_key(bm, edge_a_key)
     if edge_a is None:
         _clear_preview()
-        _tag_view3d_redraw(context)
+        tag_view3d_redraw(context)
         return
 
     ra = mw @ edge_a.verts[0].co
@@ -710,7 +700,7 @@ def refresh_angle_rays_preview(
 ) -> None:
     if _pick_session is None or 'arm_a_w' not in _pick_session:
         _clear_preview()
-        _tag_view3d_redraw(context)
+        tag_view3d_redraw(context)
         return
 
     obj = _edit_mesh_object(context, _pick_session)
@@ -720,7 +710,7 @@ def refresh_angle_rays_preview(
         or obj.data.name != _pick_session['mesh_name']
     ):
         _clear_preview()
-        _tag_view3d_redraw(context)
+        tag_view3d_redraw(context)
         return
 
     geom = _geometry_from_session(divisions, length, reflex)

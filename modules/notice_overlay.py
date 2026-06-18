@@ -31,6 +31,7 @@ import blf
 import bpy
 import gpu
 from gpu_extras.batch import batch_for_shader
+from .utils import tag_view3d_redraw_all_windows
 
 _VALID_ANCHORS = frozenset({"center", "bottom_left", "bottom_center", "bottom_right"})
 
@@ -65,17 +66,6 @@ class _Notice:
     padding: tuple[int, int]
 
 
-def _tag_view3d_redraw() -> None:
-    try:
-        for window in bpy.context.window_manager.windows:
-            tag_win = getattr(window, "tag_redraw", None)
-            if callable(tag_win):
-                tag_win()
-            for area in window.screen.areas:
-                if area.type == "VIEW_3D":
-                    area.tag_redraw()
-    except Exception:
-        pass
 
 
 def _rounded_rect_boundary(
@@ -207,7 +197,7 @@ def _clear_notice() -> None:
     global _notice
     _notice = None
     _remove_draw_handler()
-    _tag_view3d_redraw()
+    tag_view3d_redraw_all_windows()
 
 
 def show_notice(
@@ -239,7 +229,7 @@ def show_notice(
     )
 
     _ensure_draw_handler()
-    _tag_view3d_redraw()
+    tag_view3d_redraw_all_windows()
 
 
 def unregister() -> None:

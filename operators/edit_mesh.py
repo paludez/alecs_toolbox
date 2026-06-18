@@ -11,6 +11,7 @@ from ..modules import cursor_plane as cp
 from ..modules import modal_handler, status_bar, utils, viewport_header
 from ..modules import edit_mesh_draw_state as draw_state
 from ..modules import edit_mesh_helpers as emh
+from ..modules.edit_mesh_helpers import get_boundary_and_interior_verts, relax_planar_vertices
 from ..modules.edit_mesh_helpers import ProportionalFalloffMixin
 from ..modules import edit_curve_helpers as ech
 
@@ -313,11 +314,11 @@ class ALEC_OT_select_dimension_edges(bpy.types.Operator):
             
         for idx in indices:
             if idx < len(bm.edges):
-                bm.edges[idx].select = True
-                bm.edges[idx].verts[0].select = True
-                bm.edges[idx].verts[1].select = True
-        
-        bm.select_flush(True)
+                edge = bm.edges[idx]
+                edge.select = True
+                edge.verts[0].select = True
+                edge.verts[1].select = True
+
         bmesh.update_edit_mesh(obj.data)
         return {'FINISHED'}
 
@@ -635,43 +636,6 @@ class ALEC_OT_distribute_vertices(bpy.types.Operator):
 
         bmesh.update_edit_mesh(me)
         return {'FINISHED'}
-
-def get_boundary_and_interior_verts(bm, context):
-    """Helper to separate boundary and interior vertices for planar operations."""
-    selected_verts = [v for v in bm.verts if v.select]
-    boundary_verts_set = set()
-
-    if context.tool_settings.mesh_select_mode[2]:
-        selected_faces = [f for f in bm.faces if f.select]
-        for f in selected_faces:
-            for e in f.edges:
-                if sum(1 for lf in e.link_faces if lf.select) == 1:
-                    boundary_verts_set.add(e.verts[0])
-                    boundary_verts_set.add(e.verts[1])
-
-    if boundary_verts_set:
-        boundary_verts = list(boundary_verts_set)
-        interior_verts = [v for v in selected_verts if v not in boundary_verts_set]
-        return boundary_verts, interior_verts, selected_verts
-    
-    return selected_verts, [], selected_verts
-
-def relax_planar_vertices(interior_verts, normal, influence, iterations=10):
-    """Iteratively relaxes vertices strictly on a 2D plane defined by normal."""
-    if not interior_verts or influence <= 0.0:
-        return
-    for _ in range(iterations):
-        new_positions = {}
-        for v in interior_verts:
-            neighbors = [e.other_vert(v) for e in v.link_edges]
-            if not neighbors: continue
-            avg_co = sum((n.co for n in neighbors), Vector((0, 0, 0))) / len(neighbors)
-            delta = avg_co - v.co
-            delta_2d = delta - delta.dot(normal) * normal
-            new_positions[v] = v.co + delta_2d * influence
-        for v, new_co in new_positions.items():
-            v.co = new_co
-
 
 def _curve_farthest_pair_targets(targets):
     if len(targets) < 2:

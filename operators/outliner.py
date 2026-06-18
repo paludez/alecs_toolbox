@@ -18,33 +18,6 @@ def _selected_outliner_collections(context):
     return result
 
 
-def ensure_hidden_collection(context, coll_name, color_tag):
-    """Get or create a hidden auxiliary collection excluded from the View Layer."""
-    if coll_name in bpy.data.collections:
-        coll = bpy.data.collections[coll_name]
-    else:
-        coll = bpy.data.collections.new(coll_name)
-        context.scene.collection.children.link(coll)
-        coll.color_tag = color_tag
-
-    coll.hide_viewport = False
-    coll.hide_render = True
-
-    layer_coll = find_layer_collection(context.view_layer.layer_collection, coll)
-    if layer_coll:
-        layer_coll.exclude = True
-
-    return coll
-
-
-def get_boolean_collection(context):
-    return ensure_hidden_collection(context, "Hidden_Bools", 'COLOR_01')
-
-
-def get_hidden_sources_collection(context):
-    return ensure_hidden_collection(context, "Hidden_Sources", 'COLOR_05')
-
-
 def objects_from_outliner_or_view(context):
     """Objects selected in Outliner (selected_ids) or 3D View (selected_objects)."""
     objs = []

@@ -6,7 +6,7 @@ import tempfile
 import bpy
 from bpy.props import BoolProperty, CollectionProperty, EnumProperty, IntProperty, StringProperty
 
-from . import material_builder
+from ..modules import material_builder
 
 _LAST_BROWSE_DIR = ""
 

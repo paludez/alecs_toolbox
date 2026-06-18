@@ -1,5 +1,6 @@
 """Poll and bmesh helpers for edit-mesh operators."""
 import math
+from collections import deque
 
 import bpy
 import bmesh
@@ -1729,3 +1730,141 @@ class ProportionalFalloffMixin:
                 draw_state._draw_data['falloff_sphere'] = (center_world, visual_radius)
                 draw_state.register_3d_draw_handler()
                 draw_state.refresh_falloff_timer()
+
+
+# ---------------------------------------------------------------------------
+# Boundary / planar-relax helpers  (moved from operators/edit_mesh.py)
+# ---------------------------------------------------------------------------
+
+def get_boundary_and_interior_verts(bm, context):
+    """Helper to separate boundary and interior vertices for planar operations."""
+    selected_verts = [v for v in bm.verts if v.select]
+    boundary_verts_set = set()
+
+    if context.tool_settings.mesh_select_mode[2]:
+        selected_faces = [f for f in bm.faces if f.select]
+        for f in selected_faces:
+            for e in f.edges:
+                if sum(1 for lf in e.link_faces if lf.select) == 1:
+                    boundary_verts_set.add(e.verts[0])
+                    boundary_verts_set.add(e.verts[1])
+
+    if boundary_verts_set:
+        boundary_verts = list(boundary_verts_set)
+        interior_verts = [v for v in selected_verts if v not in boundary_verts_set]
+        return boundary_verts, interior_verts, selected_verts
+
+    return selected_verts, [], selected_verts
+
+
+def relax_planar_vertices(interior_verts, normal, influence, iterations=10):
+    """Iteratively relaxes vertices strictly on a 2D plane defined by normal."""
+    if not interior_verts or influence <= 0.0:
+        return
+    for _ in range(iterations):
+        new_positions = {}
+        for v in interior_verts:
+            neighbors = [e.other_vert(v) for e in v.link_edges]
+            if not neighbors:
+                continue
+            avg_co = sum((n.co for n in neighbors), Vector((0, 0, 0))) / len(neighbors)
+            delta = avg_co - v.co
+            delta_2d = delta - delta.dot(normal) * normal
+            new_positions[v] = v.co + delta_2d * influence
+        for v, new_co in new_positions.items():
+            v.co = new_co
+
+
+# ---------------------------------------------------------------------------
+# Linked-island bmesh helpers  (moved from operators/mesh_selection_helpers.py)
+# ---------------------------------------------------------------------------
+
+def _collect_seed_verts(bm: bmesh.types.BMesh) -> set:
+    """Verts implied by current edit selection (verts, edges, or faces)."""
+    seeds: set = set()
+    for v in bm.verts:
+        if v.select:
+            seeds.add(v)
+    for e in bm.edges:
+        if e.select:
+            seeds.update(e.verts)
+    for f in bm.faces:
+        if f.select:
+            seeds.update(f.verts)
+    return seeds
+
+
+def bmesh_select_linked_island(mesh) -> bool:
+    """
+    Select the full connected geometry island(s) containing the current selection.
+    Does not depend on mesh_select_mode (unlike bpy.ops.mesh.select_linked).
+    """
+    bm = bmesh.from_edit_mesh(mesh)
+    try:
+        seeds = _collect_seed_verts(bm)
+        if not seeds:
+            return False
+        visited: set = set()
+        dq = deque(seeds)
+        while dq:
+            v = dq.popleft()
+            if v in visited:
+                continue
+            visited.add(v)
+            for e in v.link_edges:
+                ov = e.other_vert(v)
+                if ov not in visited:
+                    dq.append(ov)
+        for v in bm.verts:
+            v.select_set(v in visited)
+        for e in bm.edges:
+            e.select_set(e.verts[0] in visited and e.verts[1] in visited)
+        for f in bm.faces:
+            f.select_set(all(v in visited for v in f.verts))
+        bm.select_flush_mode()
+        bmesh.update_edit_mesh(mesh)
+        return True
+    finally:
+        bm.free()
+
+
+def bmesh_subtract_linked_islands(mesh, old_vert_indices: set, new_vert_indices: set) -> bool:
+    """
+    After a subtract (new ⊂ old), remove the full mesh-connected region of verts in (old - new)
+    from the previous selection: final = old - flood_fill(old - new).
+    """
+    removed = old_vert_indices - new_vert_indices
+    if not removed:
+        return False
+    bm = bmesh.from_edit_mesh(mesh)
+    try:
+        bm.verts.ensure_lookup_table()
+        bm.edges.ensure_lookup_table()
+        bm.faces.ensure_lookup_table()
+        seeds = [bm.verts[i] for i in removed if 0 <= i < len(bm.verts)]
+        if not seeds:
+            return False
+        visited: set = set()
+        dq = deque(seeds)
+        while dq:
+            v = dq.popleft()
+            if v in visited:
+                continue
+            visited.add(v)
+            for e in v.link_edges:
+                ov = e.other_vert(v)
+                if ov not in visited:
+                    dq.append(ov)
+        remove_idx = {v.index for v in visited}
+        sel_idx = old_vert_indices - remove_idx
+        for v in bm.verts:
+            v.select_set(v.index in sel_idx)
+        for e in bm.edges:
+            e.select_set(e.verts[0].index in sel_idx and e.verts[1].index in sel_idx)
+        for f in bm.faces:
+            f.select_set(all(v.index in sel_idx for v in f.verts))
+        bm.select_flush_mode()
+        bmesh.update_edit_mesh(mesh)
+        return True
+    finally:
+        bm.free()

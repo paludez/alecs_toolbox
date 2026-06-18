@@ -5,6 +5,7 @@ import bpy
 from mathutils import Matrix, Vector
 
 from ..modules import modal_handler
+from ..modules.utils import empty_world_location_on_camera_axis, object_bbox_center_world
 
 _ALEC_TARGET_CON_NAME = "Alec Target"
 
@@ -713,27 +714,6 @@ def _sync_empty_collections_with_camera(scene, empty, cam) -> None:
             coll.objects.link(empty)
 
 
-def _empty_world_location_on_camera_axis(cam, world_point: Vector) -> Vector:
-    """Point on camera view axis ∩ plane ⟂ axis through object (foot of O onto axis)."""
-    mw = cam.matrix_world
-    c = mw.translation
-    f = (mw.to_3x3() @ Vector((0.0, 0.0, -1.0))).normalized()
-    o = world_point.copy()
-    t = (o - c).dot(f)
-    if t <= 1e-6:
-        return o
-    return c + f * t
-
-
-def _object_bbox_center_world(obj) -> Vector:
-    """World-space center of the object's axis-aligned bounding box (local bound_box)."""
-    mw = obj.matrix_world
-    acc = Vector((0.0, 0.0, 0.0))
-    for corner in obj.bound_box:
-        acc += mw @ Vector(corner)
-    return acc * (1.0 / 8.0)
-
-
 def _ensure_empty_and_camera_track_to(context, cam, loc: Vector) -> None:
     base_name = _camera_target_empty_name(cam)
     empty_name = base_name
@@ -956,7 +936,7 @@ class ALEC_OT_camera_target_dist(bpy.types.Operator):
         if obj is None or cam is None or obj == cam:
             return {"CANCELLED"}
 
-        loc = _empty_world_location_on_camera_axis(
+        loc = empty_world_location_on_camera_axis(
             cam, obj.matrix_world.translation
         )
         _ensure_empty_and_camera_track_to(context, cam, loc)
@@ -992,7 +972,7 @@ class ALEC_OT_camera_target_obj(bpy.types.Operator):
         if obj is None or cam is None or obj == cam:
             return {"CANCELLED"}
 
-        loc = _object_bbox_center_world(obj)
+        loc = object_bbox_center_world(obj)
         _ensure_empty_and_camera_track_to(context, cam, loc)
         return {"FINISHED"}
 

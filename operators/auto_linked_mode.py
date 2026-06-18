@@ -2,7 +2,7 @@ import bmesh
 import bpy
 import traceback
 
-from .mesh_selection_helpers import _bmesh_select_linked_island, _bmesh_subtract_linked_islands
+from ..modules.edit_mesh_helpers import bmesh_select_linked_island, bmesh_subtract_linked_islands
 
 # --- Auto-linked mode: timer poll (depsgraph does not run on selection-only edits) ---
 _auto_linked_active = False
@@ -59,7 +59,7 @@ def _tick_auto_linked_impl(context):
         _applying_linked = True
         try:
             if _pending_ctrl_subtract or _ctrl_held:
-                _bmesh_subtract_linked_islands(mesh, set(_last_sel_hash), set(h))
+                bmesh_subtract_linked_islands(mesh, set(_last_sel_hash), set(h))
             _last_sel_hash = _vert_selection_hash(mesh)
         finally:
             _applying_linked = False
@@ -70,7 +70,7 @@ def _tick_auto_linked_impl(context):
 
     _applying_linked = True
     try:
-        _bmesh_select_linked_island(mesh)
+        bmesh_select_linked_island(mesh)
         _last_sel_hash = _vert_selection_hash(mesh)
     finally:
         _applying_linked = False

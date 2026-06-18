@@ -16,7 +16,7 @@ from ..modules import cursor_plane as cp
 from ..modules import edit_mesh_draw_state as draw_state
 from ..modules import edit_mesh_helpers as emh
 from ..modules import modal_handler, status_bar, utils, viewport_header
-from .circle_arc_common import (
+from ..modules.circle_arc_common import (
     EDGE_PICK_RADIUS_PX,
     PICK_RADIUS_PX,
     SNAP_RING_RADIUS_PX,

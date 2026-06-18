@@ -5,7 +5,6 @@ from .ui.menu_quad import ALEC_MT_quad_menu
 from .modules.utils import draw_hidden_coll_toggle, safe_operator_props
 from .modules.viewport_filter_helpers import VIEWPORT_TYPE_FILTER_NAMES
 
-
 # Insert between tuples in _SHADER_EDIT_PIE_NODES_* for a horizontal rule in the pie slice.
 _SHADER_PIE_SEP = object()
 
@@ -92,40 +91,6 @@ def _shader_add_node_pairs(parent, entries):
             i += 1
 
 
-
-
-class ALEC_OT_viewport_show_common_types(bpy.types.Operator):
-    """Enable common viewport object-type visibility filters"""
-    bl_idname = "alec.viewport_show_common_types"
-    bl_label = "Show Common Types"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    @classmethod
-    def poll(cls, context):
-        return bool(context.space_data and context.space_data.type == 'VIEW_3D')
-
-    def execute(self, context):
-        space = context.space_data
-        for name in VIEWPORT_TYPE_FILTER_NAMES:
-            setattr(space, f"show_object_viewport_{name}", True)
-        return {'FINISHED'}
-
-
-class ALEC_OT_viewport_select_common_types(bpy.types.Operator):
-    """Enable common viewport object-type selectability filters"""
-    bl_idname = "alec.viewport_select_common_types"
-    bl_label = "Select Common Types"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    @classmethod
-    def poll(cls, context):
-        return bool(context.space_data and context.space_data.type == 'VIEW_3D')
-
-    def execute(self, context):
-        space = context.space_data
-        for name in VIEWPORT_TYPE_FILTER_NAMES:
-            setattr(space, f"show_object_select_{name}", True)
-        return {'FINISHED'}
 
 
 class ALEC_MT_shader_edit_pie(bpy.types.Menu):
@@ -299,6 +264,7 @@ class ALEC_MT_edit_menu(bpy.types.Menu):
         row = col_inner_dim.row(align=True)
         row.operator("alec.dimension_action", text="Add", icon='ADD').action = 'ADD'
         row.operator("alec.dimension_action", text="Rem", icon='REMOVE').action = 'REMOVE'
+        col_inner_dim.operator("alec.select_dimension_edges", text="Select Dim. Edges", icon='RESTRICT_SELECT_OFF')
 
         col_inner_dim.separator()
         col_inner_dim.operator("alec.measure_edge_angle", text="Measure Angle", icon='DRIVER_ROTATIONAL_DIFFERENCE')
@@ -538,8 +504,6 @@ class ALEC_MT_object_menu(bpy.types.Menu):
         box_parent.operator("alec.track_to_active", text="Track To", icon='CON_TRACKTO')
 
 classes = [
-    ALEC_OT_viewport_show_common_types,
-    ALEC_OT_viewport_select_common_types,
     ALEC_MT_object_menu,
     ALEC_MT_edit_menu,
     ALEC_MT_edit_curve_menu,

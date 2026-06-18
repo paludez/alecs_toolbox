@@ -8,25 +8,15 @@ import bmesh
 from bpy_extras.view3d_utils import location_3d_to_region_2d
 from mathutils import Vector
 
-from ..modules import cursor_plane as cp
-from ..modules import edit_mesh_draw_state as draw_state
-from ..modules import edit_mesh_helpers as emh
-from ..modules import status_bar
+from . import cursor_plane as cp
+from . import edit_mesh_draw_state as draw_state
+from . import edit_mesh_helpers as emh
+from . import status_bar
+from .utils import tag_view3d_redraw
 
 PICK_RADIUS_PX = 12
 SNAP_RING_RADIUS_PX = 12.0
 EDGE_PICK_RADIUS_PX = 14
-
-
-def tag_view3d_redraw(context):
-    if context is None:
-        return
-    screen = getattr(context, 'screen', None)
-    if screen is None:
-        return
-    for area in screen.areas:
-        if area.type == 'VIEW_3D':
-            area.tag_redraw()
 
 
 def clear_vertex_pick_overlay():

@@ -9,6 +9,7 @@ from mathutils import Vector
 
 from . import align_tools
 from .drawing_tools import _draw_simple_lines
+from .utils import tag_view3d_redraw_all_windows
 
 _PREVIEW_CORNERS: list[list[Vector]] = []
 _GAP_LINE_SEGMENTS: list[tuple[Vector, Vector]] = []
@@ -50,18 +51,6 @@ _CUBE_EDGES = (
 )
 
 
-def _tag_view3d_redraw():
-    try:
-        for window in bpy.context.window_manager.windows:
-            # Whole-window refresh helps clear ghost geometry after removing draw handlers.
-            tag_win = getattr(window, "tag_redraw", None)
-            if callable(tag_win):
-                tag_win()
-            for area in window.screen.areas:
-                if area.type == "VIEW_3D":
-                    area.tag_redraw()
-    except Exception:
-        pass
 
 
 def mark_alive() -> None:
@@ -117,7 +106,7 @@ def _depsgraph_tag_redraw(scene):
             clear_preview()
             return
         if _preview_has_geometry():
-            _tag_view3d_redraw()
+            tag_view3d_redraw_all_windows()
     except Exception:
         pass
 
@@ -504,7 +493,7 @@ def set_preview_corner_boxes(
 
     _ensure_handler()
     _register_depsgraph()
-    _tag_view3d_redraw()
+    tag_view3d_redraw_all_windows()
 
 
 def clear_preview() -> None:
@@ -520,7 +509,7 @@ def clear_preview() -> None:
     _preview_draw_drive_enabled = False
     _remove_handler()
     _remove_px_handler()
-    _tag_view3d_redraw()
+    tag_view3d_redraw_all_windows()
 
 
 def unregister_preview() -> None:

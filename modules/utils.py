@@ -601,3 +601,58 @@ def apply_soft_falloff(bm, old_coords, moved_coords, radius, falloff_type='SMOOT
         if sum_weight > 0:
             blended_delta = sum_delta / sum_weight
             v_u.co = u_old_co + blended_delta * max_falloff
+
+
+# ---------------------------------------------------------------------------
+# Redraw helpers
+# ---------------------------------------------------------------------------
+
+def tag_view3d_redraw(context) -> None:
+    """Redraw all View3D areas in the current screen (use inside operators/modals)."""
+    if context is None:
+        return
+    screen = getattr(context, 'screen', None)
+    if screen is None:
+        return
+    for area in screen.areas:
+        if area.type == 'VIEW_3D':
+            area.tag_redraw()
+
+
+def tag_view3d_redraw_all_windows() -> None:
+    """Redraw all View3D areas across all windows (use from background handlers/timers)."""
+    try:
+        for window in bpy.context.window_manager.windows:
+            tag_win = getattr(window, "tag_redraw", None)
+            if callable(tag_win):
+                tag_win()
+            for area in window.screen.areas:
+                if area.type == "VIEW_3D":
+                    area.tag_redraw()
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# Object geometry helpers  (moved from operators/camera_tools.py)
+# ---------------------------------------------------------------------------
+
+def empty_world_location_on_camera_axis(cam, world_point: Vector) -> Vector:
+    """Point on camera view axis ∩ plane ⟂ axis through object (foot of O onto axis)."""
+    mw = cam.matrix_world
+    c = mw.translation
+    f = (mw.to_3x3() @ Vector((0.0, 0.0, -1.0))).normalized()
+    o = world_point.copy()
+    t = (o - c).dot(f)
+    if t <= 1e-6:
+        return o
+    return c + f * t
+
+
+def object_bbox_center_world(obj) -> Vector:
+    """World-space center of the object's axis-aligned bounding box (local bound_box)."""
+    mw = obj.matrix_world
+    acc = Vector((0.0, 0.0, 0.0))
+    for corner in obj.bound_box:
+        acc += mw @ Vector(corner)
+    return acc * (1.0 / 8.0)

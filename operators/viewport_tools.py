@@ -4,6 +4,7 @@ import bpy
 from ..modules.modal_handler import ModalNumberInput
 from ..modules import status_bar
 from ..modules import viewport_header
+from ..modules.viewport_filter_helpers import VIEWPORT_TYPE_FILTER_NAMES
 
 def _view3d_space(context):
     area = context.area
@@ -558,6 +559,40 @@ class ALEC_OT_view_axis_right(bpy.types.Operator):
         return _invoke_view_axis(context, event, "RIGHT")
 
 
+class ALEC_OT_viewport_show_common_types(bpy.types.Operator):
+    """Enable common viewport object-type visibility filters"""
+    bl_idname = "alec.viewport_show_common_types"
+    bl_label = "Show Common Types"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return bool(context.space_data and context.space_data.type == 'VIEW_3D')
+
+    def execute(self, context):
+        space = context.space_data
+        for name in VIEWPORT_TYPE_FILTER_NAMES:
+            setattr(space, f"show_object_viewport_{name}", True)
+        return {'FINISHED'}
+
+
+class ALEC_OT_viewport_select_common_types(bpy.types.Operator):
+    """Enable common viewport object-type selectability filters"""
+    bl_idname = "alec.viewport_select_common_types"
+    bl_label = "Select Common Types"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return bool(context.space_data and context.space_data.type == 'VIEW_3D')
+
+    def execute(self, context):
+        space = context.space_data
+        for name in VIEWPORT_TYPE_FILTER_NAMES:
+            setattr(space, f"show_object_select_{name}", True)
+        return {'FINISHED'}
+
+
 classes = (
     ALEC_OT_viewport_toggle_wireframe_xray,
     ALEC_OT_viewport_toggle_overlay_axes,
@@ -573,4 +608,6 @@ classes = (
     ALEC_OT_view_axis_top,
     ALEC_OT_view_axis_front,
     ALEC_OT_view_axis_right,
+    ALEC_OT_viewport_show_common_types,
+    ALEC_OT_viewport_select_common_types,
 )
