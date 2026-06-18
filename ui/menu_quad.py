@@ -4,21 +4,14 @@ from ..modules.utils import (
     draw_hidden_coll_toggle,
     safe_operator_props,
 )
-
-_VIEW3D_TYPE_FILTER_UI = (
-    ("mesh", 'MESH_DATA'),
-    ("curves", 'OUTLINER_OB_CURVE'),
-    ("empty", 'EMPTY_DATA'),
-    ("light", 'LIGHT_DATA'),
-    ("camera", 'CAMERA_DATA'),
-)
+from ..modules.viewport_filter_helpers import VIEWPORT_TYPE_FILTERS
 
 
 def _draw_view3d_type_filter_row(box, space, label, prop_prefix, enable_op_id, *, label_icon='NONE'):
     row = box.row(align=True)
     row.label(text=label, icon=label_icon)
     btns = row.row(align=True)
-    for name, icon in _VIEW3D_TYPE_FILTER_UI:
+    for name, icon in VIEWPORT_TYPE_FILTERS:
         btns.prop(space, f"show_object_{prop_prefix}_{name}", text="", icon=icon, toggle=True)
     btns.operator(enable_op_id, text="", icon='CON_ROTLIKE')
 

@@ -11,6 +11,7 @@ from ..modules import cursor_plane as cp
 from ..modules import modal_handler, status_bar, utils, viewport_header
 from ..modules import edit_mesh_draw_state as draw_state
 from ..modules import edit_mesh_helpers as emh
+from ..modules.edit_mesh_helpers import ProportionalFalloffMixin
 from ..modules import edit_curve_helpers as ech
 
 depsgraph_update_handler = draw_state.depsgraph_update_handler
@@ -810,77 +811,6 @@ def _execute_make_coplanar_curve(op, context):
     curve.update_tag()
     return {'FINISHED'}
 
-
-class ProportionalFalloffMixin:
-    proportional_falloff: bpy.props.EnumProperty(
-        name="Falloff Type",
-        description="Shape of the proportional falloff",
-        items=[
-            ('SMOOTH', "Smooth", "Smooth falloff"),
-            ('SPHERE', "Sphere", "Spherical falloff"),
-            ('ROOT', "Root", "Root falloff"),
-            ('LINEAR', "Linear", "Linear falloff"),
-            ('SHARP', "Sharp", "Sharp falloff")
-        ],
-        default='SMOOTH'
-    ) # type: ignore
-
-    proportional_radius: bpy.props.FloatProperty(
-        name="Proportional Radius",
-        description="Falloff radius for moving unselected vertices (0 to disable)",
-        default=0.0,
-        min=0.0,
-        unit='LENGTH'
-    ) # type: ignore
-
-    proportional_connected_only: bpy.props.BoolProperty(
-        name="Connected Only",
-        description="Only affect vertices topologically connected to the selection",
-        default=False
-    ) # type: ignore
-
-    proportional_connected_depth: bpy.props.IntProperty(
-        name="Connected Depth",
-        description="Maximum topological distance (number of edges). 0 means infinite",
-        default=1,
-        min=0
-    ) # type: ignore
-
-    def reset_proportional_falloff(self):
-        self.proportional_radius = 0.0
-        self.proportional_falloff = 'SMOOTH'
-        self.proportional_connected_only = False
-        self.proportional_connected_depth = 1
-
-    def draw_falloff(self, layout):
-        layout.prop(self, "proportional_radius")
-        if self.proportional_radius > 0.0:
-            layout.prop(self, "proportional_falloff")
-            layout.prop(self, "proportional_connected_only")
-            if self.proportional_connected_only:
-                layout.prop(self, "proportional_connected_depth")
-
-    def process_falloff(self, bm, old_coords, moved_coords, world_mx):
-        if self.proportional_radius > 0.0:
-            utils.apply_soft_falloff(bm, old_coords, moved_coords, self.proportional_radius, 
-                               self.proportional_falloff, world_mx, self.proportional_connected_only, self.proportional_connected_depth)
-
-            if moved_coords:
-                center_local = sum((old_coords[v] for v in moved_coords.keys()), Vector()) / len(moved_coords)
-                center_world = world_mx @ center_local
-
-                distances = [((world_mx @ old_coords[v]) - center_world).length for v in moved_coords.keys()]
-                avg_dist = sum(distances) / len(distances) if distances else 0.0
-                visual_radius = self.proportional_radius + avg_dist
-                
-                obj = bpy.context.active_object
-                if obj:
-                    draw_state._draw_data['object_name'] = obj.name
-                    draw_state._draw_data['mesh_name'] = obj.data.name
-                    
-                draw_state._draw_data['falloff_sphere'] = (center_world, visual_radius)
-                draw_state.register_3d_draw_handler()
-                draw_state.refresh_falloff_timer()
 
 class ALEC_OT_make_collinear(ProportionalFalloffMixin, bpy.types.Operator):
     """Makes selected vertices collinear"""

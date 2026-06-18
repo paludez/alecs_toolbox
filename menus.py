@@ -3,6 +3,7 @@ import math
 
 from .ui.menu_quad import ALEC_MT_quad_menu
 from .modules.utils import draw_hidden_coll_toggle, safe_operator_props
+from .modules.viewport_filter_helpers import VIEWPORT_TYPE_FILTER_NAMES
 
 
 # Insert between tuples in _SHADER_EDIT_PIE_NODES_* for a horizontal rule in the pie slice.
@@ -91,7 +92,6 @@ def _shader_add_node_pairs(parent, entries):
             i += 1
 
 
-_VIEW3D_OBJECT_TYPE_FILTERS = ("mesh", "curves", "empty", "light", "camera")
 
 
 class ALEC_OT_viewport_show_common_types(bpy.types.Operator):
@@ -106,7 +106,7 @@ class ALEC_OT_viewport_show_common_types(bpy.types.Operator):
 
     def execute(self, context):
         space = context.space_data
-        for name in _VIEW3D_OBJECT_TYPE_FILTERS:
+        for name in VIEWPORT_TYPE_FILTER_NAMES:
             setattr(space, f"show_object_viewport_{name}", True)
         return {'FINISHED'}
 
@@ -123,7 +123,7 @@ class ALEC_OT_viewport_select_common_types(bpy.types.Operator):
 
     def execute(self, context):
         space = context.space_data
-        for name in _VIEW3D_OBJECT_TYPE_FILTERS:
+        for name in VIEWPORT_TYPE_FILTER_NAMES:
             setattr(space, f"show_object_select_{name}", True)
         return {'FINISHED'}
 

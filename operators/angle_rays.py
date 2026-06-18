@@ -16,8 +16,8 @@ from ..modules import edit_mesh_draw_state as draw_state
 from ..modules import edit_mesh_helpers as emh
 from ..modules import status_bar
 from .fillet_chamfer import (
-    _avg_edge_length,
-    _compute_fillet_data,
+    avg_edge_length,
+    compute_fillet_data,
 )
 
 _PREVIEW_RAY_COLOR = (0.2, 0.85, 1.0, 0.9)
@@ -89,7 +89,7 @@ def _session_save_from_edges(
         ),
         'ref_edge_a': (ra.copy(), rb.copy()),
         'ref_edge_b': (ba.copy(), bb.copy()),
-        'default_length': max(0.05, _avg_edge_length(edge_a, edge_b, mw)),
+        'default_length': max(0.05, avg_edge_length(edge_a, edge_b, mw)),
         'created_edge_keys': [],
     }
     return True
@@ -474,7 +474,7 @@ def _ray_directions(
 def _effective_length(length: float, edge_a, edge_b, mw) -> float:
     if length > 1e-9:
         return float(length)
-    return max(0.05, _avg_edge_length(edge_a, edge_b, mw))
+    return max(0.05, avg_edge_length(edge_a, edge_b, mw))
 
 
 def _corner_data_from_shared_vertex(
@@ -531,7 +531,7 @@ def _corner_data(
     click_b_w: Vector | None = None,
 ) -> dict | None:
     shared = _shared_vertex_world(edge_a, edge_b, mw) is not None
-    data = _compute_fillet_data(
+    data = compute_fillet_data(
         edge_a,
         edge_b,
         mw,

@@ -4,8 +4,8 @@ import math
 from mathutils import Vector
 
 from ..modules import edit_mesh_helpers as emh
+from ..modules.edit_mesh_helpers import ProportionalFalloffMixin
 from .edit_mesh import (
-    ProportionalFalloffMixin,
     get_boundary_and_interior_verts,
     relax_planar_vertices,
 )

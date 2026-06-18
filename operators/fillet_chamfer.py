@@ -260,7 +260,7 @@ def _parallel_proj_feasible_range(
     return (lo, hi)
 
 
-def _compute_fillet_data(
+def compute_fillet_data(
     edge_a,
     edge_b,
     mw,
@@ -690,7 +690,7 @@ def _apply_arc(bm, edge_a, edge_b, data, mw) -> bool:
     return True
 
 
-def _avg_edge_length(edge_a, edge_b, mw) -> float:
+def avg_edge_length(edge_a, edge_b, mw) -> float:
     a0 = mw @ edge_a.verts[0].co
     a1 = mw @ edge_a.verts[1].co
     b0 = mw @ edge_b.verts[0].co
@@ -786,7 +786,7 @@ class ALEC_OT_fillet_edges(bpy.types.Operator):
     def _init_defaults(self):
         if self._edge_a is None or self._edge_b is None:
             return
-        avg = _avg_edge_length(self._edge_a, self._edge_b, self._obj.matrix_world)
+        avg = avg_edge_length(self._edge_a, self._edge_b, self._obj.matrix_world)
         default_r = max(0.05, avg * 0.25)
         if self._radius is None or self._radius <= _EPS:
             self._radius = default_r
@@ -1095,7 +1095,7 @@ class ALEC_OT_fillet_edges(bpy.types.Operator):
             return
         mw = self._obj.matrix_world
         try:
-            self._preview = _compute_fillet_data(
+            self._preview = compute_fillet_data(
                 ea, eb, mw,
                 float(self._radius or 0.0),
                 int(self._segments),
