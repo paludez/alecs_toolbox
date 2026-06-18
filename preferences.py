@@ -28,7 +28,7 @@ def _on_mesh_keys_toggle(self, _context):
     shortcuts.set_mesh_max_keys(self.use_max_style_mesh_keys)
 
 
-class ALECS_TB_AddonPreferences(AddonPreferences):
+class ALEC_AddonPreferences(AddonPreferences):
     bl_idname = _addon_id()
 
     use_max_style_mesh_keys: BoolProperty(
@@ -285,7 +285,7 @@ class ALECS_TB_AddonPreferences(AddonPreferences):
         col_shading.prop(self, "shortcut_f6_material")
 
         box_nav = layout.box()
-        box_nav.label(text="Navigare 3D")
+        box_nav.label(text="3D Navigation")
         col_nav = box_nav.column(align=True)
         col_nav.prop(self, "shortcut_c_camera")
         col_nav.prop(self, "shortcut_grave_isolate")
@@ -293,7 +293,7 @@ class ALECS_TB_AddonPreferences(AddonPreferences):
         col_nav.prop(self, "shortcut_ctrl_grave_frame_selected")
 
         box_menu = layout.box()
-        box_menu.label(text="Meniu / panel")
+        box_menu.label(text="Menu / Panel")
         col_menu = box_menu.column(align=True)
         col_menu.prop(self, "shortcut_q_alt_menu")
         col_menu.prop(self, "shortcut_alt_rmb_quad")
@@ -308,7 +308,7 @@ class ALECS_TB_AddonPreferences(AddonPreferences):
         col_window.prop(self, "shortcut_alt_4_uv_under_mouse")
 
         box_other = layout.box()
-        box_other.label(text="Altele")
+        box_other.label(text="Other")
         col_other = box_other.column(align=True)
         col_other.prop(self, "shortcut_alt_w_light_energy_modal")
         col_other.prop(self, "shortcut_grave_outliner_show_active")
@@ -348,7 +348,7 @@ class ALECS_TB_AddonPreferences(AddonPreferences):
         col_snap.prop(self, "draw_mesh_snap_kdtree_min_elements")
 
 
-classes = (ALECS_TB_AddonPreferences,)
+classes = (ALEC_AddonPreferences,)
 
 
 def register():

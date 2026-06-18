@@ -54,7 +54,7 @@ def _selection_orientation_matrix(context):
             pass
 
 
-class ALEC_OT_cursor_to_selected(bpy.types.Operator):
+class ALEC_OT_cursor_to_origin_rot(bpy.types.Operator):
     """Move&Rotate 3D cursor to selected object's origin"""
     bl_idname = "alec.cursor_to_origin_rot"
     bl_label = "Cursor to Selected"
@@ -525,7 +525,7 @@ class ALEC_OT_origin_rotate_axis(bpy.types.Operator):
 
 
 classes = (
-    ALEC_OT_cursor_to_selected,
+    ALEC_OT_cursor_to_origin_rot,
     ALEC_OT_cursor_to_geometry_center,
     ALEC_OT_origin_to_cursor,
     ALEC_OT_origin_to_cursor_rot,

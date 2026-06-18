@@ -1011,10 +1011,6 @@ class ALEC_OT_angle_rays(bpy.types.Operator):
 classes = (ALEC_OT_angle_rays,)
 
 
-def post_register():
-    pass
-
-
 def post_unregister():
     _session_clear()
     _clear_preview()

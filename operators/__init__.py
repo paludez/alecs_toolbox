@@ -66,8 +66,6 @@ def register():
     camera_tools.register_focal_lens_scene_props()
     camera_tools.register_camera_sphere_object_props()
     light_tools.register_light_rig_object_props()
-    angle_rays.post_register()
-
     depsgraph_handler = edit_mesh.depsgraph_update_handler
     bpy.app.handlers.depsgraph_update_post.append(depsgraph_handler)
     _app_handlers.append((bpy.app.handlers.depsgraph_update_post, depsgraph_handler))

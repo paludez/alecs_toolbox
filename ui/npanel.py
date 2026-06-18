@@ -2,13 +2,11 @@
 
 import bpy
 
-from ..operators import camera_tools as _camera_tools_mod
 from ..operators.camera_tools import (
     view3d_camera_rv3d,
     _camera_data_from_context,
     camera_sphere_track_target,
     focal_edit_camera,
-    scene_persp_camera,
 )
 from ..operators.light_tools import alec_sphere_track_target
 

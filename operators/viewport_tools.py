@@ -1,7 +1,6 @@
 """Viewport-related operators (shading shortcuts, display toggles, align view, Alt+W modal)."""
 
 import bpy
-import math
 from ..modules.modal_handler import ModalNumberInput
 from ..modules import status_bar
 from ..modules import viewport_header
