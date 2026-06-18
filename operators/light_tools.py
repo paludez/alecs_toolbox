@@ -4,10 +4,20 @@ import bpy
 from mathutils import Vector
 
 from ..modules.utils import empty_world_location_on_camera_axis, object_bbox_center_world
+from ..modules.sphere_rig_helpers import (
+    object_in_view_layer as _object_in_view_layer,
+    world_sphere_offset as _world_sphere_offset,
+    world_sphere_az_el_dist_from_delta as _world_sphere_az_el_dist_from_delta,
+    object_foot_world_xy as _light_foot_world_xy,
+)
+from ..modules.light_helpers import (
+    ALEC_LT_CON_NAME as _ALEC_LT_CON_NAME,
+    LIGHT_TRACK_CON_TYPES_FROZEN as _LIGHT_TRACK_CON_TYPES_FROZEN,
+    track_target_object,
+    alec_sphere_track_target,
+)
 
 _LIGHT_RIG_UPDATING = False
-_ALEC_LT_CON_NAME = "Alec Track Target"
-_LIGHT_TRACK_CON_TYPES_FROZEN = frozenset({"DAMPED_TRACK", "TRACK_TO"})
 
 _LIGHT_RIG_PROP_NAMES = (
     "alec_lt_distance",
@@ -18,73 +28,9 @@ _LIGHT_RIG_PROP_NAMES = (
     "alec_lt_tgt_elevation",
 )
 
-
-def _world_sphere_direction(az: float, el: float) -> Vector:
-    c_el = math.cos(el)
-    return Vector((c_el * math.cos(az), c_el * math.sin(az), math.sin(el))).normalized()
-
-
-def _world_sphere_offset(az: float, el: float, dist: float) -> Vector:
-    return _world_sphere_direction(az, el) * max(1e-4, float(dist))
-
-
-def _world_sphere_az_el_dist_from_delta(
-    delta: Vector,
-    *,
-    fallback_az: float = 0.0,
-) -> tuple[float, float, float]:
-    dsq = delta.length_squared
-    if dsq < 1e-20:
-        return fallback_az, 0.0, 1e-3
-    vz = delta.normalized()
-    zn = max(-1.0, min(1.0, vz.z))
-    elev = math.asin(zn)
-    horiz = math.cos(elev)
-    azim = math.atan2(vz.y, vz.x) if abs(horiz) > 1e-6 else fallback_az
-    return azim, elev, math.sqrt(dsq)
-
 _ID_ALEC_LT_MANAGED_TRACK_EMPTY = "alec_lt_track_target"
 
-
-def _object_in_view_layer(obj, context) -> bool:
-    return any(o == obj for o in context.view_layer.objects)
-
-
-def track_target_object(obj, context=None):
-    """Return the Object targeted by the first Damped Track / Track To, or None."""
-    context = context or bpy.context
-    if obj is None or getattr(obj, "type", None) != "LIGHT":
-        return None
-    for con in obj.constraints:
-        if con.type not in {"DAMPED_TRACK", "TRACK_TO"}:
-            continue
-        t = getattr(con, "target", None)
-        if t is None:
-            continue
-        if _object_in_view_layer(t, context):
-            return t
-    return None
-
-
-def _alec_sphere_track_target(light_obj, context) -> bpy.types.Object | None:
-    """Alecs named rig constraint if present; else first suitable track constraint."""
-    if light_obj is None or getattr(light_obj, "type", None) != "LIGHT":
-        return None
-    con = light_obj.constraints.get(_ALEC_LT_CON_NAME)
-    if con is not None and con.type in {"DAMPED_TRACK", "TRACK_TO"}:
-        t = getattr(con, "target", None)
-        if t is not None and _object_in_view_layer(t, context):
-            return t
-    return track_target_object(light_obj, context)
-
-
-alec_sphere_track_target = _alec_sphere_track_target
-
-
-def _light_foot_world_xy(light_obj: bpy.types.Object) -> Vector:
-    """World XY projection of the lamp (Z = 0)."""
-    lw = light_obj.matrix_world.translation
-    return Vector((lw.x, lw.y, 0.0))
+_alec_sphere_track_target = alec_sphere_track_target
 
 
 def light_rig_world_position(light_obj, context):

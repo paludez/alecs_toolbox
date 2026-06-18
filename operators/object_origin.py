@@ -60,6 +60,10 @@ class ALEC_OT_cursor_to_origin_rot(bpy.types.Operator):
     bl_label = "Cursor to Selected"
     bl_options = {'REGISTER', 'UNDO'}
 
+    @classmethod
+    def poll(cls, context):
+        return bool(context.active_object)
+
     def execute(self, context):
         _cursor_to_origin_rot(context)
         return {'FINISHED'}
@@ -70,6 +74,10 @@ class ALEC_OT_cursor_to_geometry_center(bpy.types.Operator):
     bl_label = "Cursor to Geometry Center"
     bl_options = {'REGISTER', 'UNDO'}
 
+    @classmethod
+    def poll(cls, context):
+        return bool(context.active_object)
+
     def execute(self, context):
         _cursor_to_bbox_rot(context)
         return {'FINISHED'}
@@ -79,6 +87,10 @@ class ALEC_OT_origin_to_cursor_rot(bpy.types.Operator):
     bl_idname = "alec.origin_to_cursor_rot"
     bl_label = "Origin to Cursor (Rot)"
     bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return bool(context.selected_objects)
 
     def execute(self, context):
         saved_mode = context.mode
@@ -136,6 +148,10 @@ class ALEC_OT_origin_to_cursor(bpy.types.Operator):
     bl_label = "Origin to Cursor"
     bl_options = {'REGISTER', 'UNDO'}
 
+    @classmethod
+    def poll(cls, context):
+        return bool(context.selected_objects)
+
     def execute(self, context):
         saved_mode = context.mode
         saved_cursor = context.scene.cursor.matrix.copy()
@@ -183,6 +199,10 @@ class ALEC_OT_origin_set_to_bbox(bpy.types.Operator):
     bl_idname = "alec.origin_set_to_bbox"
     bl_label = "Origin to BBox"
     bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return bool(context.selected_objects)
 
     def execute(self, context):
         saved_mode = context.mode
@@ -278,6 +298,10 @@ class ALEC_OT_origin_to_bottom(bpy.types.Operator):
     bl_idname = "alec.origin_to_bottom"
     bl_label = "Origin to Bottom"
     bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return bool(context.selected_objects)
 
     def execute(self, context):
         saved_mode = context.mode

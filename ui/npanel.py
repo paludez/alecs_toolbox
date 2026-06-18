@@ -2,13 +2,13 @@
 
 import bpy
 
-from ..operators.camera_tools import (
+from ..modules.camera_helpers import (
     view3d_camera_rv3d,
-    _camera_data_from_context,
+    camera_data_from_context as _camera_data_from_context,
     camera_sphere_track_target,
     focal_edit_camera,
 )
-from ..operators.light_tools import alec_sphere_track_target
+from ..modules.light_helpers import alec_sphere_track_target
 
 _LIGHTS_UI_DUMMY_PROPS = {
     "alec_lights_ui_dummy_energy": bpy.props.FloatProperty(

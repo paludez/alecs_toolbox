@@ -1,6 +1,7 @@
 """BMesh helpers for auto-linked selection and the open-edge grow operator."""
 import bmesh
 import bpy
+from collections import deque
 
 
 def _boundary_edge_seeds(bm: bmesh.types.BMesh) -> list:

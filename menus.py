@@ -3,7 +3,6 @@ import math
 
 from .ui.menu_quad import ALEC_MT_quad_menu
 from .modules.utils import draw_hidden_coll_toggle, safe_operator_props
-from .modules.viewport_filter_helpers import VIEWPORT_TYPE_FILTER_NAMES
 
 # Insert between tuples in _SHADER_EDIT_PIE_NODES_* for a horizontal rule in the pie slice.
 _SHADER_PIE_SEP = object()

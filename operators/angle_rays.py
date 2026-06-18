@@ -16,7 +16,7 @@ from ..modules import edit_mesh_draw_state as draw_state
 from ..modules import edit_mesh_helpers as emh
 from ..modules import status_bar
 from ..modules.utils import tag_view3d_redraw
-from .fillet_chamfer import (
+from ..modules.fillet_geometry import (
     avg_edge_length,
     compute_fillet_data,
 )

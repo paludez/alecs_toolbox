@@ -6,8 +6,21 @@ from mathutils import Matrix, Vector
 
 from ..modules import modal_handler
 from ..modules.utils import empty_world_location_on_camera_axis, object_bbox_center_world
-
-_ALEC_TARGET_CON_NAME = "Alec Target"
+from ..modules.sphere_rig_helpers import (
+    object_in_view_layer as _object_in_view_layer,
+    world_sphere_offset as _world_sphere_offset,
+    world_sphere_az_el_dist_from_delta as _world_sphere_az_el_dist_from_delta,
+    object_foot_world_xy as _camera_foot_world_xy,
+)
+from ..modules.camera_helpers import (
+    ALEC_TARGET_CON_NAME as _ALEC_TARGET_CON_NAME,
+    persp_camera_obj as _persp_camera_obj,
+    scene_persp_camera,
+    focal_edit_camera,
+    view3d_camera_rv3d,
+    camera_data_from_context as _camera_data_from_context,
+    camera_sphere_track_target,
+)
 
 _CAM_RIG_UPDATING = False
 _CAM_SPHERE_PROP_NAMES = (
@@ -20,37 +33,6 @@ _CAM_SPHERE_PROP_NAMES = (
 )
 
 
-def _world_sphere_unit_direction(az: float, el: float) -> Vector:
-    c_el = math.cos(el)
-    return Vector((c_el * math.cos(az), c_el * math.sin(az), math.sin(el))).normalized()
-
-
-def _world_sphere_offset(az: float, el: float, dist: float) -> Vector:
-    return _world_sphere_unit_direction(az, el) * max(1e-4, float(dist))
-
-
-def _world_sphere_az_el_dist_from_delta(
-    delta: Vector,
-    *,
-    fallback_az: float = 0.0,
-) -> tuple[float, float, float]:
-    dsq = delta.length_squared
-    if dsq < 1e-20:
-        return fallback_az, 0.0, 1e-3
-    vz = delta.normalized()
-    zn = max(-1.0, min(1.0, vz.z))
-    elev = math.asin(zn)
-    horiz = math.cos(elev)
-    azim = math.atan2(vz.y, vz.x) if abs(horiz) > 1e-6 else fallback_az
-    return azim, elev, math.sqrt(dsq)
-
-
-def _camera_foot_world_xy(cam_obj: bpy.types.Object) -> Vector:
-    """World XY projection of the camera (Z = 0), same pivot as lamp foot for lights."""
-    cw = cam_obj.matrix_world.translation
-    return Vector((cw.x, cw.y, 0.0))
-
-
 def camera_target_foot_world_position(cam_obj: bpy.types.Object) -> Vector | None:
     """Alec track target on world sphere around camera foot (Cx, Cy, 0) — same model as lights."""
     if cam_obj is None or cam_obj.type != "CAMERA":
@@ -60,23 +42,6 @@ def camera_target_foot_world_position(cam_obj: bpy.types.Object) -> Vector | Non
     az = float(getattr(cam_obj, "alec_cam_tgt_angle", 0.0))
     el = float(getattr(cam_obj, "alec_cam_tgt_elevation", 0.0))
     return foot + _world_sphere_offset(az, el, dist)
-
-def _object_in_view_layer(obj, context) -> bool:
-    return obj is not None and obj.name in context.view_layer.objects
-
-
-def camera_sphere_track_target(cam, context):
-    """Empty (or object) targeted by camera's Alec Track To constraint, or None."""
-    if cam is None or getattr(cam, "type", None) != "CAMERA":
-        return None
-    con = cam.constraints.get(_ALEC_TARGET_CON_NAME)
-    if con is None or con.type != "TRACK_TO":
-        return None
-    tgt = con.target
-    if tgt is None or not _object_in_view_layer(tgt, context):
-        return None
-    return tgt
-
 
 def camera_orbit_pivot_world(cam, context):
     """Sphere orbit center at Alec Track Target; None if no valid target."""
@@ -353,46 +318,6 @@ def _lens_sync_guard():
         yield
     finally:
         _lens_sync_busy = False
-
-
-def _persp_camera_obj(obj):
-    if obj is None or getattr(obj, "type", None) != "CAMERA":
-        return None
-    if getattr(obj.data, "type", None) != "PERSP":
-        return None
-    return obj
-
-
-def scene_persp_camera(scene):
-    """Return scene.camera if it is a perspective Camera object, else None."""
-    return _persp_camera_obj(getattr(scene, "camera", None))
-
-
-def focal_edit_camera(context):
-    """Perspective camera edited by Focal mm / Crop (viewport, active, then scene)."""
-    space = context.space_data
-    if space is not None and getattr(space, "type", None) == "VIEW_3D":
-        rv3d = getattr(space, "region_3d", None)
-        if rv3d is not None and getattr(rv3d, "view_perspective", None) == "CAMERA":
-            cam = _persp_camera_obj(getattr(space, "camera", None))
-            if cam is not None:
-                return cam
-            return scene_persp_camera(context.scene)
-    cam = _persp_camera_obj(context.active_object)
-    if cam is not None:
-        return cam
-    return scene_persp_camera(context.scene)
-
-
-def view3d_camera_rv3d(context):
-    """RegionView3D when the active space is 3D View in camera perspective, else None."""
-    space = context.space_data
-    if space is None or getattr(space, "type", None) != "VIEW_3D":
-        return None
-    rv3d = getattr(space, "region_3d", None)
-    if rv3d is None or getattr(rv3d, "view_perspective", None) != "CAMERA":
-        return None
-    return rv3d
 
 
 def crop_cam_and_rv3d(context):
@@ -799,16 +724,6 @@ def _finish_camera_view_post(context, cam, win_region, space) -> None:
         if rv3d is not None and rv3d.view_perspective != "CAMERA":
             bpy.ops.view3d.view_camera()
         _reset_camera_view_display_offsets(rv3d)
-
-
-def _camera_data_from_context(context):
-    obj = context.active_object
-    if obj and obj.type == "CAMERA":
-        return obj.data
-    cam = context.scene.camera
-    if cam and cam.type == "CAMERA":
-        return cam.data
-    return None
 
 
 def _scene_camera_alec_track_target(context):
