@@ -5,29 +5,43 @@ from .operators.mesh_selection_helpers import classes as _mesh_selection_helpers
 
 _mesh_edit_classes = _mesh_component_classes + _mesh_selection_helpers_classes
 
+# ---------------------------------------------------------------------------
+# Keymap storage
+# ---------------------------------------------------------------------------
+
 _addon_keymaps_core: list[tuple] = []
 _addon_keymaps_auto_linked: list[tuple] = []
 _addon_keymaps_mesh: list[tuple] = []
 _addon_keymaps_toolbar_tools: list[tuple] = []
 _addon_keymaps_object_hide: list[tuple] = []
 _addon_keymaps_align: list[tuple] = []
+
 _km_auto_linked_mesh = None
 _km_object_hide = None
 _km_object_align = None
-_mesh_keys_registered = False
 _km_object_mode = None
 _km_mesh_edit = None
-_km_move_tool_object = None
-_km_move_tool_mesh = None
-_km_move_tool_curve = None
-_km_move_tool_curves = None
-_km_move_tool_uv = None
-_km_move_tool_armature = None
-_km_move_tool_pose = None
-_km_move_tool_lattice = None
-_km_move_tool_surface = None
-_km_move_tool_metaball = None
+_mesh_keys_registered = False
 
+# Toolbar keymaps: one entry per edit mode. Accessed by name for special cases.
+_TOOLBAR_KM_SPECS = [
+    "Object Mode",
+    "Mesh",
+    "Curve",
+    "Curves",
+    "UV Editor",  # keymap name is "UV Editor", not "Image" / paint
+    "Armature",
+    "Pose",
+    "Lattice",
+    "Surface",
+    "Metaball",
+]
+_toolbar_kms: dict = {}
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 def _addon_prefs():
     from . import preferences as prefmod
@@ -117,6 +131,10 @@ def _restore_default_n_key():
     _disabled_default_kmis.clear()
 
 
+# ---------------------------------------------------------------------------
+# Core keymaps (3D View, Node Editor, Outliner, Window)
+# ---------------------------------------------------------------------------
+
 def _unregister_core_keymaps():
     for km, kmi in _addon_keymaps_core:
         km.keymap_items.remove(kmi)
@@ -125,7 +143,7 @@ def _unregister_core_keymaps():
 
 
 def _register_core_keymaps():
-    _restore_default_n_key()  # reset state înainte de re-registrare
+    _restore_default_n_key()  # reset state before re-registering
     prefs = _addon_prefs()
     wm = bpy.context.window_manager
     kc = wm.keyconfigs.addon
@@ -307,8 +325,12 @@ def _register_core_keymaps():
             _addon_keymaps_core.append((km_window, kmi_alt_4))
 
 
+# ---------------------------------------------------------------------------
+# Toolbar tools (W / E / Alt+E)
+# ---------------------------------------------------------------------------
+
 def _register_toolbar_tool_keymaps():
-    """W → Move, E → Rotate (left toolbar); Alt+E → extrude where applicable (was E)."""
+    """W → Move, E → Rotate (left toolbar); Alt+E → extrude where applicable."""
     prefs = _addon_prefs()
     need = (
         _pref(prefs, "shortcut_w_move_tool")
@@ -318,114 +340,70 @@ def _register_toolbar_tool_keymaps():
     if not need:
         return
 
-    global _km_move_tool_object, _km_move_tool_mesh
-    global _km_move_tool_curve, _km_move_tool_curves
-    global _km_move_tool_uv
-    global _km_move_tool_armature, _km_move_tool_pose
-    global _km_move_tool_lattice, _km_move_tool_surface, _km_move_tool_metaball
     wm = bpy.context.window_manager
     kc = wm.keyconfigs.addon
     if not kc:
         return
-    if _km_move_tool_object is None:
-        _km_move_tool_object = kc.keymaps.new(
-            "Object Mode", space_type="EMPTY", region_type="WINDOW"
-        )
-    if _km_move_tool_mesh is None:
-        _km_move_tool_mesh = kc.keymaps.new(
-            "Mesh", space_type="EMPTY", region_type="WINDOW"
-        )
-    if _km_move_tool_curve is None:
-        _km_move_tool_curve = kc.keymaps.new(
-            "Curve", space_type="EMPTY", region_type="WINDOW"
-        )
-    if _km_move_tool_curves is None:
-        _km_move_tool_curves = kc.keymaps.new(
-            "Curves", space_type="EMPTY", region_type="WINDOW"
-        )
-    # UV Edit: keymap „UV Editor” (nu „Image” / paint).
-    if _km_move_tool_uv is None:
-        _km_move_tool_uv = kc.keymaps.new(
-            "UV Editor", space_type="EMPTY", region_type="WINDOW"
-        )
-    if _km_move_tool_armature is None:
-        _km_move_tool_armature = kc.keymaps.new(
-            "Armature", space_type="EMPTY", region_type="WINDOW"
-        )
-    if _km_move_tool_pose is None:
-        _km_move_tool_pose = kc.keymaps.new(
-            "Pose", space_type="EMPTY", region_type="WINDOW"
-        )
-    if _km_move_tool_lattice is None:
-        _km_move_tool_lattice = kc.keymaps.new(
-            "Lattice", space_type="EMPTY", region_type="WINDOW"
-        )
-    if _km_move_tool_surface is None:
-        _km_move_tool_surface = kc.keymaps.new(
-            "Surface", space_type="EMPTY", region_type="WINDOW"
-        )
-    if _km_move_tool_metaball is None:
-        _km_move_tool_metaball = kc.keymaps.new(
-            "Metaball", space_type="EMPTY", region_type="WINDOW"
-        )
-    _toolbar_kms = (
-        _km_move_tool_object,
-        _km_move_tool_mesh,
-        _km_move_tool_curve,
-        _km_move_tool_curves,
-        _km_move_tool_uv,
-        _km_move_tool_armature,
-        _km_move_tool_pose,
-        _km_move_tool_lattice,
-        _km_move_tool_surface,
-        _km_move_tool_metaball,
-    )
+
+    for name in _TOOLBAR_KM_SPECS:
+        if name not in _toolbar_kms:
+            _toolbar_kms[name] = kc.keymaps.new(
+                name, space_type="EMPTY", region_type="WINDOW"
+            )
+
     if _pref(prefs, "shortcut_w_move_tool"):
-        for km in _toolbar_kms:
+        for km in _toolbar_kms.values():
             kmi = km.keymap_items.new("wm.tool_set_by_id", "W", "PRESS")
             kmi.properties.name = "builtin.move"
             _addon_keymaps_toolbar_tools.append((km, kmi))
+
     if _pref(prefs, "shortcut_e_rotate_tool"):
-        for km in _toolbar_kms:
+        for km in _toolbar_kms.values():
             kmi = km.keymap_items.new("wm.tool_set_by_id", "E", "PRESS")
             kmi.properties.name = "builtin.rotate"
             _addon_keymaps_toolbar_tools.append((km, kmi))
+
     if _pref(prefs, "shortcut_alt_e_extrude"):
-        kmi_alt = _km_move_tool_mesh.keymap_items.new(
+        kmi_alt = _toolbar_kms["Mesh"].keymap_items.new(
             "view3d.edit_mesh_extrude_move_normal", "E", "PRESS", alt=True
         )
-        _addon_keymaps_toolbar_tools.append((_km_move_tool_mesh, kmi_alt))
-        kmi_shift_alt = _km_move_tool_mesh.keymap_items.new(
+        _addon_keymaps_toolbar_tools.append((_toolbar_kms["Mesh"], kmi_alt))
+        kmi_shift_alt = _toolbar_kms["Mesh"].keymap_items.new(
             "wm.call_menu", "E", "PRESS", alt=True, shift=True
         )
         kmi_shift_alt.properties.name = "VIEW3D_MT_edit_mesh_extrude"
-        _addon_keymaps_toolbar_tools.append((_km_move_tool_mesh, kmi_shift_alt))
-        kmi_curve_alt = _km_move_tool_curve.keymap_items.new(
+        _addon_keymaps_toolbar_tools.append((_toolbar_kms["Mesh"], kmi_shift_alt))
+        kmi_curve_alt = _toolbar_kms["Curve"].keymap_items.new(
             "curve.extrude_move", "E", "PRESS", alt=True
         )
-        _addon_keymaps_toolbar_tools.append((_km_move_tool_curve, kmi_curve_alt))
-        kmi_curves_alt = _km_move_tool_curves.keymap_items.new(
+        _addon_keymaps_toolbar_tools.append((_toolbar_kms["Curve"], kmi_curve_alt))
+        kmi_curves_alt = _toolbar_kms["Curves"].keymap_items.new(
             "curves.extrude_move", "E", "PRESS", alt=True
         )
-        _addon_keymaps_toolbar_tools.append((_km_move_tool_curves, kmi_curves_alt))
-        kmi_armature_alt = _km_move_tool_armature.keymap_items.new(
+        _addon_keymaps_toolbar_tools.append((_toolbar_kms["Curves"], kmi_curves_alt))
+        kmi_armature_alt = _toolbar_kms["Armature"].keymap_items.new(
             "armature.extrude_move", "E", "PRESS", alt=True
         )
-        _addon_keymaps_toolbar_tools.append((_km_move_tool_armature, kmi_armature_alt))
-        kmi_surface_alt = _km_move_tool_surface.keymap_items.new(
+        _addon_keymaps_toolbar_tools.append((_toolbar_kms["Armature"], kmi_armature_alt))
+        kmi_surface_alt = _toolbar_kms["Surface"].keymap_items.new(
             "surface.extrude_move", "E", "PRESS", alt=True
         )
-        _addon_keymaps_toolbar_tools.append((_km_move_tool_surface, kmi_surface_alt))
+        _addon_keymaps_toolbar_tools.append((_toolbar_kms["Surface"], kmi_surface_alt))
 
 
 def _unregister_toolbar_tool_keymaps():
     for km, kmi in _addon_keymaps_toolbar_tools:
         km.keymap_items.remove(kmi)
     _addon_keymaps_toolbar_tools.clear()
+    _toolbar_kms.clear()
 
+
+# ---------------------------------------------------------------------------
+# Auto-linked mode (key 4, Edit Mesh)
+# ---------------------------------------------------------------------------
 
 def _register_auto_linked_keymap():
-    """Edit Mesh: 4 toggles auto-linked mode (replaces Max-slot key 4 one-shot linked expand)."""
+    """Edit Mesh: 4 toggles auto-linked mode."""
     prefs = _addon_prefs()
     if not _pref(prefs, "shortcut_key_4_auto_linked"):
         return
@@ -457,44 +435,9 @@ def _unregister_auto_linked_keymap():
     _addon_keymaps_auto_linked.clear()
 
 
-def _unregister_object_hide_keymaps():
-    for km, kmi in _addon_keymaps_object_hide:
-        km.keymap_items.remove(kmi)
-    _addon_keymaps_object_hide.clear()
-
-
-def _unregister_align_keymaps():
-    for km, kmi in _addon_keymaps_align:
-        km.keymap_items.remove(kmi)
-    _addon_keymaps_align.clear()
-
-
-def _register_align_keymaps():
-    prefs = _addon_prefs()
-    want_origins = _pref(prefs, "shortcut_alt_a_align_origins", True)
-    want_dialog = _pref(prefs, "shortcut_ctrl_alt_a_align_dialog", True)
-    if not (want_origins or want_dialog):
-        return
-    wm = bpy.context.window_manager
-    kc = wm.keyconfigs.addon
-    if not kc:
-        return
-    global _km_object_align
-    if _km_object_align is None:
-        _km_object_align = kc.keymaps.new(
-            "Object Mode", space_type="EMPTY", region_type="WINDOW"
-        )
-    if want_origins:
-        kmi = _km_object_align.keymap_items.new(
-            "alec.align_preset_origins", "A", "PRESS", alt=True
-        )
-        _addon_keymaps_align.append((_km_object_align, kmi))
-    if want_dialog:
-        kmi = _km_object_align.keymap_items.new(
-            "alec.align_dialog", "A", "PRESS", ctrl=True, alt=True
-        )
-        _addon_keymaps_align.append((_km_object_align, kmi))
-
+# ---------------------------------------------------------------------------
+# Object hide sync (H / Shift+H / Alt+H)
+# ---------------------------------------------------------------------------
 
 def _register_object_hide_keymaps():
     prefs = _addon_prefs()
@@ -531,6 +474,53 @@ def _register_object_hide_keymaps():
         _addon_keymaps_object_hide.append((_km_object_hide, kmi))
 
 
+def _unregister_object_hide_keymaps():
+    for km, kmi in _addon_keymaps_object_hide:
+        km.keymap_items.remove(kmi)
+    _addon_keymaps_object_hide.clear()
+
+
+# ---------------------------------------------------------------------------
+# Align (Alt+A / Ctrl+Alt+A, Object Mode)
+# ---------------------------------------------------------------------------
+
+def _register_align_keymaps():
+    prefs = _addon_prefs()
+    want_origins = _pref(prefs, "shortcut_alt_a_align_origins", True)
+    want_dialog = _pref(prefs, "shortcut_ctrl_alt_a_align_dialog", True)
+    if not (want_origins or want_dialog):
+        return
+    wm = bpy.context.window_manager
+    kc = wm.keyconfigs.addon
+    if not kc:
+        return
+    global _km_object_align
+    if _km_object_align is None:
+        _km_object_align = kc.keymaps.new(
+            "Object Mode", space_type="EMPTY", region_type="WINDOW"
+        )
+    if want_origins:
+        kmi = _km_object_align.keymap_items.new(
+            "alec.align_preset_origins", "A", "PRESS", alt=True
+        )
+        _addon_keymaps_align.append((_km_object_align, kmi))
+    if want_dialog:
+        kmi = _km_object_align.keymap_items.new(
+            "alec.align_dialog", "A", "PRESS", ctrl=True, alt=True
+        )
+        _addon_keymaps_align.append((_km_object_align, kmi))
+
+
+def _unregister_align_keymaps():
+    for km, kmi in _addon_keymaps_align:
+        km.keymap_items.remove(kmi)
+    _addon_keymaps_align.clear()
+
+
+# ---------------------------------------------------------------------------
+# Mesh component keys (1 / 2 / 3 / 5)
+# ---------------------------------------------------------------------------
+
 def _register_mesh_keymaps():
     global _km_object_mode, _km_mesh_edit
     wm = bpy.context.window_manager
@@ -541,7 +531,7 @@ def _register_mesh_keymaps():
     if _km_object_mode is None:
         _km_object_mode = kc.keymaps.new('Object Mode', space_type='EMPTY', region_type='WINDOW')
     if _km_mesh_edit is None:
-        # Match Blender's default "Mesh" keymap (km_edit_mesh) or bindings won't run in Edit Mesh.
+        # Must match Blender's "Mesh" keymap name or bindings won't fire in Edit Mesh.
         _km_mesh_edit = kc.keymaps.new('Mesh', space_type='EMPTY', region_type='WINDOW')
     for key, comp in (('ONE', 'VERT'), ('TWO', 'EDGE'), ('THREE', 'FACE')):
         kmi = _km_object_mode.keymap_items.new(op, key, 'PRESS')
@@ -564,6 +554,10 @@ def _unregister_mesh_keymaps():
         km.keymap_items.remove(kmi)
     _addon_keymaps_mesh.clear()
 
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
 
 def refresh_keymaps_from_prefs():
     """Re-apply addon keymaps from preferences (core, toolbar, key 4). Mesh 1–3/5 unchanged."""

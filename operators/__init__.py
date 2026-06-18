@@ -59,13 +59,6 @@ _app_handlers = []
 def register():
     for cls in classes:
         bpy.utils.register_class(cls)
-    attributes.post_register()
-    modifiers_dialog.post_register()
-    batch_materials.post_register()
-    triplanar_mapping.post_register()
-    camera_tools.register_focal_lens_scene_props()
-    camera_tools.register_camera_sphere_object_props()
-    light_tools.register_light_rig_object_props()
     depsgraph_handler = edit_mesh.depsgraph_update_handler
     bpy.app.handlers.depsgraph_update_post.append(depsgraph_handler)
     _app_handlers.append((bpy.app.handlers.depsgraph_update_post, depsgraph_handler))
@@ -78,12 +71,6 @@ def unregister():
     notice_overlay.unregister()
     edit_mesh.unregister_draw_handler()
     auto_linked_mode._exit_auto_linked()
-    attributes.post_unregister()
-    modifiers_dialog.post_unregister()
-    batch_materials.post_unregister()
-    camera_tools.unregister_focal_lens_scene_props()
-    camera_tools.unregister_camera_sphere_object_props()
-    light_tools.unregister_light_rig_object_props()
     angle_rays.post_unregister()
     edit_mesh_circle_arc.clear_three_point_circle_session()
     edit_mesh_circle_arc.clear_two_point_circle_session()

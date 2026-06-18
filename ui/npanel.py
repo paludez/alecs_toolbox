@@ -652,9 +652,6 @@ class ALEC_PT_alec_misc_modifiers(bpy.types.Panel):
 
 
 def register():
-    _register_transform_ui_dummy_props()
-    _register_lights_ui_dummy_props()
-    _register_camera_ui_dummy_props()
     bpy.utils.register_class(ALEC_PT_npanelMain)
     bpy.utils.register_class(ALEC_PT_alec_misc)
     bpy.utils.register_class(ALEC_PT_alec_misc_attributes)
@@ -668,6 +665,3 @@ def unregister():
     bpy.utils.unregister_class(ALEC_PT_alec_misc_attributes)
     bpy.utils.unregister_class(ALEC_PT_alec_misc)
     bpy.utils.unregister_class(ALEC_PT_npanelMain)
-    _unregister_lights_ui_dummy_props()
-    _unregister_camera_ui_dummy_props()
-    _unregister_transform_ui_dummy_props()
