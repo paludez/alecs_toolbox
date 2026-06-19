@@ -185,9 +185,10 @@ class BaseModalOperator:
             self.initial_mouse_x = event.mouse_x
             self.on_reset(context, event)
         elif event.type == 'MOUSEMOVE':
-            self.number_input.reset()
-            delta_x = event.mouse_x - self.initial_mouse_x
-            self.on_mouse_move(context, event, delta_x)
+            # Ignore micro-movement while typing (touchpads); [R] returns to mouse drag.
+            if not self.number_input.has_value():
+                delta_x = event.mouse_x - self.initial_mouse_x
+                self.on_mouse_move(context, event, delta_x)
 
         self.on_custom_event(context, event)
         self.base_update_header(context)
