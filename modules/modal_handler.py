@@ -125,6 +125,22 @@ class ModalNumberInput:
         return False
 
 
+def _modal_cursor_anchor(context, event):
+    """Window coords for modal grab-cursor anchor (prefer VIEW_3D WINDOW region)."""
+    area = getattr(context, 'area', None)
+    if area is not None and area.type == 'VIEW_3D':
+        win_region = next((r for r in area.regions if r.type == 'WINDOW'), None)
+        if win_region is not None:
+            return (
+                win_region.x + win_region.width // 2,
+                win_region.y + win_region.height // 2,
+            )
+    region = getattr(context, 'region', None)
+    if region is not None:
+        return region.x + region.width // 2, region.y + region.height // 2
+    return event.mouse_x, event.mouse_y
+
+
 class BaseModalOperator:
     """Base class to handle boilerplate for interactive modal operators."""
     _active_instance = None
@@ -144,9 +160,11 @@ class BaseModalOperator:
         self.unit_scale_display_inv = length_bu_to_display_multiplier(context)
         self.unit_scale = display_length_to_bu_multiplier(context)
 
-        center_x = context.region.x + context.region.width // 2
-        center_y = context.region.y + context.region.height // 2
-        context.window.cursor_warp(center_x, center_y)
+        center_x, center_y = _modal_cursor_anchor(context, event)
+        try:
+            context.window.cursor_warp(center_x, center_y)
+        except Exception:
+            center_x = event.mouse_x
         self.initial_mouse_x = center_x
 
         status_bar.install_shortcuts(self.__class__)
@@ -168,7 +186,8 @@ class BaseModalOperator:
             viewport_header.set_numeric(context, **args)
 
     def modal(self, context, event):
-        context.area.tag_redraw()
+        if context.area is not None:
+            context.area.tag_redraw()
 
         if event.type in {'LEFTMOUSE', 'RET', 'NUMPAD_ENTER'} and event.value == 'PRESS':
             self.on_confirm(context, event)

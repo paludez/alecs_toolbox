@@ -457,19 +457,18 @@ class ALEC_OT_light_energy_modal(bpy.types.Operator):
             return {"RUNNING_MODAL"}
 
         if event.type == "MOUSEMOVE":
-            if self._number_input:
-                self._number_input.reset()
-            dx = event.mouse_x - self._start_mouse_x
-            speed = 0.01 * self._base_ref
-            if event.shift:
-                speed *= 0.2
-            if event.ctrl:
-                speed *= 5.0
-            # Horizontal only: right increases, left decreases.
-            delta = dx * speed
-            for obj in self._iter_lights():
-                start = self._start_energy.get(obj.name, self._get_obj_value(obj))
-                self._set_obj_value(obj, start + delta)
+            if not (self._number_input and self._number_input.has_value()):
+                dx = event.mouse_x - self._start_mouse_x
+                speed = 0.01 * self._base_ref
+                if event.shift:
+                    speed *= 0.2
+                if event.ctrl:
+                    speed *= 5.0
+                # Horizontal only: right increases, left decreases.
+                delta = dx * speed
+                for obj in self._iter_lights():
+                    start = self._start_energy.get(obj.name, self._get_obj_value(obj))
+                    self._set_obj_value(obj, start + delta)
             self._update_header(context)
             return {"RUNNING_MODAL"}
 

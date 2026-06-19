@@ -170,6 +170,14 @@ class ALEC_OT_draw_mesh_edges(bpy.types.Operator):
         if event.type == 'MOUSEMOVE':
             if context.region is None or context.region_data is None:
                 return {'RUNNING_MODAL'}
+            if self._chain_vert_indices and (
+                self.number_input.has_value()
+                or self.angle_input.has_value()
+                or self._typing_angle
+            ):
+                if context.area is not None:
+                    context.area.tag_redraw()
+                return {'RUNNING_MODAL'}
             new_mouse = (event.mouse_region_x, event.mouse_region_y)
             if new_mouse == self._last_event_mouse:
                 return {'RUNNING_MODAL'}

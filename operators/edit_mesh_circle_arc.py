@@ -2311,7 +2311,8 @@ class ALEC_OT_tan_tan_radius_circle(bpy.types.Operator):
             return {'RUNNING_MODAL'}
         if event.type == 'MOUSEMOVE':
             self._last_mouse = (event.mouse_region_x, event.mouse_region_y)
-            self._refresh_radius_preview(context)
+            if not self.number_input.has_value():
+                self._refresh_radius_preview(context)
             self._update_radius_header(context)
             return {'RUNNING_MODAL'}
         return {'RUNNING_MODAL'}
