@@ -67,6 +67,64 @@ def _get_addon_km(kc, name: str, space_type: str, region_type: str = "WINDOW"):
     return kc.keymaps.new(name, space_type=space_type, region_type=region_type)
 
 
+# Editors where Window-only bindings are not reached (e.g. Outliner focus).
+_AREA_UNDER_MOUSE_KM_SPECS = [
+    ("Window", "EMPTY"),
+    ("Outliner", "OUTLINER"),
+    ("3D View", "VIEW_3D"),
+    ("Node Editor", "NODE_EDITOR"),
+    ("Image", "IMAGE_EDITOR"),
+    ("Graph Editor", "GRAPH_EDITOR"),
+    ("Dope Sheet", "DOPESHEET_EDITOR"),
+    ("Properties", "PROPERTIES"),
+    ("File Browser", "FILE_BROWSER"),
+    ("Text", "TEXT_EDITOR"),
+]
+
+
+def _register_area_under_mouse_shortcuts(kc, prefs) -> None:
+    """Area-under-mouse shortcuts on Window + per-editor keymaps."""
+    want = any(
+        (
+            _pref(prefs, "shortcut_alt_1_view3d_under_mouse"),
+            _pref(prefs, "shortcut_alt_2_toggle_shader_object_world_under_mouse"),
+            _pref(prefs, "shortcut_alt_3_toggle_uv_image_under_mouse"),
+            _pref(prefs, "shortcut_alt_4_toggle_graph_dopesheet_under_mouse"),
+            _pref(prefs, "shortcut_alt_f1_join_area_under_mouse"),
+        )
+    )
+    if not want:
+        return
+
+    for km_name, space_type in _AREA_UNDER_MOUSE_KM_SPECS:
+        km = _get_addon_km(kc, km_name, space_type, "WINDOW")
+        head = space_type != "EMPTY"
+        if _pref(prefs, "shortcut_alt_1_view3d_under_mouse"):
+            _add_core_kmi(
+                km, "alec.set_area_view3d_under_mouse", "ONE", alt=True, head=head
+            )
+        if _pref(prefs, "shortcut_alt_2_toggle_shader_object_world_under_mouse"):
+            _add_core_kmi(
+                km, "alec.toggle_area_shader_under_mouse", "TWO", alt=True, head=head
+            )
+        if _pref(prefs, "shortcut_alt_3_toggle_uv_image_under_mouse"):
+            _add_core_kmi(
+                km, "alec.toggle_area_uv_image_under_mouse", "THREE", alt=True, head=head
+            )
+        if _pref(prefs, "shortcut_alt_4_toggle_graph_dopesheet_under_mouse"):
+            _add_core_kmi(
+                km,
+                "alec.toggle_area_graph_dopesheet_under_mouse",
+                "FOUR",
+                alt=True,
+                head=head,
+            )
+        if _pref(prefs, "shortcut_alt_f1_join_area_under_mouse"):
+            _add_core_kmi(
+                km, "alec.join_area_under_mouse", "F1", alt=True, head=head
+            )
+
+
 def _add_core_kmi(km, idname: str, key: str, *, head: bool = False, **modifiers):
     """Register one keymap item; skip exact duplicates on the same keymap."""
     for kmi in km.keymap_items:
@@ -196,7 +254,7 @@ def _register_core_keymaps():
             _pref(prefs, "shortcut_f1_search"),
             _pref(prefs, "shortcut_f3_wireframe_xray"),
             _pref(prefs, "shortcut_f4_overlay_wireframes"),
-            _pref(prefs, "shortcut_alt_f3_wireframe_color"),
+            _pref(prefs, "shortcut_ctrl_shift_f3_wireframe_color"),
             _pref(prefs, "shortcut_ctrl_alt_f3_color_type"),
             _pref(prefs, "shortcut_f5_rendered"),
             _pref(prefs, "shortcut_f6_material"),
@@ -239,11 +297,15 @@ def _register_core_keymaps():
         )
         _addon_keymaps_core.append((km, kmi_f4))
 
-    if km is not None and _pref(prefs, "shortcut_alt_f3_wireframe_color"):
-        kmi_alt_f3 = km.keymap_items.new(
-            "alec.viewport_cycle_wireframe_color_type", "F3", "PRESS", alt=True
+    if km is not None and _pref(prefs, "shortcut_ctrl_shift_f3_wireframe_color"):
+        kmi_ctrl_shift_f3 = km.keymap_items.new(
+            "alec.viewport_cycle_wireframe_color_type",
+            "F3",
+            "PRESS",
+            ctrl=True,
+            shift=True,
         )
-        _addon_keymaps_core.append((km, kmi_alt_f3))
+        _addon_keymaps_core.append((km, kmi_ctrl_shift_f3))
 
     if km is not None and _pref(prefs, "shortcut_ctrl_alt_f3_color_type"):
         kmi_ctrl_alt_f3 = km.keymap_items.new(
@@ -310,41 +372,11 @@ def _register_core_keymaps():
             _pref(prefs, "shortcut_alt_2_toggle_shader_object_world_under_mouse"),
             _pref(prefs, "shortcut_alt_3_toggle_uv_image_under_mouse"),
             _pref(prefs, "shortcut_alt_4_toggle_graph_dopesheet_under_mouse"),
-            _pref(prefs, "shortcut_alt_f1_split_area_vertical"),
-            _pref(prefs, "shortcut_alt_f2_split_area_horizontal"),
+            _pref(prefs, "shortcut_alt_f1_join_area_under_mouse"),
         )
     )
     if need_window:
-        km_window = _get_addon_km(kc, "Window", "EMPTY", "WINDOW")
-        if _pref(prefs, "shortcut_alt_1_view3d_under_mouse"):
-            _add_core_kmi(
-                km_window, "alec.set_area_view3d_under_mouse", "ONE", alt=True
-            )
-        if _pref(prefs, "shortcut_alt_2_toggle_shader_object_world_under_mouse"):
-            _add_core_kmi(
-                km_window, "alec.toggle_area_shader_under_mouse", "TWO", alt=True
-            )
-        if _pref(prefs, "shortcut_alt_3_toggle_uv_image_under_mouse"):
-            _add_core_kmi(
-                km_window, "alec.toggle_area_uv_image_under_mouse", "THREE", alt=True
-            )
-        if _pref(prefs, "shortcut_alt_4_toggle_graph_dopesheet_under_mouse"):
-            _add_core_kmi(
-                km_window,
-                "alec.toggle_area_graph_dopesheet_under_mouse",
-                "FOUR",
-                alt=True,
-            )
-        if _pref(prefs, "shortcut_alt_f1_split_area_vertical"):
-            kmi = _add_core_kmi(
-                km_window, "alec.split_area_under_mouse", "F1", alt=True
-            )
-            kmi.properties.direction = "VERTICAL"
-        if _pref(prefs, "shortcut_alt_f2_split_area_horizontal"):
-            kmi = _add_core_kmi(
-                km_window, "alec.split_area_under_mouse", "F2", alt=True
-            )
-            kmi.properties.direction = "HORIZONTAL"
+        _register_area_under_mouse_shortcuts(kc, prefs)
 
     if _pref(prefs, "shortcut_alt_rmb_quad"):
         km_node = kc.keymaps.new(name="Node Editor", space_type="NODE_EDITOR", region_type="WINDOW")
@@ -646,9 +678,18 @@ def register():
 
 
 def unregister():
+    global _km_auto_linked_mesh, _km_object_hide, _km_object_align
+    global _km_object_mode, _km_mesh_edit, _mesh_keys_registered
+
     set_mesh_max_keys(False)
     _unregister_auto_linked_keymap()
     _unregister_object_hide_keymaps()
     _unregister_align_keymaps()
     _unregister_toolbar_tool_keymaps()
     _unregister_core_keymaps()
+    _km_auto_linked_mesh = None
+    _km_object_hide = None
+    _km_object_align = None
+    _km_object_mode = None
+    _km_mesh_edit = None
+    _mesh_keys_registered = False

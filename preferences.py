@@ -75,8 +75,8 @@ class ALEC_AddonPreferences(AddonPreferences):
         default=True,
         update=_refresh_addon_keymaps,
     )
-    shortcut_alt_f3_wireframe_color: BoolProperty(
-        name="Alt+F3 — Cycle wireframe color",
+    shortcut_ctrl_shift_f3_wireframe_color: BoolProperty(
+        name="Ctrl+Shift+F3 — Cycle wireframe color",
         description="Cycle wireframe color type: Theme, Object, Random.",
         default=True,
         update=_refresh_addon_keymaps,
@@ -151,13 +151,8 @@ class ALEC_AddonPreferences(AddonPreferences):
         default=True,
         update=_refresh_addon_keymaps,
     )
-    shortcut_alt_f1_split_area_vertical: BoolProperty(
-        name="Alt+F1 — Split area under mouse (vertical)",
-        default=True,
-        update=_refresh_addon_keymaps,
-    )
-    shortcut_alt_f2_split_area_horizontal: BoolProperty(
-        name="Alt+F2 — Split area under mouse (horizontal)",
+    shortcut_alt_f1_join_area_under_mouse: BoolProperty(
+        name="Alt+F1 — Join area under mouse (interactive)",
         default=True,
         update=_refresh_addon_keymaps,
     )
@@ -289,7 +284,7 @@ class ALEC_AddonPreferences(AddonPreferences):
         col_shading.prop(self, "shortcut_f1_search")
         col_shading.prop(self, "shortcut_f3_wireframe_xray")
         col_shading.prop(self, "shortcut_f4_overlay_wireframes")
-        col_shading.prop(self, "shortcut_alt_f3_wireframe_color")
+        col_shading.prop(self, "shortcut_ctrl_shift_f3_wireframe_color")
         col_shading.prop(self, "shortcut_ctrl_alt_f3_color_type")
         col_shading.prop(self, "shortcut_f5_rendered")
         col_shading.prop(self, "shortcut_f6_material")
@@ -316,8 +311,7 @@ class ALEC_AddonPreferences(AddonPreferences):
         col_window.prop(self, "shortcut_alt_2_toggle_shader_object_world_under_mouse")
         col_window.prop(self, "shortcut_alt_3_toggle_uv_image_under_mouse")
         col_window.prop(self, "shortcut_alt_4_toggle_graph_dopesheet_under_mouse")
-        col_window.prop(self, "shortcut_alt_f1_split_area_vertical")
-        col_window.prop(self, "shortcut_alt_f2_split_area_horizontal")
+        col_window.prop(self, "shortcut_alt_f1_join_area_under_mouse")
 
         box_other = layout.box()
         box_other.label(text="Other")

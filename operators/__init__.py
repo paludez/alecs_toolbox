@@ -25,6 +25,7 @@ from . import system
 from . import triplanar_mapping
 from . import trim_extend
 from . import viewport_tools
+from . import window_areas
 
 classes = (
     *align.classes,
@@ -52,6 +53,7 @@ classes = (
     *triplanar_mapping.classes,
     *trim_extend.classes,
     *viewport_tools.classes,
+    *window_areas.classes,
 )
 
 _app_handlers = []
@@ -64,8 +66,13 @@ def register():
     _app_handlers.append((bpy.app.handlers.depsgraph_update_post, depsgraph_handler))
 
 def unregister():
-    from ..modules import distribute_gaps_overlay
-    from ..modules import notice_overlay
+    import importlib
+
+    root_pkg = (__package__ or "alecs_toolbox.operators").rsplit(".", 1)[0]
+    distribute_gaps_overlay = importlib.import_module(
+        f"{root_pkg}.modules.distribute_gaps_overlay"
+    )
+    notice_overlay = importlib.import_module(f"{root_pkg}.modules.notice_overlay")
 
     distribute_gaps_overlay.unregister_preview()
     notice_overlay.unregister()

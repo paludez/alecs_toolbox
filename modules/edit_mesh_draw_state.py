@@ -94,7 +94,7 @@ def depsgraph_update_handler(scene):
 
 def unregister_draw_handler():
     """Force remove the draw handler when unregistering the addon."""
-    global _draw_handler_px, _draw_handler_3d, _falloff_timer
+    global _draw_handler_px, _draw_handler_3d, _falloff_timer, _draw_data
     if _draw_handler_px:
         try:
             bpy.types.SpaceView3D.draw_handler_remove(_draw_handler_px, 'WINDOW')
@@ -107,9 +107,11 @@ def unregister_draw_handler():
         except ValueError:
             pass
         _draw_handler_3d = None
-    if _falloff_timer and bpy.app.timers.is_registered(clear_falloff_preview):
-        bpy.app.timers.unregister(clear_falloff_preview)
+    if _falloff_timer is not None:
+        if bpy.app.timers.is_registered(clear_falloff_preview):
+            bpy.app.timers.unregister(clear_falloff_preview)
         _falloff_timer = None
+    _draw_data.clear()
 
 
 def has_dim_overlay_data():
