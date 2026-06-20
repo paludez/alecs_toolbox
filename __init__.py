@@ -16,10 +16,15 @@ modules = [
     shortcuts,
 ]
 
+
 def register():
     for m in modules:
         m.register()
 
+
 def unregister():
+    from .modules.blender_workflow_prefs import revert_workflow_preferences
+
+    revert_workflow_preferences()
     for m in reversed(modules):
         m.unregister()

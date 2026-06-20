@@ -28,6 +28,26 @@ def _on_mesh_keys_toggle(self, _context):
     shortcuts.set_mesh_max_keys(self.use_max_style_mesh_keys)
 
 
+def _on_workflow_pref_change(self, _context):
+    if not self.apply_blender_workflow_defaults:
+        return
+    from .modules.blender_workflow_prefs import refresh_workflow_preferences
+
+    refresh_workflow_preferences()
+
+
+def _on_workflow_master_toggle(self, _context):
+    from .modules.blender_workflow_prefs import (
+        apply_workflow_preferences,
+        revert_workflow_preferences,
+    )
+
+    if self.apply_blender_workflow_defaults:
+        apply_workflow_preferences()
+    else:
+        revert_workflow_preferences()
+
+
 class ALEC_AddonPreferences(AddonPreferences):
     bl_idname = _addon_id()
 
@@ -173,6 +193,25 @@ class ALEC_AddonPreferences(AddonPreferences):
         default=True,
         update=_refresh_addon_keymaps,
     )
+    shortcut_alt_n_auto_key: BoolProperty(
+        name="Alt+N — Toggle Auto Keying",
+        description=(
+            "Toggle record on transform (tool_settings.use_keyframe_insert_auto). "
+            "Blender has no default shortcut; Edit Mesh keeps Alt+N for the normals menu."
+        ),
+        default=True,
+        update=_refresh_addon_keymaps,
+    )
+    shortcut_shift_1234_timeline_nav: BoolProperty(
+        name="Shift+1–4 — Begin / Prev key / Next key / End",
+        description=(
+            "Shift+1: scene/preview start; Shift+2: previous keyframe; "
+            "Shift+3: next keyframe; Shift+4: scene/preview end. "
+            "Edit Mesh keeps Shift+1–3 for select-mode extend."
+        ),
+        default=True,
+        update=_refresh_addon_keymaps,
+    )
     shortcut_w_move_tool: BoolProperty(
         name="W — Move tool (toolbar)",
         default=True,
@@ -275,6 +314,110 @@ class ALEC_AddonPreferences(AddonPreferences):
         max=100_000,
     )
 
+    apply_blender_workflow_defaults: BoolProperty(
+        name="Apply Blender workflow defaults",
+        description=(
+            "When checked, apply the options below to Blender preferences. "
+            "Uncheck to restore previous values. Off by default."
+        ),
+        default=False,
+        update=_on_workflow_master_toggle,
+    )
+    wf_hide_splash: BoolProperty(
+        name="Hide splash screen",
+        default=True,
+        update=_on_workflow_pref_change,
+    )
+    wf_show_tooltips_python: BoolProperty(
+        name="Python tooltips",
+        default=True,
+        update=_on_workflow_pref_change,
+    )
+    wf_show_number_arrows: BoolProperty(
+        name="Numeric input arrows",
+        default=True,
+        update=_on_workflow_pref_change,
+    )
+    wf_show_statusbar_stats: BoolProperty(
+        name="Scene statistics (status bar)",
+        default=True,
+        update=_on_workflow_pref_change,
+    )
+    wf_use_mouse_over_open: BoolProperty(
+        name="Open on mouse over",
+        default=True,
+        update=_on_workflow_pref_change,
+    )
+    wf_open_toplevel_delay_one: BoolProperty(
+        name="Top level open delay = 1",
+        default=True,
+        update=_on_workflow_pref_change,
+    )
+    wf_open_sublevel_delay_one: BoolProperty(
+        name="Sub level open delay = 1",
+        default=True,
+        update=_on_workflow_pref_change,
+    )
+    wf_pie_animation_timeout_zero: BoolProperty(
+        name="Pie menu animation timeout = 0",
+        default=True,
+        update=_on_workflow_pref_change,
+    )
+    wf_object_align_cursor: BoolProperty(
+        name="Align to 3D Cursor (new objects)",
+        default=True,
+        update=_on_workflow_pref_change,
+    )
+    wf_show_only_selected_curve_keyframes: BoolProperty(
+        name="Only show selected F-Curve keyframes",
+        default=True,
+        update=_on_workflow_pref_change,
+    )
+    wf_disable_fcurve_high_quality: BoolProperty(
+        name="Disable F-Curve high quality drawing",
+        default=True,
+        update=_on_workflow_pref_change,
+    )
+    wf_fcurve_unselected_alpha: BoolProperty(
+        name="F-Curve unselected opacity = 0",
+        default=True,
+        update=_on_workflow_pref_change,
+    )
+    wf_use_numeric_input_advanced: BoolProperty(
+        name="Default to advanced numeric input",
+        default=True,
+        update=_on_workflow_pref_change,
+    )
+    wf_orbit_around_selection: BoolProperty(
+        name="Orbit around selection",
+        default=True,
+        update=_on_workflow_pref_change,
+    )
+    wf_disable_auto_perspective: BoolProperty(
+        name="Disable auto perspective",
+        default=True,
+        update=_on_workflow_pref_change,
+    )
+    wf_use_mouse_depth_navigate: BoolProperty(
+        name="Auto depth (navigate)",
+        default=True,
+        update=_on_workflow_pref_change,
+    )
+    wf_use_zoom_to_mouse: BoolProperty(
+        name="Zoom to mouse position",
+        default=True,
+        update=_on_workflow_pref_change,
+    )
+    wf_theme_box_inner_alpha_one: BoolProperty(
+        name="Theme: Box inner alpha = 1.0",
+        description=(
+            "Preferences → Themes → User Interface → Box → Inner: set alpha to 1.0 "
+            "(RGB unchanged)."
+        ),
+        default=True,
+        update=_on_workflow_pref_change,
+    )
+
     def draw(self, context):
         layout = self.layout
 
@@ -317,6 +460,8 @@ class ALEC_AddonPreferences(AddonPreferences):
         box_other.label(text="Other")
         col_other = box_other.column(align=True)
         col_other.prop(self, "shortcut_alt_w_light_energy_modal")
+        col_other.prop(self, "shortcut_alt_n_auto_key")
+        col_other.prop(self, "shortcut_shift_1234_timeline_nav")
         col_other.prop(self, "shortcut_grave_outliner_show_active")
 
         box_toolbar = layout.box()
@@ -352,6 +497,48 @@ class ALEC_AddonPreferences(AddonPreferences):
         col_snap.prop(self, "draw_mesh_snap_max_verts_per_object")
         col_snap.prop(self, "draw_mesh_snap_max_verts_total")
         col_snap.prop(self, "draw_mesh_snap_kdtree_min_elements")
+
+        box_workflow = layout.box()
+        box_workflow.label(text="Blender workflow defaults")
+        box_workflow.prop(self, "apply_blender_workflow_defaults")
+        col_wf = box_workflow.column(align=True)
+        col_wf.enabled = self.apply_blender_workflow_defaults
+
+        box_wf_iface = col_wf.box()
+        box_wf_iface.label(text="Interface")
+        col_iface = box_wf_iface.column(align=True)
+        col_iface.prop(self, "wf_hide_splash")
+        col_iface.prop(self, "wf_show_tooltips_python")
+        col_iface.prop(self, "wf_show_number_arrows")
+        col_iface.prop(self, "wf_show_statusbar_stats")
+        col_iface.prop(self, "wf_use_mouse_over_open")
+        col_iface.prop(self, "wf_open_toplevel_delay_one")
+        col_iface.prop(self, "wf_open_sublevel_delay_one")
+        col_iface.prop(self, "wf_pie_animation_timeout_zero")
+
+        box_wf_edit = col_wf.box()
+        box_wf_edit.label(text="Editing")
+        col_edit = box_wf_edit.column(align=True)
+        col_edit.prop(self, "wf_object_align_cursor")
+        col_edit.prop(self, "wf_show_only_selected_curve_keyframes")
+        col_edit.prop(self, "wf_disable_fcurve_high_quality")
+        col_edit.prop(self, "wf_fcurve_unselected_alpha")
+
+        box_wf_input = col_wf.box()
+        box_wf_input.label(text="Input")
+        box_wf_input.prop(self, "wf_use_numeric_input_advanced")
+
+        box_wf_nav = col_wf.box()
+        box_wf_nav.label(text="Navigation")
+        col_nav = box_wf_nav.column(align=True)
+        col_nav.prop(self, "wf_orbit_around_selection")
+        col_nav.prop(self, "wf_disable_auto_perspective")
+        col_nav.prop(self, "wf_use_mouse_depth_navigate")
+        col_nav.prop(self, "wf_use_zoom_to_mouse")
+
+        box_wf_theme = col_wf.box()
+        box_wf_theme.label(text="Themes")
+        box_wf_theme.prop(self, "wf_theme_box_inner_alpha_one")
 
 
 classes = (ALEC_AddonPreferences,)

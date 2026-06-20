@@ -125,6 +125,76 @@ def _register_area_under_mouse_shortcuts(kc, prefs) -> None:
             )
 
 
+_AUTO_KEY_DATA_PATH = "tool_settings.use_keyframe_insert_auto"
+
+
+def _add_context_toggle_kmi(km, data_path: str, key: str, *, head: bool = False, **modifiers):
+    kmi = km.keymap_items.new("wm.context_toggle", key, "PRESS", head=head, **modifiers)
+    kmi.properties.data_path = data_path
+    _addon_keymaps_core.append((km, kmi))
+    return kmi
+
+
+def _add_op_kmi(km, idname: str, key: str, *, props=None, head: bool = False, **modifiers):
+    kmi = km.keymap_items.new(idname, key, "PRESS", head=head, **modifiers)
+    if props:
+        for name, value in props.items():
+            setattr(kmi.properties, name, value)
+    _addon_keymaps_core.append((km, kmi))
+    return kmi
+
+
+def _register_auto_key_toggle_keymaps(kc, prefs) -> None:
+    if not _pref(prefs, "shortcut_alt_n_auto_key"):
+        return
+    km_win = _get_addon_km(kc, "Window", "EMPTY", "WINDOW")
+    _add_context_toggle_kmi(km_win, _AUTO_KEY_DATA_PATH, "N", alt=True)
+    for km_name, space_type in (
+        ("Graph Editor", "GRAPH_EDITOR"),
+        ("Dope Sheet", "DOPESHEET_EDITOR"),
+    ):
+        km = _get_addon_km(kc, km_name, space_type, "WINDOW")
+        _add_context_toggle_kmi(km, _AUTO_KEY_DATA_PATH, "N", alt=True)
+
+
+def _register_timeline_nav_keymaps(kc, prefs) -> None:
+    if not _pref(prefs, "shortcut_shift_1234_timeline_nav"):
+        return
+    km = _get_addon_km(kc, "Frames", "EMPTY", "WINDOW")
+    _add_op_kmi(
+        km,
+        "screen.frame_jump",
+        "ONE",
+        shift=True,
+        repeat=True,
+        props={"end": False},
+    )
+    _add_op_kmi(
+        km,
+        "screen.keyframe_jump",
+        "TWO",
+        shift=True,
+        repeat=True,
+        props={"next": False},
+    )
+    _add_op_kmi(
+        km,
+        "screen.keyframe_jump",
+        "THREE",
+        shift=True,
+        repeat=True,
+        props={"next": True},
+    )
+    _add_op_kmi(
+        km,
+        "screen.frame_jump",
+        "FOUR",
+        shift=True,
+        repeat=True,
+        props={"end": True},
+    )
+
+
 def _add_core_kmi(km, idname: str, key: str, *, head: bool = False, **modifiers):
     """Register one keymap item; skip exact duplicates on the same keymap."""
     for kmi in km.keymap_items:
@@ -271,8 +341,12 @@ def _register_core_keymaps():
         km = _get_addon_km(kc, "3D View", "VIEW_3D", "WINDOW")
 
     if km is not None and _pref(prefs, "shortcut_q_alt_menu"):
-        kmi_main = km.keymap_items.new("alec.menu_dispatcher", "Q", "PRESS", alt=True)
-        _addon_keymaps_core.append((km, kmi_main))
+        _add_core_kmi(km, "alec.menu_dispatcher", "Q", alt=True)
+        # Edit modes use Mesh/Curve keymaps (EMPTY), not 3D View — duplicate binding.
+        km_mesh = _get_addon_km(kc, "Mesh", "EMPTY", "WINDOW")
+        _add_core_kmi(km_mesh, "alec.menu_dispatcher", "Q", alt=True, head=True)
+        km_curve = _get_addon_km(kc, "Curve", "EMPTY", "WINDOW")
+        _add_core_kmi(km_curve, "alec.menu_dispatcher", "Q", alt=True, head=True)
 
     if km is not None and _pref(prefs, "shortcut_alt_rmb_quad"):
         kmi_quad = km.keymap_items.new(
@@ -399,6 +473,9 @@ def _register_core_keymaps():
             "outliner.show_active", "ACCENT_GRAVE", "PRESS"
         )
         _addon_keymaps_core.append((km_outliner, kmi_outliner_show_active))
+
+    _register_auto_key_toggle_keymaps(kc, prefs)
+    _register_timeline_nav_keymaps(kc, prefs)
 
 
 # ---------------------------------------------------------------------------
