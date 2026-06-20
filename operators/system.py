@@ -51,6 +51,78 @@ def _set_area_uv(area) -> None:
         area.ui_type = "UV"
 
 
+def _set_area_image_viewer(area) -> None:
+    if area.type != "IMAGE_EDITOR":
+        area.type = "IMAGE_EDITOR"
+    if getattr(area, "ui_type", None) != "IMAGE_EDITOR":
+        area.ui_type = "IMAGE_EDITOR"
+
+
+def _set_area_graph_fcurves(area) -> None:
+    if area.type != "GRAPH_EDITOR":
+        area.type = "GRAPH_EDITOR"
+    if getattr(area, "ui_type", None) != "FCURVES":
+        area.ui_type = "FCURVES"
+
+
+def _set_area_dopesheet(area) -> None:
+    if area.type != "DOPESHEET_EDITOR":
+        area.type = "DOPESHEET_EDITOR"
+    if getattr(area, "ui_type", None) != "DOPESHEET":
+        area.ui_type = "DOPESHEET"
+
+
+def _is_area_shader_object(area) -> bool:
+    if area.type != "NODE_EDITOR":
+        return False
+    if getattr(area, "ui_type", None) != "ShaderNodeTree":
+        return False
+    space = area.spaces.active
+    return bool(space and space.type == "NODE_EDITOR" and space.shader_type == "OBJECT")
+
+
+def _is_area_uv(area) -> bool:
+    return area.type == "IMAGE_EDITOR" and getattr(area, "ui_type", None) == "UV"
+
+
+def _is_area_graph_fcurves(area) -> bool:
+    return area.type == "GRAPH_EDITOR" and getattr(area, "ui_type", None) == "FCURVES"
+
+
+def _toggle_shader_editor(area, context) -> None:
+    if _is_area_shader_object(area):
+        _set_area_shader(area, "WORLD", context)
+    else:
+        _set_area_shader(area, "OBJECT", context)
+
+
+def _toggle_uv_image_viewer(area) -> None:
+    if _is_area_uv(area):
+        _set_area_image_viewer(area)
+    else:
+        _set_area_uv(area)
+
+
+def _toggle_animation_editor(area) -> None:
+    if _is_area_graph_fcurves(area):
+        _set_area_dopesheet(area)
+    else:
+        _set_area_graph_fcurves(area)
+
+
+def _invoke_area_under_mouse(self, context, event, deferred_fn):
+    if not context.window or not context.window.screen:
+        self.report({"WARNING"}, "No active window/screen")
+        return {"CANCELLED"}
+    target_area = _area_under_mouse(context, event)
+    if target_area is None:
+        self.report({"WARNING"}, "No area under mouse")
+        return {"CANCELLED"}
+    area_ref = target_area
+    _schedule_area_update(lambda: deferred_fn(area_ref))
+    return {"FINISHED"}
+
+
 class ALEC_OT_menu_dispatcher(bpy.types.Operator):
     """Shows a different menu based on the context (Object/Edit mode)"""
     bl_idname = "alec.menu_dispatcher"
@@ -84,47 +156,97 @@ class ALEC_OT_set_area_view3d_under_mouse(bpy.types.Operator):
         _schedule_area_update(lambda: _set_area_view3d(area_ref))
         return {'FINISHED'}
 
-class ALEC_OT_set_area_shader_under_mouse(bpy.types.Operator):
-    """Set the editor under mouse to Shader Editor"""
-    bl_idname = "alec.set_area_shader_under_mouse"
-    bl_label = "Set Area To Shader Editor"
-    bl_options = {'REGISTER', 'UNDO'}
+class ALEC_OT_toggle_area_shader_under_mouse(bpy.types.Operator):
+    """Toggle area under mouse between Shader Editor (Object) and Shader Editor (World)"""
 
-    mode: bpy.props.EnumProperty(
-        items=[('OBJECT', "Object", ""), ('WORLD', "World", "")]
-    ) # type: ignore
+    bl_idname = "alec.toggle_area_shader_under_mouse"
+    bl_label = "Toggle Area Shader Object/World"
+    bl_options = {"REGISTER", "UNDO"}
 
     def invoke(self, context, event):
-        if not context.window or not context.window.screen:
-            self.report({'WARNING'}, "No active window/screen")
-            return {'CANCELLED'}
-        target_area = _area_under_mouse(context, event)
-        if target_area is None:
-            self.report({'WARNING'}, "No area under mouse")
-            return {'CANCELLED'}
-        area_ref = target_area
-        mode = self.mode
-        _schedule_area_update(lambda: _set_area_shader(area_ref, mode, context))
-        return {'FINISHED'}
+        return _invoke_area_under_mouse(
+            self,
+            context,
+            event,
+            lambda area: _toggle_shader_editor(area, context),
+        )
 
 
-class ALEC_OT_set_area_uv_under_mouse(bpy.types.Operator):
-    """Set the editor under mouse to UV Editor"""
-    bl_idname = "alec.set_area_uv_under_mouse"
-    bl_label = "Set Area To UV Editor"
-    bl_options = {'REGISTER', 'UNDO'}
+class ALEC_OT_toggle_area_uv_image_under_mouse(bpy.types.Operator):
+    """Toggle area under mouse between UV Editor and Image Viewer"""
+
+    bl_idname = "alec.toggle_area_uv_image_under_mouse"
+    bl_label = "Toggle Area UV/Image Viewer"
+    bl_options = {"REGISTER", "UNDO"}
 
     def invoke(self, context, event):
-        if not context.window or not context.window.screen:
-            self.report({'WARNING'}, "No active window/screen")
-            return {'CANCELLED'}
+        return _invoke_area_under_mouse(
+            self, context, event, _toggle_uv_image_viewer
+        )
+
+
+class ALEC_OT_toggle_area_graph_dopesheet_under_mouse(bpy.types.Operator):
+    """Toggle area under mouse between Graph Editor (F-Curves) and Dope Sheet"""
+
+    bl_idname = "alec.toggle_area_graph_dopesheet_under_mouse"
+    bl_label = "Toggle Area Graph/Dope Sheet"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def invoke(self, context, event):
+        return _invoke_area_under_mouse(
+            self, context, event, _toggle_animation_editor
+        )
+
+
+class ALEC_OT_split_area_under_mouse(bpy.types.Operator):
+    """Split area under mouse vertically or horizontally"""
+
+    bl_idname = "alec.split_area_under_mouse"
+    bl_label = "Split Area Under Mouse"
+    bl_options = {"REGISTER", "UNDO"}
+
+    direction: bpy.props.EnumProperty(
+        name="Direction",
+        items=(
+            ("VERTICAL", "Vertical", ""),
+            ("HORIZONTAL", "Horizontal", ""),
+        ),
+        default="VERTICAL",
+    )
+
+    def invoke(self, context, event):
+        win = context.window
+        screen = context.screen
+        if not win or not screen:
+            self.report({"WARNING"}, "No active window/screen")
+            return {"CANCELLED"}
+
         target_area = _area_under_mouse(context, event)
         if target_area is None:
-            self.report({'WARNING'}, "No area under mouse")
-            return {'CANCELLED'}
-        area_ref = target_area
-        _schedule_area_update(lambda: _set_area_uv(area_ref))
-        return {'FINISHED'}
+            self.report({"WARNING"}, "No area under mouse")
+            return {"CANCELLED"}
+
+        region = next((r for r in target_area.regions if r.type == "WINDOW"), None)
+        if region is None:
+            self.report({"WARNING"}, "No window region in target area")
+            return {"CANCELLED"}
+
+        try:
+            with bpy.context.temp_override(
+                window=win,
+                screen=screen,
+                area=target_area,
+                region=region,
+            ):
+                return bpy.ops.screen.area_split(
+                    "INVOKE_DEFAULT",
+                    direction=self.direction,
+                    cursor=(event.mouse_x, event.mouse_y),
+                )
+        except RuntimeError as exc:
+            self.report({"WARNING"}, f"Area split failed: {exc}")
+            return {"CANCELLED"}
+
 
 class ALEC_OT_toggle_global_local_orientation(bpy.types.Operator):
     """Toggle transform orientation between Global and Local"""
@@ -257,8 +379,10 @@ class ALEC_OT_open_alec_panel(bpy.types.Operator):
 classes = (
     ALEC_OT_menu_dispatcher,
     ALEC_OT_set_area_view3d_under_mouse,
-    ALEC_OT_set_area_shader_under_mouse,
-    ALEC_OT_set_area_uv_under_mouse,
+    ALEC_OT_toggle_area_shader_under_mouse,
+    ALEC_OT_toggle_area_uv_image_under_mouse,
+    ALEC_OT_toggle_area_graph_dopesheet_under_mouse,
+    ALEC_OT_split_area_under_mouse,
     ALEC_OT_toggle_global_local_orientation,
     ALEC_OT_view_selected_safe,
     ALEC_OT_open_alec_panel,

@@ -136,18 +136,28 @@ class ALEC_AddonPreferences(AddonPreferences):
         default=True,
         update=_refresh_addon_keymaps,
     )
-    shortcut_alt_2_shader_object_under_mouse: BoolProperty(
-        name="Alt+2 — Set area under mouse to Shader (Object)",
+    shortcut_alt_2_toggle_shader_object_world_under_mouse: BoolProperty(
+        name="Alt+2 — Toggle area under mouse: Shader Editor (Object / World)",
         default=True,
         update=_refresh_addon_keymaps,
     )
-    shortcut_alt_3_shader_world_under_mouse: BoolProperty(
-        name="Alt+3 — Set area under mouse to Shader (World)",
+    shortcut_alt_3_toggle_uv_image_under_mouse: BoolProperty(
+        name="Alt+3 — Toggle area under mouse: UV Editor / Image Viewer",
         default=True,
         update=_refresh_addon_keymaps,
     )
-    shortcut_alt_4_uv_under_mouse: BoolProperty(
-        name="Alt+4 — Set area under mouse to UV Editor",
+    shortcut_alt_4_toggle_graph_dopesheet_under_mouse: BoolProperty(
+        name="Alt+4 — Toggle area under mouse: Graph Editor (F-Curves) / Dope Sheet",
+        default=True,
+        update=_refresh_addon_keymaps,
+    )
+    shortcut_alt_f1_split_area_vertical: BoolProperty(
+        name="Alt+F1 — Split area under mouse (vertical)",
+        default=True,
+        update=_refresh_addon_keymaps,
+    )
+    shortcut_alt_f2_split_area_horizontal: BoolProperty(
+        name="Alt+F2 — Split area under mouse (horizontal)",
         default=True,
         update=_refresh_addon_keymaps,
     )
@@ -303,9 +313,11 @@ class ALEC_AddonPreferences(AddonPreferences):
         box_window.label(text="Window areas")
         col_window = box_window.column(align=True)
         col_window.prop(self, "shortcut_alt_1_view3d_under_mouse")
-        col_window.prop(self, "shortcut_alt_2_shader_object_under_mouse")
-        col_window.prop(self, "shortcut_alt_3_shader_world_under_mouse")
-        col_window.prop(self, "shortcut_alt_4_uv_under_mouse")
+        col_window.prop(self, "shortcut_alt_2_toggle_shader_object_world_under_mouse")
+        col_window.prop(self, "shortcut_alt_3_toggle_uv_image_under_mouse")
+        col_window.prop(self, "shortcut_alt_4_toggle_graph_dopesheet_under_mouse")
+        col_window.prop(self, "shortcut_alt_f1_split_area_vertical")
+        col_window.prop(self, "shortcut_alt_f2_split_area_horizontal")
 
         box_other = layout.box()
         box_other.label(text="Other")
