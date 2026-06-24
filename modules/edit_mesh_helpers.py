@@ -20,8 +20,7 @@ DRAFT_PLANAR_EPS = 1e-4
 def edit_mesh_transform_pivot_world(context, obj, bm):
     """
     World-space pivot matching Tool Settings → Transform Pivot Point (Edit Mesh).
-    INDIVIDUAL_ORIGINS is approximated with the median of the current selection
-    (full per-island pivots would require loose-part detection).
+    INDIVIDUAL_ORIGINS is not supported here; falls back to the object origin.
     """
     pivot_type = context.scene.tool_settings.transform_pivot_point
     mw = obj.matrix_world
@@ -61,7 +60,7 @@ def edit_mesh_transform_pivot_world(context, obj, bm):
             )
         )
 
-    if pivot_type in {'MEDIAN_POINT', 'INDIVIDUAL_ORIGINS'}:
+    if pivot_type == 'MEDIAN_POINT':
         if not sel_verts:
             return mw.translation.copy()
         acc = Vector((0.0, 0.0, 0.0))
@@ -110,6 +109,234 @@ def get_equalize_reference_edge(bm):
     if len(sel_edges) == 1:
         return sel_edges[0]
     return None
+
+
+def set_edge_length_from_anchor(edge, anchor_vert, target_len):
+    """Set edge length by moving the non-anchor endpoint. Returns False if degenerate."""
+    other = edge.other_vert(anchor_vert)
+    vec = other.co - anchor_vert.co
+    length = vec.length
+    if length < 1e-6:
+        return False
+    other.co = anchor_vert.co + vec * (target_len / length)
+    return True
+
+
+def set_edge_length_from_center(edge, target_len):
+    """Set edge length by scaling both endpoints from the midpoint."""
+    v1, v2 = edge.verts
+    vec = v2.co - v1.co
+    length = vec.length
+    if length < 1e-6:
+        return False
+    direction = vec / length
+    offset = direction * (target_len * 0.5)
+    center = (v1.co + v2.co) * 0.5
+    v1.co = center - offset
+    v2.co = center + offset
+    return True
+
+
+def _selected_edge_components(bm):
+    """Connected components of selected edges. Each item is a list of BMEdge."""
+    selected = [e for e in bm.edges if e.select]
+    if not selected:
+        return []
+
+    vert_to_edges = {}
+    for edge in selected:
+        for vert in edge.verts:
+            vert_to_edges.setdefault(vert, []).append(edge)
+
+    visited = set()
+    components = []
+    for seed in selected:
+        if seed in visited:
+            continue
+        comp = []
+        stack = [seed]
+        while stack:
+            edge = stack.pop()
+            if edge in visited:
+                continue
+            visited.add(edge)
+            comp.append(edge)
+            for vert in edge.verts:
+                for neighbor in vert_to_edges.get(vert, []):
+                    if neighbor not in visited:
+                        stack.append(neighbor)
+        components.append(comp)
+    return components
+
+
+def _component_is_closed_loop(comp):
+    if len(comp) < 3:
+        return False
+    comp_set = set(comp)
+    verts = {vert for edge in comp for vert in edge.verts}
+    for vert in verts:
+        degree = sum(1 for edge in vert.link_edges if edge in comp_set)
+        if degree != 2:
+            return False
+    return True
+
+
+def classify_selected_edge_components(bm):
+    """Return (open_components, closed_loop_components) for selected edges."""
+    open_components = []
+    closed_components = []
+    for comp in _selected_edge_components(bm):
+        if _component_is_closed_loop(comp):
+            closed_components.append(comp)
+        else:
+            open_components.append(comp)
+    return open_components, closed_components
+
+
+def _loop_anchor_vert(bm, reference_edge):
+    active = bm.select_history.active
+    if isinstance(active, bmesh.types.BMVert) and active in reference_edge.verts:
+        return active
+    return reference_edge.verts[0]
+
+
+def order_loop_vertices(comp, anchor_vert):
+    """Walk a closed edge loop and return vertices in order starting at anchor_vert."""
+    neighbors = {}
+    for edge in comp:
+        v0, v1 = edge.verts
+        neighbors.setdefault(v0, []).append(v1)
+        neighbors.setdefault(v1, []).append(v0)
+
+    if anchor_vert not in neighbors:
+        return None
+
+    ordered = [anchor_vert]
+    current = anchor_vert
+    prev = None
+    while True:
+        nbrs = [n for n in neighbors[current] if n != prev]
+        if not nbrs:
+            break
+        nxt = nbrs[0]
+        if nxt == anchor_vert and len(ordered) > 1:
+            break
+        ordered.append(nxt)
+        prev = current
+        current = nxt
+        if len(ordered) > len(neighbors):
+            return None
+
+    if len(ordered) != len(neighbors):
+        return None
+    return ordered
+
+
+def redistribute_loop_vertices(ordered_verts, anchor_vert):
+    """
+    Place loop vertices so every edge has equal length (perimeter / N).
+    ordered_verts[0] must be anchor_vert (fixed). Returns number of moved vertices.
+    """
+    if not ordered_verts or ordered_verts[0] is not anchor_vert:
+        return 0
+
+    n = len(ordered_verts)
+    if n < 3:
+        return 0
+
+    original_coords = [vert.co.copy() for vert in ordered_verts]
+    distances = [0.0]
+    total_length = 0.0
+    for i in range(n):
+        p1 = original_coords[i]
+        p2 = original_coords[(i + 1) % n]
+        total_length += (p2 - p1).length
+        distances.append(total_length)
+
+    if total_length < 1e-6:
+        return 0
+
+    target_len = total_length / n
+    moved = 0
+    for i in range(1, n):
+        target_dist = i * target_len
+        seg_idx = next(
+            (j for j in range(n) if distances[j + 1] >= target_dist - 1e-9),
+            n - 1,
+        )
+        p_start = original_coords[seg_idx]
+        p_end = original_coords[(seg_idx + 1) % n]
+        seg_len = (p_end - p_start).length
+        if seg_len < 1e-9:
+            continue
+        dist_into = target_dist - distances[seg_idx]
+        ordered_verts[i].co = p_start.lerp(p_end, dist_into / seg_len)
+        moved += 1
+    return moved
+
+
+def _equalize_open_component(comp, reference_edge, target_len):
+    """BFS-anchor equalize for a connected open selection component."""
+    comp_set = set(comp)
+    pinned = set(reference_edge.verts)
+    visited = {reference_edge}
+    queue = deque([reference_edge])
+    count = 0
+
+    while queue:
+        current = queue.popleft()
+        for vert in current.verts:
+            for edge in vert.link_edges:
+                if edge not in comp_set or edge in visited:
+                    continue
+                visited.add(edge)
+                queue.append(edge)
+
+                anchors = [v for v in edge.verts if v in pinned]
+                if len(anchors) == 1:
+                    if set_edge_length_from_anchor(edge, anchors[0], target_len):
+                        pinned.add(edge.other_vert(anchors[0]))
+                        count += 1
+                elif not anchors:
+                    if set_edge_length_from_center(edge, target_len):
+                        count += 1
+    return count
+
+
+def equalize_selected_edges(bm, reference_edge, target_len):
+    """
+    Make selected edges equal length using topology-aware strategies.
+    Returns (modified_count, closed_loop_edge_count).
+    """
+    open_components, closed_components = classify_selected_edge_components(bm)
+    modified = 0
+    loop_edge_count = 0
+
+    ref_open = next((comp for comp in open_components if reference_edge in comp), None)
+    if ref_open is not None:
+        modified += _equalize_open_component(ref_open, reference_edge, target_len)
+
+    for comp in open_components:
+        if comp is ref_open:
+            continue
+        for edge in comp:
+            if edge is reference_edge:
+                continue
+            if set_edge_length_from_center(edge, target_len):
+                modified += 1
+
+    for comp in closed_components:
+        if reference_edge in comp:
+            anchor = _loop_anchor_vert(bm, reference_edge)
+        else:
+            anchor = comp[0].verts[0]
+        ordered = order_loop_vertices(comp, anchor)
+        if ordered is None:
+            continue
+        modified += redistribute_loop_vertices(ordered, anchor)
+        loop_edge_count += len(comp)
+
+    return modified, loop_edge_count
 
 
 def poll_active_mesh_edit_mode(context):

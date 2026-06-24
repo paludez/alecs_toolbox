@@ -168,7 +168,7 @@ class ALEC_OT_set_edge_length(modal_handler.BaseModalOperator, bpy.types.Operato
                 pass
 
 class ALEC_OT_equalize_edge_lengths(bpy.types.Operator):
-    """Make all selected edges equal in length to the active edge (scaling from center)"""
+    """Make selected edges equal length — open chains anchor at the active edge; closed loops use perimeter/N"""
     bl_idname = "alec.equalize_edge_lengths"
     bl_label = "Equalize Edge Lengths"
     bl_options = {'REGISTER', 'UNDO'}
@@ -189,30 +189,20 @@ class ALEC_OT_equalize_edge_lengths(bpy.types.Operator):
             return {'CANCELLED'}
 
         target_len = active_edge.calc_length()
-        count = 0
-        
-        for e in bm.edges:
-            if e.select and e != active_edge:
-                v1 = e.verts[0]
-                v2 = e.verts[1]
-                
-                center = (v1.co + v2.co) / 2.0
-                vec = v2.co - v1.co
-                current_len = vec.length
-                
-                if current_len > 1e-6:
-                    direction = vec / current_len
-                    offset = direction * (target_len * 0.5)
-                    
-                    v1.co = center - offset
-                    v2.co = center + offset
-                    count += 1
-        
+        count, loop_count = emh.equalize_selected_edges(bm, active_edge, target_len)
+
         bmesh.update_edit_mesh(me)
         if count == 0:
             self.report({'WARNING'}, "No other edges selected.")
             return {'CANCELLED'}
-            
+
+        if loop_count:
+            self.report(
+                {'INFO'},
+                f"Equalized {count} edges ({loop_count} in closed loop(s), target = perimeter/N)",
+            )
+        else:
+            self.report({'INFO'}, f"Equalized {count} edges")
         return {'FINISHED'}
 
 class ALEC_OT_dimension_action(bpy.types.Operator):
