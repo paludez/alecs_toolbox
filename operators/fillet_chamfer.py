@@ -113,6 +113,15 @@ class ALEC_OT_fillet_edges(bpy.types.Operator):
     def _both_edges_loaded(self):
         return self._edge_a_key is not None and self._edge_b_key is not None
 
+    def _notify_fillet_apply_failed(self, context):
+        preview = self._preview or {}
+        if preview.get('invalid'):
+            reason = preview.get('reason', 'Invalid preview')
+        else:
+            reason = 'Could not apply'
+        status_bar.show_toggle_notice('Fillet', reason)
+        self._refresh_ui(context)
+
     def _refresh_ui(self, context):
         self._update_preview(context)
         # Sync displayed radius to clamped effective value from preview.
@@ -274,7 +283,7 @@ class ALEC_OT_fillet_edges(bpy.types.Operator):
                 if context.area is not None:
                     context.area.tag_redraw()
                 return {'FINISHED'}
-            self._refresh_ui(context)
+            self._notify_fillet_apply_failed(context)
             if context.area is not None:
                 context.area.tag_redraw()
             return {'RUNNING_MODAL'}
@@ -316,6 +325,10 @@ class ALEC_OT_fillet_edges(bpy.types.Operator):
                 return {'FINISHED'}
             if ret is True:
                 self._refresh_ui(context)
+                if context.area is not None:
+                    context.area.tag_redraw()
+            elif ret is False and self._both_edges_loaded():
+                self._notify_fillet_apply_failed(context)
                 if context.area is not None:
                     context.area.tag_redraw()
             return {'RUNNING_MODAL'}
@@ -455,7 +468,7 @@ class ALEC_OT_fillet_edges(bpy.types.Operator):
             bm = bmesh.from_edit_mesh(self._obj.data)
             self._ensure_bm_edges(bm)
         except Exception:
-            pass
+            return
         try:
             if self._edge_a is not None:
                 ra = mw @ self._edge_a.verts[0].co

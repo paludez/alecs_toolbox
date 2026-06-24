@@ -16,23 +16,3 @@
 
 - **Set Edge Angle** — `flip_side` is documented as ignored in modal mode
   (non-modal only). Either implement it or remove the property from the modal path.
-
-## Silent failures / missing reports
-
-- `extract_and_solidify`: returns `FINISHED` when the duplicate+separate step
-  produces no new object; should report a WARNING.
-
-- `distribute.py` `cancel()` is never called — dead cancel path that never
-  restores the snapshot.
-
-- `fillet_chamfer.py` `_apply_fillet_if_ready` / `_apply_arc` return `False`
-  on failure with no `report()`; pressing Enter/LMB can silently do nothing.
-
-## Code quality
-
-- Multiple `except Exception: pass` in `trim_extend.py`, `draw_mesh_edges.py`,
-  `camera_tools.py`, and `fillet_chamfer.py` swallow status-bar and bmesh
-  errors. At minimum add a `print` so failures are visible in the System Console.
-
-- `modules/edit_mesh_helpers.py` line ~358: bare `except:` in
-  `poll_two_edges_in_select_history` hides all poll failures.

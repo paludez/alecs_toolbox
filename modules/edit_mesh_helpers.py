@@ -354,7 +354,7 @@ def poll_two_edges_in_select_history(context):
     try:
         bm = bmesh.from_edit_mesh(context.active_object.data)
         return len(select_history_edges(bm)) >= 2
-    except:  # noqa: E722 — match prior operator poll (any failure -> disabled)
+    except Exception:
         return False
 
 

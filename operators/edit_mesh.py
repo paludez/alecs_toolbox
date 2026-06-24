@@ -952,11 +952,28 @@ class ALEC_OT_extract_and_solidify(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return emh.poll_active_mesh_edit_mode(context)
+        if not emh.poll_active_mesh_edit_mode(context):
+            return False
+        try:
+            bm = bmesh.from_edit_mesh(context.active_object.data)
+            return any(f.select for f in bm.faces)
+        except Exception:
+            return False
 
     def execute(self, context):
-        bpy.ops.mesh.duplicate()
-        bpy.ops.mesh.separate(type='SELECTED')
+        obj = context.active_object
+        bm = bmesh.from_edit_mesh(obj.data)
+        if not any(f.select for f in bm.faces):
+            self.report({'WARNING'}, "Select at least one face.")
+            return {'CANCELLED'}
+
+        try:
+            bpy.ops.mesh.duplicate()
+            bpy.ops.mesh.separate(type='SELECTED')
+        except RuntimeError:
+            self.report({'WARNING'}, "Could not separate geometry.")
+            return {'CANCELLED'}
+
         bpy.ops.object.mode_set(mode='OBJECT')
         
         active = context.active_object
@@ -974,8 +991,10 @@ class ALEC_OT_extract_and_solidify(bpy.types.Operator):
             context.view_layer.objects.active = new_obj
 
             bpy.ops.alec.solidify_modal('INVOKE_DEFAULT')
-            
-        return {'FINISHED'}
+            return {'FINISHED'}
+
+        self.report({'WARNING'}, "Could not separate geometry.")
+        return {'CANCELLED'}
 
 class ALEC_OT_select_similar_face_material(bpy.types.Operator):
     """Select faces with the same material (only available in face select mode)."""
