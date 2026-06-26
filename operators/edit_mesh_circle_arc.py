@@ -1412,10 +1412,26 @@ def _center_on_cursor_plane(context, center_w) -> Vector:
     return cp.project_onto_cursor_plane(context, Vector(center_w))
 
 
-def _edge_lines_on_cursor_plane(context, mw, edge_a, edge_b, click_a_w=None, click_b_w=None):
+def _edge_pair_lines(context, mw, edge_a, edge_b, click_a_w=None, click_b_w=None, *, use_cursor_plane=False):
     return emh.tan_tan_oriented_lines(
-        context, mw, edge_a, edge_b, click_a_w=click_a_w, click_b_w=click_b_w,
+        context,
+        mw,
+        edge_a,
+        edge_b,
+        click_a_w=click_a_w,
+        click_b_w=click_b_w,
+        use_cursor_plane=use_cursor_plane,
     )
+
+
+def _tan_tan_work_plane(context, mw, edge_a, edge_b, use_cursor_plane: bool):
+    if use_cursor_plane:
+        plane_n, _u, _v = cp.cursor_plane_axes(context)
+        return context.scene.cursor.location.copy(), plane_n
+    wp = emh.working_plane_for_edges(edge_a, edge_b, mw)
+    if wp is None:
+        return None, None
+    return wp[0].copy(), wp[1].copy()
 
 
 def _push_edge_pick_draw(context, obj, ref_a, ref_b=None):
@@ -1877,7 +1893,12 @@ class ALEC_OT_center_circle(bpy.types.Operator):
         return {'FINISHED'}
 
 
-def _tan_tan_pick_status(n: int) -> str:
+def _tan_tan_pick_status(n: int, *, need_cursor_plane: bool = False) -> str:
+    if need_cursor_plane:
+        return (
+            'Tan Tan Circle: Edges not coplanar — [C] Cursor plane  '
+            '[RMB] Undo  [Esc] Cancel'
+        )
     if n <= 0:
         return 'Tan Tan Circle: Click first tangent edge  [RMB] Cancel  [Esc] Cancel'
     if n == 1:
@@ -1885,15 +1906,18 @@ def _tan_tan_pick_status(n: int) -> str:
     return 'Tan Tan Circle'
 
 
-def _tan_tan_radius_status() -> str:
-    return (
-        'Tan Tan Circle: Move mouse or type radius  [R] Radius  '
+def _tan_tan_radius_status(*, cursor_plane: bool = False) -> str:
+    msg = (
+        'Tan Tan Circle: Move mouse or type radius  [R] Radius  [C] Cursor plane  '
         '[LMB] Confirm  [RMB] Cancel  [Esc] Cancel'
     )
+    if cursor_plane:
+        msg += '  (projected tangents)'
+    return msg
 
 
 class ALEC_OT_tan_tan_radius_circle(bpy.types.Operator):
-    """Pick two edges as tangents, then set circle radius (cursor plane)"""
+    """Pick two tangent edges, set radius; edge plane by default, [C] for cursor plane"""
     bl_idname = "alec.tan_tan_radius_circle"
     bl_label = "Tan Tan Circle"
     bl_options = {'REGISTER', 'UNDO'}
@@ -1935,6 +1959,7 @@ class ALEC_OT_tan_tan_radius_circle(bpy.types.Operator):
     def _radius_status_items(self):
         return [
             ("Radius", "[R]", self.number_input.has_value()),
+            ("Cursor plane", "[C]", self._cursor_plane_mode),
             None,
             ("Confirm", "[LMB]"),
             ("Cancel", "[Esc]"),
@@ -2001,6 +2026,7 @@ class ALEC_OT_tan_tan_radius_circle(bpy.types.Operator):
         self._center_w = None
         self._hint_w = None
         self._radius = 1.0
+        self._cursor_plane_mode = False
 
         status_bar.set_message(context, _tan_tan_pick_status(0))
         context.window_manager.modal_handler_add(self)
@@ -2012,9 +2038,48 @@ class ALEC_OT_tan_tan_radius_circle(bpy.types.Operator):
             return {'PASS_THROUGH'}
         if event.type in {'WHEELUPMOUSE', 'WHEELDOWNMOUSE'}:
             return {'PASS_THROUGH'}
+        if event.type == 'C' and event.value == 'PRESS':
+            if self._toggle_cursor_plane_mode(context):
+                if self._phase == 'radius':
+                    self._refresh_radius_preview(context)
+                    self._update_radius_header(context)
+                    status_bar.set_message(
+                        context, _tan_tan_radius_status(cursor_plane=self._cursor_plane_mode),
+                    )
+                elif self._both_edges_loaded():
+                    self._enter_radius_phase(context)
+                if context.area is not None:
+                    context.area.tag_redraw()
+            return {'RUNNING_MODAL'}
         if self._phase == 'pick':
             return self._modal_pick(context, event)
         return self._modal_radius(context, event)
+
+    def _both_edges_loaded(self):
+        return self._edge_a_key is not None and self._edge_b_key is not None
+
+    def _edges_coplanar(self, context):
+        try:
+            bm = bmesh.from_edit_mesh(self._obj.data)
+        except Exception:
+            return False
+        bm.edges.ensure_lookup_table()
+        edge_a = emh.bm_edge_from_key(bm, self._edge_a_key)
+        edge_b = emh.bm_edge_from_key(bm, self._edge_b_key)
+        if edge_a is None or edge_b is None:
+            return False
+        return emh.working_plane_for_edges(edge_a, edge_b, self._obj.matrix_world) is not None
+
+    def _toggle_cursor_plane_mode(self, context) -> bool:
+        if self._cursor_plane_mode and self._both_edges_loaded() and not self._edges_coplanar(context):
+            status_bar.show_toggle_notice('Cursor plane', 'Required')
+            return False
+        self._cursor_plane_mode = not self._cursor_plane_mode
+        status_bar.show_toggle_notice(
+            'Cursor plane',
+            'On' if self._cursor_plane_mode else 'Off',
+        )
+        return True
 
     def _refresh_pick_visual(self, context):
         if context.region is None or context.region_data is None or self._last_mouse is None:
@@ -2075,12 +2140,19 @@ class ALEC_OT_tan_tan_radius_circle(bpy.types.Operator):
             self._refresh_pick_visual(context)
             return {'RUNNING_MODAL'}
         if event.type == 'LEFTMOUSE' and event.value == 'PRESS':
-            if self._on_pick_lmb(context):
+            pick_result = self._on_pick_lmb(context)
+            if pick_result == 'ready':
                 self._enter_radius_phase(context)
+            elif pick_result == 'non_coplanar':
+                self.report(
+                    {'WARNING'},
+                    "Tangent edges are not coplanar — press [C] for cursor plane",
+                )
+                status_bar.set_message(context, _tan_tan_pick_status(1, need_cursor_plane=True))
             return {'RUNNING_MODAL'}
         return {'RUNNING_MODAL'}
 
-    def _on_pick_lmb(self, context) -> bool:
+    def _on_pick_lmb(self, context):
         if context.region is None or context.region_data is None or self._last_mouse is None:
             return False
         try:
@@ -2128,7 +2200,9 @@ class ALEC_OT_tan_tan_radius_circle(bpy.types.Operator):
         v0_w = mw @ edge.verts[0].co
         v1_w = mw @ edge.verts[1].co
         self._click_b_w = v0_w.lerp(v1_w, t if t is not None else 0.5)
-        return True
+        if self._cursor_plane_mode or emh.working_plane_for_edges(edge_a, edge, mw) is not None:
+            return 'ready'
+        return 'non_coplanar'
 
     def _edge_pair_lines(self, context):
         try:
@@ -2140,16 +2214,24 @@ class ALEC_OT_tan_tan_radius_circle(bpy.types.Operator):
         edge_b = emh.bm_edge_from_key(bm, self._edge_b_key)
         if edge_a is None or edge_b is None:
             return None
-        return _edge_lines_on_cursor_plane(
+        return _edge_pair_lines(
             context,
             self._obj.matrix_world,
             edge_a,
             edge_b,
             click_a_w=self._click_a_w,
             click_b_w=self._click_b_w,
+            use_cursor_plane=self._cursor_plane_mode,
         )
 
     def _enter_radius_phase(self, context):
+        if not self._cursor_plane_mode and not self._edges_coplanar(context):
+            self.report(
+                {'WARNING'},
+                "Tangent edges are not coplanar — press [C] for cursor plane",
+            )
+            status_bar.set_message(context, _tan_tan_pick_status(1, need_cursor_plane=True))
+            return
         clear_curve_preview_overlay()
         self._phase = 'radius'
         self.number_input = modal_handler.ModalNumberInput()
@@ -2158,11 +2240,28 @@ class ALEC_OT_tan_tan_radius_circle(bpy.types.Operator):
         self.__class__._radius_modal_instance = self
         status_bar.install_shortcuts(self.__class__)
         self._refresh_radius_preview(context)
-        status_bar.set_message(context, _tan_tan_radius_status())
+        status_bar.set_message(
+            context, _tan_tan_radius_status(cursor_plane=self._cursor_plane_mode),
+        )
         self._update_radius_header(context)
         tag_view3d_redraw(context)
 
+    def _active_work_plane(self, context):
+        try:
+            bm = bmesh.from_edit_mesh(self._obj.data)
+        except Exception:
+            return None, None
+        bm.edges.ensure_lookup_table()
+        edge_a = emh.bm_edge_from_key(bm, self._edge_a_key)
+        edge_b = emh.bm_edge_from_key(bm, self._edge_b_key)
+        if edge_a is None or edge_b is None:
+            return None, None
+        return _tan_tan_work_plane(
+            context, self._obj.matrix_world, edge_a, edge_b, self._cursor_plane_mode,
+        )
+
     def _mouse_hit_on_plane(self, context):
+        """Ray vs cursor plane — stable viewport mouse tracking during radius."""
         if context.region is None or context.region_data is None or self._last_mouse is None:
             return None
         ray_o = region_2d_to_origin_3d(
@@ -2179,7 +2278,12 @@ class ALEC_OT_tan_tan_radius_circle(bpy.types.Operator):
         hit = self._mouse_hit_on_plane(context)
         if hit is None:
             return None
-        return cp.project_onto_cursor_plane(context, Vector(hit))
+        if self._cursor_plane_mode:
+            return cp.project_onto_cursor_plane(context, Vector(hit))
+        plane_co, plane_n = self._active_work_plane(context)
+        if plane_co is None or plane_n is None:
+            return None
+        return cp.project_onto_plane(Vector(hit), plane_co, plane_n)
 
     def _resolve_hint_w(self, context, for_confirm: bool = False):
         if for_confirm and self._hint_w is not None:
@@ -2346,6 +2450,7 @@ class ALEC_OT_tan_tan_radius_circle(bpy.types.Operator):
             'center_w': tuple(geom['center']),
             'hint_w': tuple(hint_w),
             'radius': float(self.radius),
+            'use_cursor_plane': bool(self._cursor_plane_mode),
             'vert_indices': (),
             'created_vert_indices': [],
             'created_edge_keys': [],
@@ -2366,6 +2471,8 @@ class ALEC_OT_tan_tan_radius_circle(bpy.types.Operator):
             _tan_tan_circle_session['radius'] = float(self.radius)
             if self._center_w is not None:
                 _tan_tan_circle_session['center_w'] = tuple(self._center_w)
+            if hasattr(self, '_cursor_plane_mode'):
+                _tan_tan_circle_session['use_cursor_plane'] = bool(self._cursor_plane_mode)
         self.execute(context)
         return True
 
@@ -2390,19 +2497,36 @@ class ALEC_OT_tan_tan_radius_circle(bpy.types.Operator):
             self.report({'WARNING'}, "Tangent edges are no longer valid")
             return {'CANCELLED'}
 
-        lines = _edge_lines_on_cursor_plane(context, obj.matrix_world, edge_a, edge_b)
+        lines = _edge_pair_lines(
+            context,
+            obj.matrix_world,
+            edge_a,
+            edge_b,
+            use_cursor_plane=bool(session.get('use_cursor_plane', False)),
+        )
         if lines is None:
-            self.report({'WARNING'}, "Edges are degenerate on the cursor plane")
+            if session.get('use_cursor_plane', False):
+                self.report({'WARNING'}, "Edges are degenerate on the cursor plane")
+            else:
+                self.report({'WARNING'}, "Tangent edges are not coplanar")
             return {'CANCELLED'}
 
         plane_n, o1, d1, o2, d2 = lines
-        hint_w = cp.project_onto_cursor_plane(
-            context,
-            Vector(session.get('hint_w') or session.get('center_w') or (0.0, 0.0, 0.0)),
+        use_cursor = bool(session.get('use_cursor_plane', False))
+        plane_co, _plane_n = _tan_tan_work_plane(
+            context, obj.matrix_world, edge_a, edge_b, use_cursor,
         )
-        center_w = cp.project_onto_cursor_plane(
-            context, Vector(session.get('center_w') or hint_w),
-        )
+        raw_hint = Vector(session.get('hint_w') or session.get('center_w') or (0.0, 0.0, 0.0))
+        raw_center = Vector(session.get('center_w') or raw_hint)
+        if use_cursor:
+            hint_w = cp.project_onto_cursor_plane(context, raw_hint)
+            center_w = cp.project_onto_cursor_plane(context, raw_center)
+        elif plane_co is not None:
+            hint_w = cp.project_onto_plane(raw_hint, plane_co, plane_n)
+            center_w = cp.project_onto_plane(raw_center, plane_co, plane_n)
+        else:
+            hint_w = raw_hint
+            center_w = raw_center
         r_min = emh.min_radius_circle_tangent_two_lines(o1, d1, o2, d2, plane_n)
         radius_bu = max(float(self.radius), r_min)
 

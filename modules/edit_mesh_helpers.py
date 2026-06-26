@@ -1097,16 +1097,49 @@ def tan_tan_side_signs(point, origin_a, dir_a, origin_b, dir_b, plane_n):
     return (1 if s1 > 0.0 else -1, 1 if s2 > 0.0 else -1)
 
 
-def tan_tan_oriented_lines(context, mw, edge_a, edge_b, click_a_w=None, click_b_w=None):
-    """Edge lines on the cursor plane, oriented like fillet (X + click handling).
+def tan_tan_oriented_lines(
+    context,
+    mw,
+    edge_a,
+    edge_b,
+    click_a_w=None,
+    click_b_w=None,
+    *,
+    use_cursor_plane=False,
+):
+    """Oriented tangent lines on the edge plane, or on the cursor plane if requested.
 
     Returns (plane_n, origin_a, dir_a, origin_b, dir_b) or None.
+    Returns None when use_cursor_plane is False and the edges are not coplanar.
     """
-    plane_n, _u, _v = cp.cursor_plane_axes(context)
-    plane_n = plane_n.normalized()
+    if use_cursor_plane:
+        plane_n, _u, _v = cp.cursor_plane_axes(context)
+        plane_co = context.scene.cursor.location.copy()
+    else:
+        wp = working_plane_for_edges(edge_a, edge_b, mw)
+        if wp is None:
+            return None
+        plane_co, plane_n, _u, _v = wp
+    return _tan_tan_oriented_lines_on_plane(
+        plane_n, plane_co, mw, edge_a, edge_b, click_a_w=click_a_w, click_b_w=click_b_w,
+    )
+
+
+def _tan_tan_oriented_lines_on_plane(
+    plane_n,
+    plane_co,
+    mw,
+    edge_a,
+    edge_b,
+    click_a_w=None,
+    click_b_w=None,
+):
+    """Edge lines on a fixed plane, oriented like fillet (X + click handling)."""
+    plane_n = Vector(plane_n).normalized()
+    plane_co = Vector(plane_co)
 
     def _proj(co_w):
-        return cp.project_onto_cursor_plane(context, co_w)
+        return cp.project_onto_plane(co_w, plane_co, plane_n)
 
     a0_w = mw @ edge_a.verts[0].co
     a1_w = mw @ edge_a.verts[1].co
@@ -1116,13 +1149,12 @@ def tan_tan_oriented_lines(context, mw, edge_a, edge_b, click_a_w=None, click_b_
     b0, b1 = _proj(b0_w), _proj(b1_w)
 
     is_crossing = segments_cross_inside_plane(a0, a1, b0, b1, plane_n)
-    # Compute intersection params for ALL non-parallel cases — used for X, V/T and L.
     ix_params = segments_intersection_params_plane(a0, a1, b0, b1, plane_n)
 
     if click_a_w is not None:
         click_a_w = Vector(click_a_w)
         if ix_params is not None:
-            click_a_p = cp.project_onto_cursor_plane(context, click_a_w)
+            click_a_p = _proj(click_a_w)
             pa = crossing_endpoint_from_click_plane(a0, a1, click_a_p, ix_params[0])
         else:
             pa = (
@@ -1139,7 +1171,7 @@ def tan_tan_oriented_lines(context, mw, edge_a, edge_b, click_a_w=None, click_b_
     if click_b_w is not None:
         click_b_w = Vector(click_b_w)
         if ix_params is not None:
-            click_b_p = cp.project_onto_cursor_plane(context, click_b_w)
+            click_b_p = _proj(click_b_w)
             pb = crossing_endpoint_from_click_plane(b0, b1, click_b_p, ix_params[1])
         else:
             pb = (

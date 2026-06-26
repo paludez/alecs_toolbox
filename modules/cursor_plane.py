@@ -38,8 +38,29 @@ def project_onto_cursor_plane(context: Context, world_co: Vector) -> Vector:
     """Perpendicular projection of a world point onto the cursor plane."""
     plane_co = context.scene.cursor.location.copy()
     normal, _u, _v = cursor_plane_axes(context)
-    dist = (world_co - plane_co).dot(normal)
-    return world_co - normal * dist
+    return project_onto_plane(world_co, plane_co, normal)
+
+
+def project_onto_plane(world_co: Vector, plane_co: Vector, plane_n: Vector) -> Vector:
+    """Perpendicular projection of a world point onto an arbitrary plane."""
+    normal = Vector(plane_n).normalized()
+    dist = (Vector(world_co) - Vector(plane_co)).dot(normal)
+    return Vector(world_co) - normal * dist
+
+
+def intersect_plane(
+    plane_co: Vector,
+    plane_n: Vector,
+    origin_w: Vector,
+    direction_w: Vector,
+) -> Vector | None:
+    """Ray vs arbitrary plane intersection. Returns None if ray is parallel to plane."""
+    normal = Vector(plane_n).normalized()
+    denom = Vector(direction_w).dot(normal)
+    if abs(denom) < 1e-9:
+        return None
+    t = (Vector(plane_co) - Vector(origin_w)).dot(normal) / denom
+    return Vector(origin_w) + Vector(direction_w) * t
 
 
 def to_uv(world_co: Vector, origin: Vector, u_ax: Vector, v_ax: Vector) -> tuple[float, float]:

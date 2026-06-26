@@ -37,7 +37,11 @@ from ..modules.fillet_geometry import (
     compute_fillet_data,
     avg_edge_length,
     _apply_arc,
+    apply_arc_only,
 )
+
+
+_DEFAULT_ARC_ONLY = False
 
 
 # ---------------------------------------------------------------------------
@@ -55,8 +59,18 @@ class ALEC_OT_fillet_edges(bpy.types.Operator):
         'Round or chamfer between two coplanar mesh edges. Click first edge '
         'then second â€” the click position fixes which corner is filleted. '
         'Move mouse to set radius (clamped to edge length). Wheel: segments. '
-        'Type r + Enter to apply. r=0 â†’ sharp corner at apex.'
+        'Type r + Enter to apply. r=0 â†’ sharp corner at apex. '
+        '[A] Arc Only: insert arc without trimming source edges.'
     )
+
+    arc_only: bpy.props.BoolProperty(
+        name="Arc Only",
+        description=(
+            "Insert arc as new geometry only — does not trim or move source edges "
+            "(safe for meshed edges)"
+        ),
+        default=False,
+    )  # type: ignore
 
     @classmethod
     def poll(cls, context):
@@ -91,6 +105,7 @@ class ALEC_OT_fillet_edges(bpy.types.Operator):
         self._click_a_w: Vector | None = None
         self._click_b_w: Vector | None = None
         self._segments = 3
+        self.arc_only = _DEFAULT_ARC_ONLY
         self._radius: float | None = None
         self.number_input = modal_handler.ModalNumberInput()
         self._preview = None
@@ -317,6 +332,21 @@ class ALEC_OT_fillet_edges(bpy.types.Operator):
                 return {'RUNNING_MODAL'}
             return {'PASS_THROUGH'}
 
+        if (
+            event.type == 'A'
+            and event.value == 'PRESS'
+            and self._both_edges_loaded()
+        ):
+            self.arc_only = not self.arc_only
+            status_bar.show_toggle_notice(
+                "Arc Only",
+                "On" if self.arc_only else "Off",
+            )
+            self._refresh_ui(context)
+            if context.area is not None:
+                context.area.tag_redraw()
+            return {'RUNNING_MODAL'}
+
         if event.type == 'LEFTMOUSE' and event.value == 'PRESS':
             ret = self._on_lmb(context)
             if ret == 'FINISHED':
@@ -425,7 +455,10 @@ class ALEC_OT_fillet_edges(bpy.types.Operator):
         if ea is None or eb is None:
             return False
         mw = self._obj.matrix_world
-        ok = _apply_arc(bm, ea, eb, self._preview, mw)
+        if self.arc_only:
+            ok = apply_arc_only(bm, self._preview, mw)
+        else:
+            ok = _apply_arc(bm, ea, eb, self._preview, mw)
         if ok:
             bmesh.update_edit_mesh(self._obj.data)
             self._obj.data.update_tag()
@@ -510,9 +543,10 @@ class ALEC_OT_fillet_edges(bpy.types.Operator):
                 status_bar.set_message(
                     context,
                     f"{label}: [Enter] apply  [Esc] cancel typing  "
-                    f"[Wheel] segments  [RMB] clear edge",
+                    f"[Wheel] segments  [A] arc only  [RMB] clear edge",
                 )
                 return
+            arc_tag = " [Arc Only]" if self.arc_only else ""
             r = float(self._radius or 0.0)
             if self._edge_a_key is None:
                 msg = f"{label}: Click first edge  [Esc] Exit"
@@ -522,9 +556,9 @@ class ALEC_OT_fillet_edges(bpy.types.Operator):
                 preview = self._preview or {}
                 if preview.get('parallel') and not preview.get('invalid'):
                     msg = (
-                        f'{label}: Parallel semicircle  '
+                        f'{label}{arc_tag}: Parallel semicircle  '
                         f'segs={self._segments}  '
-                        'LMB/Enter apply  [Wheel] segments  '
+                        'LMB/Enter apply  [Wheel] segments  [A] arc only  '
                         '[RMB] Reset  [Esc] Exit'
                     )
                 else:
@@ -537,18 +571,22 @@ class ALEC_OT_fillet_edges(bpy.types.Operator):
                     if preview.get('invalid'):
                         reason = preview.get('reason', 'Invalid')
                         msg = (
-                            f"{label} [{mode_word}]: {reason}  "
+                            f"{label} [{mode_word}]{arc_tag}: {reason}  "
                             f"[RMB] Reset second edge  [Esc] Exit"
                         )
                     else:
                         msg = (
-                            f"{label} [{mode_word}] segs={self._segments}  "
+                            f"{label} [{mode_word}]{arc_tag} segs={self._segments}  "
                             f"Move mouse = radius  Type r [Enter] = apply  "
-                            f"[Wheel] segments  [RMB] Reset  [Esc] Exit"
+                            f"[Wheel] segments  [A] arc only  [RMB] Reset  [Esc] Exit"
                         )
             status_bar.set_message(context, msg)
         except Exception:
             pass
+
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(self, "arc_only", toggle=True)
 
     def _cleanup(self, context):
         draw_state._draw_data.pop('trim_extend_state', None)

@@ -552,6 +552,25 @@ def _unsubscribe_focal_dolly_msgbus() -> None:
     bpy.msgbus.clear_by_owner(_msgbus_owner)
 
 
+@bpy.app.handlers.persistent
+def _on_load_post(*_):
+    _unsubscribe_focal_dolly_msgbus()
+    _prev_lens_by_cam_data_ptr.clear()
+    for scene in bpy.data.scenes:
+        try:
+            scene.alec_focal_dolly_compensate = False
+        except Exception:
+            pass
+
+
+def _on_dolly_compensate_update(self, context):
+    if self.alec_focal_dolly_compensate:
+        _unsubscribe_focal_dolly_msgbus()
+        _subscribe_focal_dolly_msgbus()
+    else:
+        _unsubscribe_focal_dolly_msgbus()
+
+
 def register_focal_lens_scene_props() -> None:
     for name in _SCENE_FOCAL_PROP_NAMES:
         if hasattr(bpy.types.Scene, name):
@@ -566,6 +585,7 @@ def register_focal_lens_scene_props() -> None:
             "so the active object stays about the same size in frame"
         ),
         default=False,
+        update=_on_dolly_compensate_update,
     )
     bpy.types.Scene.alec_frame_base_cam_name = bpy.props.StringProperty(
         name="Frame baseline camera",
@@ -593,10 +613,14 @@ def register_focal_lens_scene_props() -> None:
         soft_max=1000,
     )
     _subscribe_focal_dolly_msgbus()
+    if _on_load_post not in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.append(_on_load_post)
 
 
 def unregister_focal_lens_scene_props() -> None:
     _unsubscribe_focal_dolly_msgbus()
+    if _on_load_post in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.remove(_on_load_post)
     _prev_lens_by_cam_data_ptr.clear()
     for name in _SCENE_FOCAL_PROP_NAMES:
         if hasattr(bpy.types.Scene, name):

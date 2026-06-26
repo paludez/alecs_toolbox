@@ -623,6 +623,32 @@ def _apply_corner(bm, edge_a, edge_b, data, mw) -> bool:
     return True
 
 
+def apply_arc_only(bm, data, mw) -> bool:
+    """Insert arc as new floating edges without modifying source edges."""
+    if data.get('mode') == 'CORNER':
+        apex_w = data.get('apex_w')
+        if apex_w is None:
+            return False
+        bm.verts.new(mw.inverted_safe() @ apex_w)
+        bm.verts.ensure_lookup_table()
+        bm.edges.ensure_lookup_table()
+        return True
+
+    arc_w = data.get('arc_points_w')
+    if not arc_w or len(arc_w) < 2:
+        return False
+    inv = mw.inverted_safe()
+    verts = [bm.verts.new(inv @ point_w) for point_w in arc_w]
+    for i in range(len(verts) - 1):
+        try:
+            bm.edges.new((verts[i], verts[i + 1]))
+        except ValueError:
+            return False
+    bm.verts.ensure_lookup_table()
+    bm.edges.ensure_lookup_table()
+    return True
+
+
 def _apply_arc(bm, edge_a, edge_b, data, mw) -> bool:
     """Apply fillet/chamfer: trim or extend each edge to the tangent point,
     then stitch arc vertices between them.
